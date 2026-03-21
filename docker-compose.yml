@@ -1,0 +1,28 @@
+services:
+  homelab-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: homelab-container-manager:latest
+    container_name: homelab-manager
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - HOST=0.0.0.0
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homelab-manager.rule=Host(`homelab.local`)"
+      - "traefik.http.services.homelab-manager.loadbalancer.server.port=4000"
+    networks:
+      - homelab-network
+
+networks:
+  homelab-network:
+    external: false
+    name: homelab-network
