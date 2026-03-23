@@ -205,9 +205,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const deployScrollRef = useRef<HTMLDivElement | null>(null);
   const [urlInput, setUrlInput] = useState(project.url ?? '');
   const [urlSaving, setUrlSaving] = useState(false);
-  const [iconInput, setIconInput] = useState(project.icon ?? '');
-  const [iconSaving, setIconSaving] = useState(false);
-  const [iconPreviewError, setIconPreviewError] = useState(false);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -655,31 +652,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   };
 
-  const handleSaveIcon = async () => {
-    setIconSaving(true);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await api.projects.update(project.id, { icon: iconInput || null } as any);
-      addToast('success', 'Icon saved');
-      onRefresh();
-    } catch {
-      addToast('error', 'Failed to save icon');
-    } finally {
-      setIconSaving(false);
-    }
-  };
-
-  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setIconInput(reader.result as string);
-      setIconPreviewError(false);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
 
   const runningCount = project.containers.filter(c => c.state === 'running').length;
   const totalCount = project.containers.length;
@@ -813,45 +785,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                     style={{ alignSelf: 'flex-end', flexShrink: 0 }}
                   >
                     {urlSaving ? '...' : 'Save'}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.375rem' }}>Custom Icon</div>
-                    <div className="icon-picker">
-                      {iconInput && !iconPreviewError ? (
-                        <img
-                          src={iconInput}
-                          alt=""
-                          className="icon-picker-preview"
-                          onError={() => setIconPreviewError(true)}
-                        />
-                      ) : (
-                        <div className="icon-picker-letter">{project.name[0]?.toUpperCase() ?? '?'}</div>
-                      )}
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                        <input
-                          type="url"
-                          className="input"
-                          value={iconInput}
-                          onChange={e => { setIconInput(e.target.value); setIconPreviewError(false); }}
-                          placeholder="https://example.com/icon.png"
-                          style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
-                        />
-                        <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', textAlign: 'center', fontSize: '0.75rem' }}>
-                          Upload file
-                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIconUpload} />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-sm btn-primary"
-                    onClick={handleSaveIcon}
-                    disabled={iconSaving || iconInput === (project.icon ?? '')}
-                    style={{ alignSelf: 'flex-end', flexShrink: 0 }}
-                  >
-                    {iconSaving ? '...' : 'Save'}
                   </button>
                 </div>
                 <SettingToggle

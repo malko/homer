@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { homeTileQueries, sessionQueries } from '../db/index.js';
+import { homeTileQueries, externalTileQueries, sessionQueries } from '../db/index.js';
 
 const MAX_FAVICON_BYTES = 512 * 1024;
 
@@ -41,9 +41,7 @@ async function tryFetchImage(url: string): Promise<{ dataUri: string } | null> {
 
   const declared = (res.headers.get('content-type') ?? '').split(';')[0].trim();
 
-  // If declared mime is a known image type, trust it
   let mime: string | null = declared.startsWith('image/') ? declared : null;
-  // Otherwise (or for application/octet-stream), sniff magic bytes
   if (!mime || mime === 'application/octet-stream') mime = detectImageMime(buffer);
   if (!mime) return null;
 
@@ -58,8 +56,6 @@ async function findFaviconInHtml(serviceUrl: string): Promise<string | null> {
   if (!ct.includes('text/html')) return null;
 
   const html = await res.text();
-  // Match <link rel="icon"|"shortcut icon"|"apple-touch-icon" href="...">
-  // attribute order can vary so scan each <link> tag individually
   const linkRe = /<link([^>]+)>/gi;
   const relRe = /\brel=["']([^"']+)["']/i;
   const hrefRe = /\bhref=["']([^"']+)["']/i;
@@ -81,11 +77,9 @@ async function fetchFavicon(serviceUrl: string): Promise<{ dataUri: string } | n
   let base: URL;
   try { base = new URL(serviceUrl); } catch { return null; }
 
-  // 1. Try the canonical /favicon.ico
   const direct = await tryFetchImage(new URL('/favicon.ico', base).href);
   if (direct) return direct;
 
-  // 2. Parse the HTML page for <link rel="icon">
   const iconHref = await findFaviconInHtml(base.href);
   if (iconHref) return tryFetchImage(iconHref);
 
@@ -98,6 +92,22 @@ const upsertTileSchema = z.object({
   icon_bg: z.string().max(50).nullable().optional(),
   card_bg: z.string().max(50).nullable().optional(),
   hidden: z.boolean().optional(),
+});
+
+const externalTileSchema = z.object({
+  name: z.string().min(1).max(100),
+  url: z.string().url(),
+  icon: z.string().max(500000).nullable().optional(),
+  icon_bg: z.string().max(50).nullable().optional(),
+  card_bg: z.string().max(50).nullable().optional(),
+  hidden: z.boolean().optional(),
+});
+
+const orderSchema = z.object({
+  items: z.array(z.union([
+    z.object({ type: z.literal('tile'), projectId: z.number(), serviceKey: z.string(), sortOrder: z.number() }),
+    z.object({ type: z.literal('external'), id: z.number(), sortOrder: z.number() }),
+  ])),
 });
 
 export async function homeRoutes(fastify: FastifyInstance) {
@@ -121,7 +131,10 @@ export async function homeRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/api/home/tiles', async () => {
-    return homeTileQueries.getAll();
+    return {
+      overrides: homeTileQueries.getAll(),
+      external: externalTileQueries.getAll(),
+    };
   });
 
   fastify.put('/api/home/tiles/:projectId/:serviceKey', async (request, reply) => {
@@ -145,6 +158,76 @@ export async function homeRoutes(fastify: FastifyInstance) {
       body.hidden !== undefined ? (body.hidden ? 1 : 0) : (existing?.hidden ?? 0),
     );
 
+    return { success: true };
+  });
+
+  fastify.post('/api/home/order', async (request, reply) => {
+    const parsed = orderSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid body' });
+
+    const tileItems = parsed.data.items
+      .filter(i => i.type === 'tile') as Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number }>;
+    const extItems = parsed.data.items
+      .filter(i => i.type === 'external') as Array<{ type: 'external'; id: number; sortOrder: number }>;
+
+    if (tileItems.length > 0) {
+      homeTileQueries.setOrderBatch(tileItems.map(i => ({ projectId: i.projectId, serviceKey: i.serviceKey, sortOrder: i.sortOrder })));
+    }
+    if (extItems.length > 0) {
+      externalTileQueries.setOrderBatch(extItems.map(i => ({ id: i.id, sortOrder: i.sortOrder })));
+    }
+
+    return { success: true };
+  });
+
+  // ─── External tiles ───────────────────────────────────────────────────────
+
+  fastify.post('/api/home/external', async (request, reply) => {
+    const parsed = externalTileSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid body' });
+
+    const body = parsed.data;
+    const result = externalTileQueries.create(
+      body.name,
+      body.url,
+      body.icon ?? null,
+      body.icon_bg ?? null,
+      body.card_bg ?? null,
+      body.hidden ? 1 : 0,
+      null,
+    );
+
+    return { success: true, id: result.id };
+  });
+
+  fastify.put('/api/home/external/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const extId = parseInt(id, 10);
+    if (isNaN(extId)) return reply.status(400).send({ error: 'Invalid id' });
+
+    const parsed = externalTileSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid body' });
+
+    const body = parsed.data;
+    externalTileQueries.update(
+      extId,
+      body.name,
+      body.url,
+      body.icon ?? null,
+      body.icon_bg ?? null,
+      body.card_bg ?? null,
+      body.hidden ? 1 : 0,
+    );
+
+    return { success: true };
+  });
+
+  fastify.delete('/api/home/external/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const extId = parseInt(id, 10);
+    if (isNaN(extId)) return reply.status(400).send({ error: 'Invalid id' });
+
+    externalTileQueries.delete(extId);
     return { success: true };
   });
 }

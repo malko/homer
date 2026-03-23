@@ -210,7 +210,7 @@ export const api = {
   },
 
   home: {
-    getTiles: () => request<HomeTileOverride[]>('/home/tiles'),
+    getTiles: () => request<{ overrides: HomeTileOverride[]; external: ExternalTile[] }>('/home/tiles'),
     updateTile: (projectId: number, serviceKey: string, data: { display_name?: string | null; icon?: string | null; icon_bg?: string | null; card_bg?: string | null; hidden?: boolean }) =>
       request<{ success: boolean }>(`/home/tiles/${projectId}/${encodeURIComponent(serviceKey)}`, {
         method: 'PUT',
@@ -218,6 +218,23 @@ export const api = {
       }),
     fetchFavicon: (url: string) =>
       request<{ dataUri: string }>(`/home/favicon?url=${encodeURIComponent(url)}`),
+    setOrder: (items: Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number } | { type: 'external'; id: number; sortOrder: number }>) =>
+      request<{ success: boolean }>('/home/order', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }),
+    createExternal: (data: { name: string; url: string; icon?: string | null; icon_bg?: string | null; card_bg?: string | null }) =>
+      request<{ success: boolean; id: number }>('/home/external', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateExternal: (id: number, data: { name: string; url: string; icon?: string | null; icon_bg?: string | null; card_bg?: string | null; hidden?: boolean }) =>
+      request<{ success: boolean }>(`/home/external/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    deleteExternal: (id: number) =>
+      request<{ success: boolean }>(`/home/external/${id}`, { method: 'DELETE' }),
   },
 
   import: {
@@ -254,6 +271,18 @@ export interface HomeTileOverride {
   icon_bg: string | null;
   card_bg: string | null;
   hidden: boolean;
+  sort_order: number | null;
+}
+
+export interface ExternalTile {
+  id: number;
+  name: string;
+  url: string;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: boolean;
+  sort_order: number | null;
 }
 
 export { ApiError };

@@ -74,7 +74,19 @@ async function initDb() {
       icon_bg TEXT,
       card_bg TEXT,
       hidden INTEGER DEFAULT 0,
+      sort_order INTEGER,
       PRIMARY KEY (project_id, service_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS home_external_tiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      icon TEXT,
+      icon_bg TEXT,
+      card_bg TEXT,
+      hidden INTEGER DEFAULT 0,
+      sort_order INTEGER
     );
   `);
 
@@ -83,6 +95,7 @@ async function initDb() {
   try { db.run('ALTER TABLE projects ADD COLUMN icon TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN icon_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN card_bg TEXT'); } catch {}
+  try { db.run('ALTER TABLE home_tiles ADD COLUMN sort_order INTEGER'); } catch {}
 
   saveDb();
 }
@@ -232,6 +245,18 @@ export interface HomeTileOverride {
   icon_bg: string | null;
   card_bg: string | null;
   hidden: number;
+  sort_order: number | null;
+}
+
+export interface ExternalTile {
+  id: number;
+  name: string;
+  url: string;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: number;
+  sort_order: number | null;
 }
 
 export const homeTileQueries = {
@@ -248,8 +273,52 @@ export const homeTileQueries = {
     );
     saveDb();
   },
+  setOrderBatch: (items: Array<{ projectId: number; serviceKey: string; sortOrder: number }>) => {
+    for (const { projectId, serviceKey, sortOrder } of items) {
+      db.run(
+        'INSERT INTO home_tiles (project_id, service_key, sort_order) VALUES (?, ?, ?) ON CONFLICT(project_id, service_key) DO UPDATE SET sort_order = excluded.sort_order',
+        [projectId, serviceKey, sortOrder]
+      );
+    }
+    saveDb();
+  },
   deleteByProject: (projectId: number) => {
     db.run('DELETE FROM home_tiles WHERE project_id = ?', [projectId]);
+    saveDb();
+  },
+};
+
+export const externalTileQueries = {
+  getAll: (): ExternalTile[] => {
+    const result = db.exec('SELECT * FROM home_external_tiles ORDER BY COALESCE(sort_order, 999999), id');
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<ExternalTile>(columns, row));
+  },
+  create: (name: string, url: string, icon: string | null, iconBg: string | null, cardBg: string | null, hidden: number, sortOrder: number | null) => {
+    db.run(
+      'INSERT INTO home_external_tiles (name, url, icon, icon_bg, card_bg, hidden, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, url, icon, iconBg, cardBg, hidden, sortOrder]
+    );
+    const result = db.exec('SELECT last_insert_rowid() as id');
+    saveDb();
+    return { id: result[0].values[0][0] as number };
+  },
+  update: (id: number, name: string, url: string, icon: string | null, iconBg: string | null, cardBg: string | null, hidden: number) => {
+    db.run(
+      'UPDATE home_external_tiles SET name = ?, url = ?, icon = ?, icon_bg = ?, card_bg = ?, hidden = ? WHERE id = ?',
+      [name, url, icon, iconBg, cardBg, hidden, id]
+    );
+    saveDb();
+  },
+  setOrderBatch: (items: Array<{ id: number; sortOrder: number }>) => {
+    for (const { id, sortOrder } of items) {
+      db.run('UPDATE home_external_tiles SET sort_order = ? WHERE id = ?', [sortOrder, id]);
+    }
+    saveDb();
+  },
+  delete: (id: number) => {
+    db.run('DELETE FROM home_external_tiles WHERE id = ?', [id]);
     saveDb();
   },
 };

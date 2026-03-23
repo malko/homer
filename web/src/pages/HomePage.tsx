@@ -1,29 +1,33 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { api } from '../api';
-import type { Project, HomeTileOverride } from '../api';
+import type { Project, HomeTileOverride, ExternalTile } from '../api';
 import bigiconImage from '@assets/bigicon.png';
 
 // ─── Tile model ───────────────────────────────────────────────────────────────
 
 interface Tile {
-  projectId: number;
-  projectName: string;
-  serviceKey: string;
+  tileKey: string;
+  projectId: number | null;
+  projectName: string | null;
+  serviceKey: string | null;
+  externalId: number | null;
   defaultName: string;
   url: string;
   isRunning: boolean;
+  isExternal: boolean;
   displayName: string | null;
   icon: string | null;
   iconBg: string | null;
   cardBg: string | null;
   hidden: boolean;
+  sortOrder: number | null;
 }
 
-function buildTiles(projects: Project[], overrides: HomeTileOverride[]): Tile[] {
+function buildTiles(projects: Project[], overrides: HomeTileOverride[], external: ExternalTile[]): Tile[] {
   const overrideMap = new Map<string, HomeTileOverride>();
   for (const o of overrides) overrideMap.set(`${o.project_id}:${o.service_key}`, o);
 
@@ -34,17 +38,21 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[]): Tile[] 
     if (project.url) {
       const ov = overrideMap.get(`${project.id}:url`);
       tiles.push({
+        tileKey: `${project.id}:url`,
         projectId: project.id,
         projectName: project.name,
         serviceKey: 'url',
+        externalId: null,
         defaultName: project.name,
         url: project.url,
         isRunning: project.containers.some(c => c.state === 'running'),
+        isExternal: false,
         displayName: ov?.display_name ?? null,
         icon: ov?.icon ?? project.icon,
         iconBg: ov?.icon_bg ?? null,
         cardBg: ov?.card_bg ?? null,
         hidden: !!(ov?.hidden),
+        sortOrder: ov?.sort_order ?? null,
       });
     }
 
@@ -63,23 +71,50 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[]): Tile[] 
         const ov = overrideMap.get(`${project.id}:${serviceKey}`);
         const protocol = port === '443' ? 'https' : 'http';
         tiles.push({
+          tileKey: `${project.id}:${serviceKey}`,
           projectId: project.id,
           projectName: project.name,
           serviceKey,
+          externalId: null,
           defaultName: container.name,
           url: `${protocol}://${host}:${port}`,
           isRunning: container.state === 'running',
+          isExternal: false,
           displayName: ov?.display_name ?? null,
           icon: ov?.icon ?? null,
           iconBg: ov?.icon_bg ?? null,
           cardBg: ov?.card_bg ?? null,
           hidden: !!(ov?.hidden),
+          sortOrder: ov?.sort_order ?? null,
         });
       }
     }
   }
 
-  return tiles;
+  for (const ext of external) {
+    tiles.push({
+      tileKey: `ext:${ext.id}`,
+      projectId: null,
+      projectName: null,
+      serviceKey: null,
+      externalId: ext.id,
+      defaultName: ext.name,
+      url: ext.url,
+      isRunning: false,
+      isExternal: true,
+      displayName: null,
+      icon: ext.icon,
+      iconBg: ext.icon_bg,
+      cardBg: ext.card_bg,
+      hidden: !!(ext.hidden),
+      sortOrder: ext.sort_order,
+    });
+  }
+
+  // Sort: tiles with explicit sortOrder first (ascending), rest in natural order
+  const withOrder = tiles.filter(t => t.sortOrder !== null).sort((a, b) => a.sortOrder! - b.sortOrder!);
+  const withoutOrder = tiles.filter(t => t.sortOrder === null);
+  return [...withOrder, ...withoutOrder];
 }
 
 // ─── Tile icon ────────────────────────────────────────────────────────────────
@@ -182,11 +217,12 @@ function ColorRow({
 interface EditModalProps {
   tile: Tile;
   onClose: () => void;
-  onSave: (tile: Tile, patch: { displayName: string | null; icon: string | null; iconBg: string | null; cardBg: string | null; hidden: boolean }) => Promise<void>;
+  onSave: (tile: Tile, patch: { displayName: string | null; url: string; icon: string | null; iconBg: string | null; cardBg: string | null; hidden: boolean }) => Promise<void>;
 }
 
 function EditModal({ tile, onClose, onSave }: EditModalProps) {
-  const [displayName, setDisplayName] = useState(tile.displayName ?? '');
+  const [displayName, setDisplayName] = useState(tile.displayName ?? (tile.isExternal ? tile.defaultName : ''));
+  const [url, setUrl] = useState(tile.url);
   const [icon, setIcon] = useState(tile.icon ?? '');
   const [iconBg, setIconBg] = useState(tile.iconBg ?? '');
   const [cardBg, setCardBg] = useState(tile.cardBg ?? '');
@@ -207,7 +243,7 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
   const handleFetchFavicon = async () => {
     setFaviconLoading(true);
     try {
-      const { dataUri } = await api.home.fetchFavicon(tile.url);
+      const { dataUri } = await api.home.fetchFavicon(url || tile.url);
       setIcon(dataUri);
       setIconPreviewError(false);
     } catch {
@@ -221,6 +257,7 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
     setSaving(true);
     await onSave(tile, {
       displayName: displayName.trim() || null,
+      url: url.trim() || tile.url,
       icon: icon.trim() || null,
       iconBg: iconBg.trim() || null,
       cardBg: cardBg.trim() || null,
@@ -230,14 +267,23 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
     onClose();
   };
 
-  const previewTile: Tile = { ...tile, displayName: displayName.trim() || null, icon: icon.trim() || null, iconBg: iconBg.trim() || null, cardBg: cardBg.trim() || null };
-  const previewName = displayName.trim() || tile.defaultName;
+  const previewTile: Tile = {
+    ...tile,
+    url: url.trim() || tile.url,
+    displayName: displayName.trim() || null,
+    icon: icon.trim() || null,
+    iconBg: iconBg.trim() || null,
+    cardBg: cardBg.trim() || null,
+  };
+  const previewName = (tile.isExternal ? displayName.trim() || tile.defaultName : displayName.trim() || tile.defaultName);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
         <div className="modal-header">
-          <h2 className="modal-title">Edit — {tile.projectName}{tile.serviceKey !== 'url' ? ` (${tile.serviceKey})` : ''}</h2>
+          <h2 className="modal-title">
+            {tile.isExternal ? 'Edit external link' : `Edit — ${tile.projectName}${tile.serviceKey !== 'url' ? ` (${tile.serviceKey})` : ''}`}
+          </h2>
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
 
@@ -254,17 +300,19 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
             <div className="service-tile-link" style={{ padding: '1rem' }}>
               <TileIcon tile={previewTile} />
               <div className="service-tile-name">{previewName}</div>
-              <div className="service-tile-meta">
-                <span className={`status-dot-lg ${tile.isRunning ? 'dot-running' : 'dot-stopped'}`} style={{ width: '8px', height: '8px' }} />
-                <span>{tile.isRunning ? 'running' : 'stopped'}</span>
-              </div>
+              {!tile.isExternal && (
+                <div className="service-tile-meta">
+                  <span className={`status-dot-lg ${tile.isRunning ? 'dot-running' : 'dot-stopped'}`} style={{ width: '8px', height: '8px' }} />
+                  <span>{tile.isRunning ? 'running' : 'stopped'}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Display name */}
         <div className="input-group">
-          <label className="input-label">Display name</label>
+          <label className="input-label">{tile.isExternal ? 'Name' : 'Display name'}</label>
           <input
             type="text"
             className="input"
@@ -274,6 +322,20 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
             autoFocus
           />
         </div>
+
+        {/* URL (external only) */}
+        {tile.isExternal && (
+          <div className="input-group" style={{ marginTop: '1rem' }}>
+            <label className="input-label">URL</label>
+            <input
+              type="url"
+              className="input"
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="https://example.com"
+            />
+          </div>
+        )}
 
         {/* Icon */}
         <div className="input-group" style={{ marginTop: '1rem' }}>
@@ -299,7 +361,6 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
                   onClick={handleFetchFavicon}
                   disabled={faviconLoading}
                   style={{ flex: 1, fontSize: '0.75rem' }}
-                  title={`Try to fetch favicon from ${tile.url}`}
                 >
                   {faviconLoading ? 'Fetching…' : '⬇ Use service favicon'}
                 </button>
@@ -321,18 +382,8 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
         <div className="input-group" style={{ marginTop: '1rem' }}>
           <label className="input-label">Colors</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
-            <ColorRow
-              label="Icon background"
-              value={iconBg}
-              onChange={setIconBg}
-              onClear={() => setIconBg('')}
-            />
-            <ColorRow
-              label="Card background"
-              value={cardBg}
-              onChange={setCardBg}
-              onClear={() => setCardBg('')}
-            />
+            <ColorRow label="Icon background" value={iconBg} onChange={setIconBg} onClear={() => setIconBg('')} />
+            <ColorRow label="Card background" value={cardBg} onChange={setCardBg} onClear={() => setCardBg('')} />
           </div>
         </div>
 
@@ -340,7 +391,7 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
         <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
           <div>
             <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>Hide from home page</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>Reveal with the "Show hidden" toggle</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>Visible only in edit mode</div>
           </div>
           <div className={`toggle ${hidden ? 'active' : ''}`} onClick={() => setHidden(h => !h)}>
             <div className="toggle-handle" />
@@ -358,36 +409,166 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
   );
 }
 
+// ─── Add external link modal ──────────────────────────────────────────────────
+
+interface AddExternalModalProps {
+  onClose: () => void;
+  onAdd: (name: string, url: string) => Promise<void>;
+}
+
+function AddExternalModal({ onClose, onAdd }: AddExternalModalProps) {
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (!url.trim()) { setError('URL is required'); return; }
+    try { new URL(url); } catch { setError('Invalid URL'); return; }
+    setSaving(true);
+    setError('');
+    await onAdd(name.trim(), url.trim());
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Add external link</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+
+        <div className="input-group">
+          <label className="input-label">Name</label>
+          <input
+            type="text"
+            className="input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="My Service"
+            autoFocus
+          />
+        </div>
+
+        <div className="input-group" style={{ marginTop: '1rem' }}>
+          <label className="input-label">URL</label>
+          <input
+            type="url"
+            className="input"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            placeholder="https://example.com"
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
+          />
+        </div>
+
+        {error && <p style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{error}</p>}
+
+        <div className="form-actions" style={{ marginTop: '1.25rem' }}>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Service tile card ────────────────────────────────────────────────────────
 
-function ServiceTileCard({ tile, onEdit }: { tile: Tile; onEdit: (tile: Tile) => void }) {
+interface ServiceTileCardProps {
+  tile: Tile;
+  editMode: boolean;
+  isDragOver: boolean;
+  onEdit: (tile: Tile) => void;
+  onToggleHidden: (tile: Tile) => void;
+  onDelete?: (tile: Tile) => void;
+  onDragStart: (e: React.DragEvent, key: string) => void;
+  onDragOver: (e: React.DragEvent, key: string) => void;
+  onDrop: (e: React.DragEvent, key: string) => void;
+  onDragEnd: () => void;
+}
+
+function ServiceTileCard({
+  tile, editMode, isDragOver,
+  onEdit, onToggleHidden, onDelete,
+  onDragStart, onDragOver, onDrop, onDragEnd,
+}: ServiceTileCardProps) {
   const navigate = useNavigate();
   const dotClass = tile.isRunning ? 'dot-running' : 'dot-stopped';
 
+  const tileClasses = [
+    'service-tile',
+    tile.hidden && editMode ? 'service-tile-hidden-edit' : '',
+    editMode ? 'service-tile-edit-mode' : '',
+    isDragOver ? 'service-tile-drag-over' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div
-      className={`service-tile${tile.hidden ? ' service-tile-hidden' : ''}`}
+      className={tileClasses}
       style={tile.cardBg ? { backgroundColor: tile.cardBg } : {}}
+      draggable={editMode}
+      onDragStart={e => onDragStart(e, tile.tileKey)}
+      onDragOver={e => onDragOver(e, tile.tileKey)}
+      onDrop={e => onDrop(e, tile.tileKey)}
+      onDragEnd={onDragEnd}
     >
-      <div className="service-tile-actions">
-        <button
-          className="tile-action-btn"
-          title="Manage project"
-          onClick={() => navigate(`/projects?select=${tile.projectId}`)}
-        >⚙</button>
-        <button
-          className="tile-action-btn"
-          title="Edit tile"
-          onClick={() => onEdit(tile)}
-        >✎</button>
+      {/* Actions overlay */}
+      <div className={`service-tile-actions${editMode ? ' service-tile-actions-edit' : ''}`}>
+        {editMode ? (
+          <>
+            <span className="tile-drag-handle" title="Drag to reorder">⠿</span>
+            <button
+              className={`tile-action-btn${tile.hidden ? ' tile-action-btn-active' : ''}`}
+              title={tile.hidden ? 'Show tile' : 'Hide tile'}
+              onClick={() => onToggleHidden(tile)}
+            >
+              {tile.hidden ? '👁' : '🙈'}
+            </button>
+            <button className="tile-action-btn" title="Edit tile" onClick={() => onEdit(tile)}>✎</button>
+            {tile.isExternal && onDelete && (
+              <button className="tile-action-btn tile-action-btn-danger" title="Delete" onClick={() => onDelete(tile)}>✕</button>
+            )}
+          </>
+        ) : (
+          <>
+            {!tile.isExternal && (
+              <button
+                className="tile-action-btn"
+                title="Manage project"
+                onClick={() => navigate(`/projects?select=${tile.projectId}`)}
+              >⚙</button>
+            )}
+            <button className="tile-action-btn" title="Edit tile" onClick={() => onEdit(tile)}>✎</button>
+          </>
+        )}
       </div>
-      <a href={tile.url} target="_blank" rel="noopener noreferrer" className="service-tile-link">
+
+      {/* Hidden badge (edit mode only) */}
+      {editMode && tile.hidden && (
+        <div className="service-tile-hidden-badge">hidden</div>
+      )}
+
+      <a
+        href={tile.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="service-tile-link"
+        onClick={e => editMode && e.preventDefault()}
+      >
         <TileIcon tile={tile} />
         <div className="service-tile-name">{tile.displayName ?? tile.defaultName}</div>
-        <div className="service-tile-meta">
-          <span className={`status-dot-lg ${dotClass}`} style={{ width: '8px', height: '8px', flexShrink: 0 }} />
-          <span>{tile.isRunning ? 'running' : 'stopped'}</span>
-        </div>
+        {!tile.isExternal && (
+          <div className="service-tile-meta">
+            <span className={`status-dot-lg ${dotClass}`} style={{ width: '8px', height: '8px', flexShrink: 0 }} />
+            <span>{tile.isRunning ? 'running' : 'stopped'}</span>
+          </div>
+        )}
         <div className="service-tile-url">{tile.url}</div>
       </a>
     </div>
@@ -400,37 +581,171 @@ export function HomePage() {
   const { projects, refetch: refetchProjects } = useProjects();
   const { logout, status } = useAuth();
   const [overrides, setOverrides] = useState<HomeTileOverride[]>([]);
-  const [showHidden, setShowHidden] = useState(false);
+  const [externalTiles, setExternalTiles] = useState<ExternalTile[]>([]);
+  const [editMode, setEditMode] = useState(false);
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+  const localOrderRef = useRef<string[] | null>(null);
   const [editingTile, setEditingTile] = useState<Tile | null>(null);
+  const [showAddExternal, setShowAddExternal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const dragSourceKey = useRef<string | null>(null);
 
-  const fetchOverrides = useCallback(async () => {
-    try { setOverrides(await api.home.getTiles()); } catch {}
+  const fetchData = useCallback(async () => {
+    try {
+      const { overrides: ov, external: ext } = await api.home.getTiles();
+      setOverrides(ov);
+      setExternalTiles(ext);
+    } catch {}
   }, []);
 
-  useEffect(() => { fetchOverrides(); }, [fetchOverrides]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   useWebSocket(msg => {
     if (msg.type === 'containers_updated' || msg.type === 'project_updated') refetchProjects();
   });
 
-  const allTiles = buildTiles(projects, overrides);
-  const hiddenCount = allTiles.filter(t => t.hidden).length;
-  const visibleTiles = showHidden ? allTiles : allTiles.filter(t => !t.hidden);
+  const baseTiles = useMemo(
+    () => buildTiles(projects, overrides, externalTiles),
+    [projects, overrides, externalTiles]
+  );
 
-  const handleSaveTile = async (tile: Tile, patch: { displayName: string | null; icon: string | null; iconBg: string | null; cardBg: string | null; hidden: boolean }) => {
-    await api.home.updateTile(tile.projectId, tile.serviceKey, {
-      display_name: patch.displayName,
-      icon: patch.icon,
-      icon_bg: patch.iconBg,
-      card_bg: patch.cardBg,
-      hidden: patch.hidden,
+  // Apply local order if set, otherwise use base order
+  const allTiles = useMemo(() => {
+    if (!localOrder) return baseTiles;
+    const map = new Map(baseTiles.map(t => [t.tileKey, t]));
+    const ordered: Tile[] = [];
+    for (const key of localOrder) {
+      const t = map.get(key);
+      if (t) { ordered.push(t); map.delete(key); }
+    }
+    for (const t of map.values()) ordered.push(t);
+    return ordered;
+  }, [baseTiles, localOrder]);
+
+  const displayTiles = editMode ? allTiles : allTiles.filter(t => !t.hidden);
+
+  // Keep localOrderRef in sync for use in event handlers (avoids stale closures)
+  useEffect(() => { localOrderRef.current = localOrder; }, [localOrder]);
+
+  // ── Drag and drop ──────────────────────────────────────────────────────────
+
+  const handleDragStart = useCallback((e: React.DragEvent, key: string) => {
+    e.dataTransfer.effectAllowed = 'move';
+    dragSourceKey.current = key;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, key: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverKey(prev => prev === key ? prev : key);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetKey: string) => {
+    e.preventDefault();
+    const sourceKey = dragSourceKey.current;
+    dragSourceKey.current = null;
+    setDragOverKey(null);
+    if (!sourceKey || sourceKey === targetKey) return;
+
+    const order = localOrderRef.current;
+    if (!order) return;
+
+    const fromIdx = order.indexOf(sourceKey);
+    const toIdx = order.indexOf(targetKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const next = [...order];
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, sourceKey);
+
+    localOrderRef.current = next;
+    setLocalOrder(next);
+
+    const items = next.map((key, idx) => {
+      if (key.startsWith('ext:')) {
+        return { type: 'external' as const, id: parseInt(key.slice(4)), sortOrder: idx };
+      }
+      const [projectId, ...rest] = key.split(':');
+      return { type: 'tile' as const, projectId: parseInt(projectId), serviceKey: rest.join(':'), sortOrder: idx };
     });
-    await fetchOverrides();
+    api.home.setOrder(items).catch(() => {});
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragSourceKey.current = null;
+    setDragOverKey(null);
+  }, []);
+
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+
+  const enterEditMode = () => {
+    const order = allTiles.map(t => t.tileKey);
+    localOrderRef.current = order;
+    setLocalOrder(order);
+    setEditMode(true);
+  };
+
+  const exitEditMode = () => {
+    setEditMode(false);
+    setLocalOrder(null);
+    fetchData();
+  };
+
+  // ── Tile actions ───────────────────────────────────────────────────────────
+
+  const handleSaveTile = async (tile: Tile, patch: { displayName: string | null; url: string; icon: string | null; iconBg: string | null; cardBg: string | null; hidden: boolean }) => {
+    if (tile.isExternal && tile.externalId !== null) {
+      await api.home.updateExternal(tile.externalId, {
+        name: patch.displayName ?? tile.defaultName,
+        url: patch.url,
+        icon: patch.icon,
+        icon_bg: patch.iconBg,
+        card_bg: patch.cardBg,
+        hidden: patch.hidden,
+      });
+    } else if (tile.projectId !== null && tile.serviceKey !== null) {
+      await api.home.updateTile(tile.projectId, tile.serviceKey, {
+        display_name: patch.displayName,
+        icon: patch.icon,
+        icon_bg: patch.iconBg,
+        card_bg: patch.cardBg,
+        hidden: patch.hidden,
+      });
+    }
+    await fetchData();
+  };
+
+  const handleToggleHidden = async (tile: Tile) => {
+    if (tile.isExternal && tile.externalId !== null) {
+      await api.home.updateExternal(tile.externalId, {
+        name: tile.displayName ?? tile.defaultName,
+        url: tile.url,
+        icon: tile.icon,
+        icon_bg: tile.iconBg,
+        card_bg: tile.cardBg,
+        hidden: !tile.hidden,
+      });
+    } else if (tile.projectId !== null && tile.serviceKey !== null) {
+      await api.home.updateTile(tile.projectId, tile.serviceKey, { hidden: !tile.hidden });
+    }
+    await fetchData();
+  };
+
+  const handleDeleteExternal = async (tile: Tile) => {
+    if (tile.externalId === null) return;
+    await api.home.deleteExternal(tile.externalId);
+    setLocalOrder(prev => prev ? prev.filter(k => k !== tile.tileKey) : null);
+    await fetchData();
+  };
+
+  const handleAddExternal = async (name: string, url: string) => {
+    await api.home.createExternal({ name, url });
+    await fetchData();
   };
 
   return (
-    <div className="layout">
+    <div className="layout" onClick={() => showUserMenu && setShowUserMenu(false)}>
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <img src={bigiconImage} alt="" className="header-icon" />
@@ -440,11 +755,6 @@ export function HomePage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {hiddenCount > 0 && (
-            <button className="btn btn-sm btn-secondary" onClick={() => setShowHidden(v => !v)}>
-              {showHidden ? `Hide hidden (${hiddenCount})` : `Show hidden (${hiddenCount})`}
-            </button>
-          )}
           <div style={{ position: 'relative' }}>
             <button className="user-menu-trigger" onClick={e => { e.stopPropagation(); setShowUserMenu(v => !v); }}>
               <span>{status?.username}</span>
@@ -464,7 +774,13 @@ export function HomePage() {
       </header>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
-        {allTiles.length === 0 ? (
+        {editMode && (
+          <div className="edit-mode-banner">
+            <span>✎ Edit mode — drag tiles to reorder, toggle visibility, add external links</span>
+          </div>
+        )}
+
+        {baseTiles.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">🏠</div>
             <h3>No services yet</h3>
@@ -472,20 +788,47 @@ export function HomePage() {
             <Link to="/projects" className="btn btn-primary" style={{ marginTop: '1rem' }}>Go to Projects</Link>
           </div>
         ) : (
-          <div className="service-grid">
-            {visibleTiles.map(tile => (
+          <div className={`service-grid${editMode ? ' service-grid-edit' : ''}`}>
+            {displayTiles.map(tile => (
               <ServiceTileCard
-                key={`${tile.projectId}:${tile.serviceKey}`}
+                key={tile.tileKey}
                 tile={tile}
+                editMode={editMode}
+                isDragOver={dragOverKey === tile.tileKey}
                 onEdit={setEditingTile}
+                onToggleHidden={handleToggleHidden}
+                onDelete={tile.isExternal ? handleDeleteExternal : undefined}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
               />
             ))}
           </div>
         )}
       </div>
 
+      {/* Floating edit button */}
+      {!editMode ? (
+        <button className="fab-edit" onClick={enterEditMode} title="Edit layout">
+          ✎
+        </button>
+      ) : (
+        <div className="fab-edit-mode-bar">
+          <button className="btn btn-sm btn-secondary" onClick={() => setShowAddExternal(true)}>
+            + Add link
+          </button>
+          <button className="btn btn-sm btn-primary" onClick={exitEditMode}>
+            ✓ Done
+          </button>
+        </div>
+      )}
+
       {editingTile && (
         <EditModal tile={editingTile} onClose={() => setEditingTile(null)} onSave={handleSaveTile} />
+      )}
+      {showAddExternal && (
+        <AddExternalModal onClose={() => setShowAddExternal(false)} onAdd={handleAddExternal} />
       )}
     </div>
   );
