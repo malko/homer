@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -384,6 +384,14 @@ export function ProjectsPage() {
   const { projects, loading, error, refetch } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [initialTab, setInitialTab] = useState<'overview' | 'compose'>('overview');
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const selectId = searchParams.get('select');
+    if (selectId) {
+      const id = parseInt(selectId, 10);
+      if (!isNaN(id)) setSelectedProjectId(id);
+    }
+  }, []);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
@@ -447,7 +455,7 @@ export function ProjectsPage() {
       {/* Header */}
       <header className="app-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <Link to="/" className="header-logo-link">
+          <Link to="/home" className="header-logo-link">
             <img src={bigiconImage} alt="" className="header-icon" />
             <div>
               <h1 className="page-title">HOMER</h1>

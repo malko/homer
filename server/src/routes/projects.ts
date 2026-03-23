@@ -36,6 +36,7 @@ const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   envPath: z.string().optional().nullable(),
   url: z.string().url().optional().nullable().or(z.literal('')),
+  icon: z.string().max(500000).optional().nullable(),
   autoUpdate: z.boolean().optional(),
   watchEnabled: z.boolean().optional(),
 });
@@ -150,11 +151,13 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const newPath = getProjectPath(newName).composePath;
     
     const newUrl = body.url !== undefined ? (body.url || null) : project.url;
+    const newIcon = body.icon !== undefined ? (body.icon || null) : project.icon;
     projectQueries.update(
       newName,
       newPath,
       body.envPath !== undefined ? body.envPath : project.env_path,
       newUrl,
+      newIcon,
       body.autoUpdate !== undefined ? (body.autoUpdate ? 1 : 0) : project.auto_update,
       body.watchEnabled !== undefined ? (body.watchEnabled ? 1 : 0) : project.watch_enabled,
       id

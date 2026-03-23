@@ -77,6 +77,7 @@ export interface Project {
   path: string;
   env_path: string | null;
   url: string | null;
+  icon: string | null;
   auto_update: boolean;
   watch_enabled: boolean;
   created_at: string;
@@ -208,6 +209,17 @@ export const api = {
       request<{ success: boolean }>(`/containers/${id}/restart`, { method: 'POST' }),
   },
 
+  home: {
+    getTiles: () => request<HomeTileOverride[]>('/home/tiles'),
+    updateTile: (projectId: number, serviceKey: string, data: { display_name?: string | null; icon?: string | null; icon_bg?: string | null; card_bg?: string | null; hidden?: boolean }) =>
+      request<{ success: boolean }>(`/home/tiles/${projectId}/${encodeURIComponent(serviceKey)}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    fetchFavicon: (url: string) =>
+      request<{ dataUri: string }>(`/home/favicon?url=${encodeURIComponent(url)}`),
+  },
+
   import: {
     parseRunCommand: (command: string) =>
       request<{ service: ParsedService; compose: string; envContent: string; warnings: ParseWarnings }>('/import/parse', {
@@ -233,5 +245,15 @@ export const api = {
       }),
   },
 };
+
+export interface HomeTileOverride {
+  project_id: number;
+  service_key: string;
+  display_name: string | null;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: boolean;
+}
 
 export { ApiError };

@@ -65,10 +65,24 @@ async function initDb() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
+
+    CREATE TABLE IF NOT EXISTS home_tiles (
+      project_id INTEGER NOT NULL,
+      service_key TEXT NOT NULL,
+      display_name TEXT,
+      icon TEXT,
+      icon_bg TEXT,
+      card_bg TEXT,
+      hidden INTEGER DEFAULT 0,
+      PRIMARY KEY (project_id, service_key)
+    );
   `);
 
   // Migrations
   try { db.run('ALTER TABLE projects ADD COLUMN url TEXT'); } catch {}
+  try { db.run('ALTER TABLE projects ADD COLUMN icon TEXT'); } catch {}
+  try { db.run('ALTER TABLE home_tiles ADD COLUMN icon_bg TEXT'); } catch {}
+  try { db.run('ALTER TABLE home_tiles ADD COLUMN card_bg TEXT'); } catch {}
 
   saveDb();
 }
@@ -99,6 +113,7 @@ export interface Project {
   path: string;
   env_path: string | null;
   url: string | null;
+  icon: string | null;
   auto_update: number;
   watch_enabled: number;
   created_at: string;
@@ -190,12 +205,42 @@ export const projectQueries = {
     saveDb();
     return { lastInsertRowid: result[0].values[0][0] };
   },
-  update: (name: string, projectPath: string, envPath: string | null, url: string | null, autoUpdate: number, watchEnabled: number, id: number) => {
-    db.run('UPDATE projects SET name = ?, path = ?, env_path = ?, url = ?, auto_update = ?, watch_enabled = ? WHERE id = ?', [name, projectPath, envPath, url, autoUpdate, watchEnabled, id]);
+  update: (name: string, projectPath: string, envPath: string | null, url: string | null, icon: string | null, autoUpdate: number, watchEnabled: number, id: number) => {
+    db.run('UPDATE projects SET name = ?, path = ?, env_path = ?, url = ?, icon = ?, auto_update = ?, watch_enabled = ? WHERE id = ?', [name, projectPath, envPath, url, icon, autoUpdate, watchEnabled, id]);
     saveDb();
   },
   delete: (id: number) => {
     db.run('DELETE FROM projects WHERE id = ?', [id]);
+    saveDb();
+  },
+};
+
+export interface HomeTileOverride {
+  project_id: number;
+  service_key: string;
+  display_name: string | null;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: number;
+}
+
+export const homeTileQueries = {
+  getAll: (): HomeTileOverride[] => {
+    const result = db.exec('SELECT * FROM home_tiles');
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<HomeTileOverride>(columns, row));
+  },
+  upsert: (projectId: number, serviceKey: string, displayName: string | null, icon: string | null, iconBg: string | null, cardBg: string | null, hidden: number) => {
+    db.run(
+      'INSERT INTO home_tiles (project_id, service_key, display_name, icon, icon_bg, card_bg, hidden) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, service_key) DO UPDATE SET display_name = excluded.display_name, icon = excluded.icon, icon_bg = excluded.icon_bg, card_bg = excluded.card_bg, hidden = excluded.hidden',
+      [projectId, serviceKey, displayName, icon, iconBg, cardBg, hidden]
+    );
+    saveDb();
+  },
+  deleteByProject: (projectId: number) => {
+    db.run('DELETE FROM home_tiles WHERE project_id = ?', [projectId]);
     saveDb();
   },
 };

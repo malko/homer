@@ -14,6 +14,7 @@ import { authRoutes } from './routes/auth.js';
 import { projectRoutes } from './routes/projects.js';
 import { containerRoutes } from './routes/containers.js';
 import { importRoutes } from './routes/import.js';
+import { homeRoutes } from './routes/home.js';
 import { setupWebSocket } from './websocket/index.js';
 import { watcher } from './services/watcher.js';
 import { waitForDb } from './db/index.js';
@@ -37,6 +38,7 @@ fastify.register(authRoutes);
 fastify.register(projectRoutes);
 fastify.register(containerRoutes);
 fastify.register(importRoutes);
+fastify.register(homeRoutes);
 
 fastify.register(staticFiles, {
   root: '/app/web/dist',

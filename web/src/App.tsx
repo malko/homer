@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
+import { HomePage } from './pages/HomePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { status, loading } = useAuth();
@@ -63,7 +64,7 @@ function InitialRoute() {
   }
 
   if (status?.authenticated) {
-    return <Navigate to="/projects" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   if (status?.needsSetup) {
@@ -105,6 +106,14 @@ function AppRoutes() {
           ) : (
             <Navigate to="/" replace />
           )
+        }
+      />
+      <Route
+        path="/home"
+        element={
+          <ProtectedRoute>
+            <HomePage />
+          </ProtectedRoute>
         }
       />
       <Route
