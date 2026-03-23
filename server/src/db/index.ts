@@ -4,7 +4,8 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 
-const dataDir = '/app/data';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const dataDir = process.env.DATA_DIR ?? (process.env.NODE_ENV === 'production' ? '/app/data' : join(__dirname, '../../../data'));
 const projectsDir = join(dataDir, 'projects');
 const dbPath = join(dataDir, 'homelab.db');
 
@@ -45,6 +46,7 @@ async function initDb() {
       name TEXT NOT NULL,
       path TEXT NOT NULL,
       env_path TEXT,
+      url TEXT,
       auto_update INTEGER DEFAULT 0,
       watch_enabled INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -64,7 +66,10 @@ async function initDb() {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
   `);
-  
+
+  // Migrations
+  try { db.run('ALTER TABLE projects ADD COLUMN url TEXT'); } catch {}
+
   saveDb();
 }
 
@@ -93,6 +98,7 @@ export interface Project {
   name: string;
   path: string;
   env_path: string | null;
+  url: string | null;
   auto_update: number;
   watch_enabled: number;
   created_at: string;
@@ -110,6 +116,24 @@ function rowToObj<T>(columns: string[], row: any[]): T {
     obj[col] = row[i];
     return obj;
   }, {}) as T;
+}
+
+// Remap paths stored with the Docker prefix (/app/data) to the current dataDir.
+// This allows the dev server to read files created by the Docker container.
+const DOCKER_DATA_DIR = '/app/data';
+function normalizePath(p: string | null): string | null {
+  if (!p || dataDir === DOCKER_DATA_DIR) return p;
+  if (p.startsWith(DOCKER_DATA_DIR + '/') || p === DOCKER_DATA_DIR) {
+    return join(dataDir, p.slice(DOCKER_DATA_DIR.length));
+  }
+  return p;
+}
+function normalizeProject(project: Project): Project {
+  return {
+    ...project,
+    path: normalizePath(project.path) ?? project.path,
+    env_path: normalizePath(project.env_path),
+  };
 }
 
 export const userQueries = {
@@ -146,7 +170,7 @@ export const projectQueries = {
     const result = db.exec('SELECT * FROM projects ORDER BY created_at DESC');
     if (result.length === 0) return [];
     const columns = result[0].columns;
-    return result[0].values.map((row: any[]) => rowToObj<Project>(columns, row));
+    return result[0].values.map((row: any[]) => normalizeProject(rowToObj<Project>(columns, row)));
   },
   getById: (id: number): Project | undefined => {
     const stmt = db.prepare('SELECT * FROM projects WHERE id = ?');
@@ -155,7 +179,7 @@ export const projectQueries = {
       const columns = stmt.getColumnNames();
       const row = stmt.get();
       stmt.free();
-      return rowToObj<Project>(columns, row);
+      return normalizeProject(rowToObj<Project>(columns, row));
     }
     stmt.free();
     return undefined;
@@ -166,8 +190,8 @@ export const projectQueries = {
     saveDb();
     return { lastInsertRowid: result[0].values[0][0] };
   },
-  update: (name: string, projectPath: string, envPath: string | null, autoUpdate: number, watchEnabled: number, id: number) => {
-    db.run('UPDATE projects SET name = ?, path = ?, env_path = ?, auto_update = ?, watch_enabled = ? WHERE id = ?', [name, projectPath, envPath, autoUpdate, watchEnabled, id]);
+  update: (name: string, projectPath: string, envPath: string | null, url: string | null, autoUpdate: number, watchEnabled: number, id: number) => {
+    db.run('UPDATE projects SET name = ?, path = ?, env_path = ?, url = ?, auto_update = ?, watch_enabled = ? WHERE id = ?', [name, projectPath, envPath, url, autoUpdate, watchEnabled, id]);
     saveDb();
   },
   delete: (id: number) => {

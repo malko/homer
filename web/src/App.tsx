@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
+import { TerminalPage } from './pages/TerminalPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { status, loading } = useAuth();
@@ -104,6 +105,14 @@ function AppRoutes() {
           ) : (
             <Navigate to="/" replace />
           )
+        }
+      />
+      <Route
+        path="/terminal"
+        element={
+          <ProtectedRoute>
+            <TerminalPage />
+          </ProtectedRoute>
         }
       />
       <Route

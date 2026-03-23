@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
-import { validateComposeFile, deployProject, updateProjectImages, listContainers } from '../services/docker.js';
+import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown } from '../services/docker.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { FileWatcher } from '../services/watcher.js';
@@ -35,6 +35,7 @@ const projectSchema = z.object({
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   envPath: z.string().optional().nullable(),
+  url: z.string().url().optional().nullable().or(z.literal('')),
   autoUpdate: z.boolean().optional(),
   watchEnabled: z.boolean().optional(),
 });
@@ -60,9 +61,9 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get('/api/projects', async () => {
     const projects = projectQueries.getAll();
     const containers = await listContainers();
-    
+
     return projects.map((project) => {
-      const projectName = path.basename(project.path, path.extname(project.path));
+      const projectName = path.basename(path.dirname(project.path));
       const projectContainers = containers.filter(c => c.project === projectName);
       
       return {
@@ -85,7 +86,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }
     
     const containers = await listContainers();
-    const projectName = path.basename(project.path, path.extname(project.path));
+    const projectName = path.basename(path.dirname(project.path));
     const projectContainers = containers.filter(c => c.project === projectName);
     
     return {
@@ -148,10 +149,12 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const newName = body.name || project.name;
     const newPath = getProjectPath(newName).composePath;
     
+    const newUrl = body.url !== undefined ? (body.url || null) : project.url;
     projectQueries.update(
       newName,
       newPath,
       body.envPath !== undefined ? body.envPath : project.env_path,
+      newUrl,
       body.autoUpdate !== undefined ? (body.autoUpdate ? 1 : 0) : project.auto_update,
       body.watchEnabled !== undefined ? (body.watchEnabled ? 1 : 0) : project.watch_enabled,
       id
@@ -172,15 +175,37 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.delete('/api/projects/:id', async (request, reply) => {
     const id = parseInt((request.params as { id: string }).id);
     const project = projectQueries.getById(id);
-    
+
     if (!project) {
       return reply.status(404).send({ error: 'Project not found' });
     }
-    
+
+    const q = request.query as { composeDown?: string; removeVolumes?: string; deleteFiles?: string };
+    const warnings: string[] = [];
+
     fastify.watcher?.removeProject(id);
+
+    if (q.composeDown === '1') {
+      const result = await composeDown(id, { removeVolumes: q.removeVolumes === '1' });
+      if (!result.success) {
+        fastify.log.error('compose down failed: ' + result.output);
+        warnings.push('Compose down: ' + result.output);
+      }
+    }
+
     projectQueries.delete(id);
-    
-    return { success: true };
+
+    if (q.deleteFiles === '1') {
+      try {
+        const projectDir = path.dirname(project.path);
+        await fs.rm(projectDir, { recursive: true, force: true });
+      } catch (err: unknown) {
+        const e = err as { message?: string };
+        warnings.push('File deletion: ' + (e.message || 'Unknown error'));
+      }
+    }
+
+    return { success: true, output: warnings.length ? warnings.join('; ') : undefined };
   });
 
   fastify.post('/api/projects/:id/deploy', async (request, reply) => {

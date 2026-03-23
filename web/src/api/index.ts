@@ -76,6 +76,7 @@ export interface Project {
   name: string;
   path: string;
   env_path: string | null;
+  url: string | null;
   auto_update: boolean;
   watch_enabled: boolean;
   created_at: string;
@@ -163,8 +164,14 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    delete: (id: number) =>
-      request<{ success: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
+    delete: (id: number, options?: { composeDown?: boolean; removeVolumes?: boolean; deleteFiles?: boolean }) => {
+      const params = new URLSearchParams();
+      if (options?.composeDown)   params.set('composeDown', '1');
+      if (options?.removeVolumes) params.set('removeVolumes', '1');
+      if (options?.deleteFiles)   params.set('deleteFiles', '1');
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return request<{ success: boolean; output?: string }>(`/projects/${id}${qs}`, { method: 'DELETE' });
+    },
     deploy: (id: number) =>
       request<{ success: boolean; output: string }>(`/projects/${id}/deploy`, {
         method: 'POST',

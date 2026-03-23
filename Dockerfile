@@ -4,7 +4,8 @@ RUN corepack enable && apk add --no-cache docker-cli docker-cli-compose bash
 FROM base AS server-deps
 WORKDIR /app/server
 COPY server/package.json package-lock.json ./
-RUN npm ci
+# node-pty requires a C++ compiler at install time
+RUN apk add --no-cache python3 make g++ linux-headers && npm ci
 
 FROM base AS web-deps
 WORKDIR /app/web

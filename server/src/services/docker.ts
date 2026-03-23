@@ -39,16 +39,14 @@ async function execCommand(cmd: string): Promise<string> {
 }
 
 function parsePorts(portsStr: string): string[] {
-  const ports: string[] = [];
-  const regex = /0\.0\.0\.0:(\d+)->(\d+)\/tcp|:::(\d+)->(\d+)\/tcp|\*\*:(\d+)->(\d+)\/tcp/g;
+  const seen = new Set<string>();
+  // Match host port in: 0.0.0.0:PORT->..., [::]:PORT->..., :::PORT->..., *:PORT->...
+  const regex = /(?:0\.0\.0\.0|\[?:+\]?|\*)(?::)(\d+)->/g;
   let match;
   while ((match = regex.exec(portsStr)) !== null) {
-    const hostPort = match[1] || match[3] || match[5];
-    if (hostPort) {
-      ports.push(hostPort);
-    }
+    seen.add(match[1]);
   }
-  return ports;
+  return Array.from(seen);
 }
 
 export async function listContainers(): Promise<Container[]> {
@@ -82,9 +80,8 @@ export async function listContainers(): Promise<Container[]> {
 
 export async function listProjectContainers(projectPath: string): Promise<Container[]> {
   const containers = await listContainers();
-  return containers.filter(c => {
-    return containers.some(c => c.project === path.basename(projectPath));
-  });
+  const projectName = path.basename(path.dirname(projectPath));
+  return containers.filter(c => c.project === projectName);
 }
 
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {
@@ -113,8 +110,8 @@ export async function deployProject(projectId: number): Promise<{ success: boole
     return { success: false, output: 'Project not found' };
   }
 
-  const projectName = path.basename(project.path, path.extname(project.path));
   const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
   const command = `docker compose -f "${project.path}" -p "${projectName}" up -d`;
 
   try {
@@ -127,14 +124,35 @@ export async function deployProject(projectId: number): Promise<{ success: boole
   }
 }
 
+export async function composeDown(
+  projectId: number,
+  options: { removeVolumes?: boolean }
+): Promise<{ success: boolean; output: string }> {
+  const project = projectQueries.getById(projectId);
+  if (!project) return { success: false, output: 'Project not found' };
+
+  const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
+  const flags = options.removeVolumes ? ' --volumes' : '';
+  const command = `docker compose -f "${project.path}" -p "${projectName}" down${flags}`;
+
+  try {
+    const { stdout, stderr } = await execAsync(command, { cwd: projectDir, timeout: 60000 });
+    return { success: true, output: stdout || stderr || 'Down completed' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
 export async function updateProjectImages(projectId: number): Promise<{ changed: boolean; output: string }> {
   const project = projectQueries.getById(projectId);
   if (!project) {
     return { changed: false, output: 'Project not found' };
   }
 
-  const projectName = path.basename(project.path, path.extname(project.path));
   const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
 
   try {
     await execCommand(`docker compose -f "${project.path}" -p "${projectName}" pull`);
@@ -191,6 +209,45 @@ export async function getImageInfo(imageName: string): Promise<ImageInfo | null>
   } catch {
     return null;
   }
+}
+
+export function deployProjectStream(
+  projectId: number,
+  onLine: (line: string) => void,
+  onDone: (success: boolean) => void,
+): () => void {
+  const project = projectQueries.getById(projectId);
+  if (!project) {
+    onLine('Error: Project not found');
+    onDone(false);
+    return () => {};
+  }
+
+  const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
+
+  const child = spawn('docker', ['compose', '-f', project.path, '-p', projectName, 'up', '-d'], {
+    cwd: projectDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const handleData = (data: Buffer) => {
+    const lines = String(data).split('\n');
+    for (const line of lines) {
+      if (line.length > 0) onLine(line);
+    }
+  };
+
+  child.stdout?.on('data', handleData);
+  child.stderr?.on('data', handleData);
+
+  child.on('close', (code) => {
+    onDone(code === 0);
+  });
+
+  return () => {
+    try { child.kill('SIGTERM'); } catch {}
+  };
 }
 
 export async function streamLogs(containerId: string, callback: (line: string) => void): Promise<() => void> {

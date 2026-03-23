@@ -12,11 +12,16 @@ export default defineConfig({
   },
   server: {
     port: 5174,
+    allowedHosts: ['localhost', 'desk.home'],
+    host:"0.0.0.0",
     proxy: {
       '/api': {
         target: 'http://localhost:4000',
         changeOrigin: true,
         ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {}); // silence ECONNRESET on WS close
+        },
       },
     },
   },
