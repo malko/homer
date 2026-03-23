@@ -133,13 +133,22 @@ function rowToObj<T>(columns: string[], row: any[]): T {
   }, {}) as T;
 }
 
-// Remap paths stored with the Docker prefix (/app/data) to the current dataDir.
-// This allows the dev server to read files created by the Docker container.
+// Remap paths stored with a different prefix to the current dataDir.
+// Handles: Docker (/app/data) and moved repo locations (e.g. /old/path/data → /new/path/data).
 const DOCKER_DATA_DIR = '/app/data';
 function normalizePath(p: string | null): string | null {
-  if (!p || dataDir === DOCKER_DATA_DIR) return p;
+  if (!p) return p;
+  // Already under current dataDir — no remapping needed
+  if (p === dataDir || p.startsWith(dataDir + '/')) return p;
+  // Docker prefix
   if (p.startsWith(DOCKER_DATA_DIR + '/') || p === DOCKER_DATA_DIR) {
     return join(dataDir, p.slice(DOCKER_DATA_DIR.length));
+  }
+  // Path stored from a different machine/repo location — extract the relative part after /data/
+  const DATA_MARKER = '/data/';
+  const idx = p.indexOf(DATA_MARKER);
+  if (idx !== -1) {
+    return join(dataDir, p.slice(idx + DATA_MARKER.length));
   }
   return p;
 }
