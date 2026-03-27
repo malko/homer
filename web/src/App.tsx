@@ -4,6 +4,8 @@ import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
 import { HomePage } from './pages/HomePage';
+import { SettingsPage } from './pages/SettingsPage';
+import { UpdateBanner } from './components/UpdateBanner';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { status, loading } = useAuth();
@@ -78,7 +80,9 @@ function AppRoutes() {
   const { status } = useAuth();
 
   return (
-    <Routes>
+    <>
+      {status?.authenticated && !status?.mustChangePassword && <UpdateBanner />}
+      <Routes>
       <Route path="/" element={<InitialRoute />} />
       <Route
         path="/login"
@@ -117,6 +121,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/terminal"
         element={
           <ProtectedRoute>
@@ -132,7 +144,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-    </Routes>
+      </Routes>
+    </>
   );
 }
 

@@ -67,6 +67,7 @@ export interface Container {
   status: string;
   state: 'running' | 'exited' | 'paused' | 'restarting' | 'created' | 'dead';
   project?: string;
+  service?: string;
   created: string;
   ports?: string[];
 }
@@ -80,6 +81,7 @@ export interface Project {
   icon: string | null;
   auto_update: boolean;
   watch_enabled: boolean;
+  update_available?: boolean;
   created_at: string;
   containers: Container[];
   allRunning: boolean;
@@ -195,6 +197,8 @@ export const api = {
       request<{ valid: boolean; error?: string }>(`/projects/${id}/validate`, {
         method: 'POST',
       }),
+    checkUpdates: (id: number, force = false) =>
+      request<{ hasUpdates: boolean; services: string[] }>(`/projects/${id}/update-check${force ? '?force=1' : ''}`),
   },
 
   containers: {
@@ -210,15 +214,20 @@ export const api = {
   },
 
   home: {
-    getTiles: () => request<{ overrides: HomeTileOverride[]; external: ExternalTile[] }>('/home/tiles'),
+    getTiles: () => request<{ overrides: HomeTileOverride[]; external: ExternalTile[]; proxyOverrides: ProxyTileOverride[] }>('/home/tiles'),
     updateTile: (projectId: number, serviceKey: string, data: { display_name?: string | null; icon?: string | null; icon_bg?: string | null; card_bg?: string | null; hidden?: boolean }) =>
       request<{ success: boolean }>(`/home/tiles/${projectId}/${encodeURIComponent(serviceKey)}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    updateProxyTile: (proxyHostId: number, data: { display_name?: string | null; icon?: string | null; icon_bg?: string | null; card_bg?: string | null; hidden?: boolean }) =>
+      request<{ success: boolean }>(`/home/proxy-tiles/${proxyHostId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
     fetchFavicon: (url: string) =>
       request<{ dataUri: string }>(`/home/favicon?url=${encodeURIComponent(url)}`),
-    setOrder: (items: Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number } | { type: 'external'; id: number; sortOrder: number }>) =>
+    setOrder: (items: Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number } | { type: 'external'; id: number; sortOrder: number } | { type: 'proxy-tile'; proxyHostId: number; sortOrder: number }>) =>
       request<{ success: boolean }>('/home/order', {
         method: 'POST',
         body: JSON.stringify({ items }),
@@ -235,6 +244,52 @@ export const api = {
       }),
     deleteExternal: (id: number) =>
       request<{ success: boolean }>(`/home/external/${id}`, { method: 'DELETE' }),
+  },
+
+  system: {
+    getVersion: () => request<{
+      currentVersion: string;
+      latestVersion: string | null;
+      updateAvailable: boolean;
+      configured: boolean;
+    }>('/system/version'),
+    getSettings: () => request<SystemSettings>('/system/settings'),
+    saveSettings: (data: Partial<SystemSettings>) =>
+      request<{ success: boolean }>('/system/settings', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    update: () =>
+      request<{ success: boolean }>('/system/update', { method: 'POST' }),
+  },
+
+  proxy: {
+    list: (projectId?: number) =>
+      request<ProxyHost[]>(`/proxy/hosts${projectId != null ? `?project_id=${projectId}` : ''}`),
+    listForHome: () =>
+      request<ProxyHost[]>('/proxy/hosts?show_on_home=1'),
+    get: (id: number) => request<ProxyHost>(`/proxy/hosts/${id}`),
+    create: (data: ProxyHostInput) =>
+      request<{ success: boolean; host: ProxyHost; caddy: CaddySyncResult }>('/proxy/hosts', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: Partial<ProxyHostInput>) =>
+      request<{ success: boolean; host: ProxyHost; caddy: CaddySyncResult }>(`/proxy/hosts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<{ success: boolean; caddy: CaddySyncResult }>(`/proxy/hosts/${id}`, { method: 'DELETE' }),
+    getConfig: () =>
+      request<{ running: Record<string, unknown> | null; generated: Record<string, unknown> }>('/proxy/config'),
+    pushConfig: (config: Record<string, unknown>, saveAsOverride?: boolean) =>
+      request<{ success: boolean; error?: string }>('/proxy/config', {
+        method: 'PUT',
+        body: JSON.stringify({ config, saveAsOverride }),
+      }),
+    getStatus: () => request<{ running: boolean; error?: string }>('/proxy/status'),
+    reload: () => request<{ success: boolean; error?: string }>('/proxy/reload', { method: 'POST' }),
   },
 
   import: {
@@ -263,9 +318,57 @@ export const api = {
   },
 };
 
+export interface ProxyHost {
+  id: number;
+  project_id: number | null;
+  domain: string;
+  upstream: string;
+  basic_auth_user: string | null;
+  local_only: boolean;
+  enabled: boolean;
+  tls_mode: 'internal' | 'acme';
+  show_on_overview: boolean;
+  show_on_home: boolean;
+  created_at: string;
+}
+
+export interface ProxyHostInput {
+  domain: string;
+  upstream: string;
+  project_id?: number | null;
+  basic_auth_user?: string | null;
+  basic_auth_password?: string | null;
+  local_only?: boolean;
+  enabled?: boolean;
+  tls_mode?: 'internal' | 'acme';
+  show_on_overview?: boolean;
+  show_on_home?: boolean;
+}
+
+export interface CaddySyncResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface SystemSettings {
+  autoUpdate: boolean;
+  domainSuffix: string;
+  extraHostname: string;
+}
+
 export interface HomeTileOverride {
   project_id: number;
   service_key: string;
+  display_name: string | null;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: boolean;
+  sort_order: number | null;
+}
+
+export interface ProxyTileOverride {
+  proxy_host_id: number;
   display_name: string | null;
   icon: string | null;
   icon_bg: string | null;

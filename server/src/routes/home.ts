@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { homeTileQueries, externalTileQueries, sessionQueries } from '../db/index.js';
+import { homeTileQueries, externalTileQueries, sessionQueries, proxyHostQueries, proxyTileQueries } from '../db/index.js';
 
 const MAX_FAVICON_BYTES = 512 * 1024;
 
@@ -73,9 +73,23 @@ async function findFaviconInHtml(serviceUrl: string): Promise<string | null> {
   return null;
 }
 
+function resolveUpstreamUrl(serviceUrl: string): string {
+  let parsed: URL;
+  try { parsed = new URL(serviceUrl); } catch { return serviceUrl; }
+
+  // If the domain matches a Caddy proxy host, use the upstream directly (avoids TLS issues)
+  const hosts = proxyHostQueries.getAll();
+  const match = hosts.find(h => h.domain === parsed.hostname);
+  if (match) {
+    return `http://${match.upstream}`;
+  }
+  return serviceUrl;
+}
+
 async function fetchFavicon(serviceUrl: string): Promise<{ dataUri: string } | null> {
+  const resolvedUrl = resolveUpstreamUrl(serviceUrl);
   let base: URL;
-  try { base = new URL(serviceUrl); } catch { return null; }
+  try { base = new URL(resolvedUrl); } catch { return null; }
 
   const direct = await tryFetchImage(new URL('/favicon.ico', base).href);
   if (direct) return direct;
@@ -107,6 +121,7 @@ const orderSchema = z.object({
   items: z.array(z.union([
     z.object({ type: z.literal('tile'), projectId: z.number(), serviceKey: z.string(), sortOrder: z.number() }),
     z.object({ type: z.literal('external'), id: z.number(), sortOrder: z.number() }),
+    z.object({ type: z.literal('proxy-tile'), proxyHostId: z.number(), sortOrder: z.number() }),
   ])),
 });
 
@@ -134,6 +149,7 @@ export async function homeRoutes(fastify: FastifyInstance) {
     return {
       overrides: homeTileQueries.getAll(),
       external: externalTileQueries.getAll(),
+      proxyOverrides: proxyTileQueries.getAll(),
     };
   });
 
@@ -169,6 +185,8 @@ export async function homeRoutes(fastify: FastifyInstance) {
       .filter(i => i.type === 'tile') as Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number }>;
     const extItems = parsed.data.items
       .filter(i => i.type === 'external') as Array<{ type: 'external'; id: number; sortOrder: number }>;
+    const proxyItems = parsed.data.items
+      .filter(i => i.type === 'proxy-tile') as Array<{ type: 'proxy-tile'; proxyHostId: number; sortOrder: number }>;
 
     if (tileItems.length > 0) {
       homeTileQueries.setOrderBatch(tileItems.map(i => ({ projectId: i.projectId, serviceKey: i.serviceKey, sortOrder: i.sortOrder })));
@@ -176,6 +194,34 @@ export async function homeRoutes(fastify: FastifyInstance) {
     if (extItems.length > 0) {
       externalTileQueries.setOrderBatch(extItems.map(i => ({ id: i.id, sortOrder: i.sortOrder })));
     }
+    if (proxyItems.length > 0) {
+      proxyTileQueries.setOrderBatch(proxyItems.map(i => ({ proxyHostId: i.proxyHostId, sortOrder: i.sortOrder })));
+    }
+
+    return { success: true };
+  });
+
+  // ─── Standalone proxy host tile overrides ─────────────────────────────────
+
+  fastify.put('/api/home/proxy-tiles/:proxyHostId', async (request, reply) => {
+    const { proxyHostId } = request.params as { proxyHostId: string };
+    const id = parseInt(proxyHostId, 10);
+    if (isNaN(id)) return reply.status(400).send({ error: 'Invalid proxy host id' });
+
+    const parsed = upsertTileSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid body' });
+
+    const body = parsed.data;
+    const existing = proxyTileQueries.getAll().find(t => t.proxy_host_id === id);
+
+    proxyTileQueries.upsert(
+      id,
+      body.display_name !== undefined ? body.display_name : (existing?.display_name ?? null),
+      body.icon !== undefined ? body.icon : (existing?.icon ?? null),
+      body.icon_bg !== undefined ? body.icon_bg : (existing?.icon_bg ?? null),
+      body.card_bg !== undefined ? body.card_bg : (existing?.card_bg ?? null),
+      body.hidden !== undefined ? (body.hidden ? 1 : 0) : (existing?.hidden ?? 0),
+    );
 
     return { success: true };
   });

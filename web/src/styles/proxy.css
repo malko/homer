@@ -1,0 +1,310 @@
+/* ─── Proxy Host List ────────────────────────────────────────────────────── */
+
+.proxy-host-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.proxy-list-loading {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.proxy-list-empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 2rem;
+  font-size: 0.875rem;
+}
+
+.proxy-host-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  gap: 1rem;
+}
+
+.proxy-host-item.proxy-host-disabled {
+  opacity: 0.6;
+}
+
+.proxy-host-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.proxy-host-domain {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.proxy-host-domain-text {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--color-text);
+}
+
+.proxy-host-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.proxy-host-status-dot.status-active {
+  background: var(--color-success);
+}
+
+.proxy-host-status-dot.status-inactive {
+  background: var(--color-text-muted);
+}
+
+.proxy-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.proxy-badge-tls {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+}
+
+.proxy-badge-auth {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning);
+}
+
+.proxy-badge-local {
+  background: rgba(14, 165, 233, 0.15);
+  color: var(--color-info);
+}
+
+.proxy-badge-sm {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.3rem;
+  border-radius: 0.1875rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  margin-right: 0.25rem;
+}
+
+.proxy-host-upstream {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.proxy-upstream-arrow {
+  color: var(--color-text-muted);
+  opacity: 0.6;
+}
+
+.proxy-host-project {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.proxy-host-actions {
+  display: flex;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+/* ─── Proxy Host Form ────────────────────────────────────────────────────── */
+
+.proxy-host-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.proxy-host-form h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.0625rem;
+  color: var(--color-text);
+}
+
+.proxy-form-error {
+  padding: 0.625rem 0.75rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.375rem;
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.form-group label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.form-help {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.input-with-hint {
+  position: relative;
+}
+
+.input-hint {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.proxy-auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--color-border);
+}
+
+.proxy-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* ─── Button variants ────────────────────────────────────────────────────── */
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.btn-warning {
+  background: var(--color-warning);
+  color: #000;
+}
+
+.btn-warning:hover {
+  background: #d97706;
+}
+
+.btn-success {
+  background: var(--color-success);
+  color: #000;
+}
+
+.btn-success:hover {
+  background: #16a34a;
+}
+
+/* ─── Upstream Combobox ─────────────────────────────────────────────────── */
+
+.upstream-combobox {
+  position: relative;
+  display: flex;
+}
+
+.upstream-combobox .input {
+  flex: 1;
+  padding-right: 2rem;
+}
+
+.upstream-combobox-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.upstream-combobox-toggle:hover {
+  color: var(--color-text);
+}
+
+.upstream-combobox-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.upstream-combobox-option {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--color-text);
+}
+
+.upstream-combobox-option:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.upstream-combobox-option.selected {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}

@@ -13,6 +13,7 @@ export interface Container {
   status: string;
   state: 'running' | 'exited' | 'paused' | 'restarting' | 'created' | 'dead';
   project?: string;
+  service?: string;
   created: string;
   ports?: string[];
 }
@@ -60,8 +61,9 @@ export async function listContainers(): Promise<Container[]> {
     return output.split('\n').map(line => {
       const [id, name, image, status, state, labels, created, portsStr] = line.split('|');
       const projectLabel = labels?.match(/com\.docker\.compose\.project=([^,]+)/)?.[1];
+      const serviceLabel = labels?.match(/com\.docker\.compose\.service=([^,]+)/)?.[1];
       const ports = portsStr ? parsePorts(portsStr) : [];
-      
+
       return {
         id,
         name,
@@ -69,6 +71,7 @@ export async function listContainers(): Promise<Container[]> {
         status,
         state: state as Container['state'],
         project: projectLabel,
+        service: serviceLabel,
         created,
         ports,
       };
@@ -173,6 +176,41 @@ export async function updateProjectImages(projectId: number): Promise<{ changed:
   } catch (error: unknown) {
     const err = error as { stderr?: string };
     return { changed: false, output: err.stderr || 'Unknown error' };
+  }
+}
+
+export async function checkProjectImageUpdates(projectId: number): Promise<{ hasUpdates: boolean; services: string[] }> {
+  const project = projectQueries.getById(projectId);
+  if (!project) return { hasUpdates: false, services: [] };
+
+  const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
+
+  try {
+    const { stdout, stderr } = await execAsync(
+      `docker compose -f "${project.path}" -p "${projectName}" pull --dry-run 2>&1`,
+      { cwd: projectDir, timeout: 120000 }
+    );
+    const output = (stdout || '') + (stderr || '');
+    // Parse output: lines with "Pulling" or "pulled" indicate available updates
+    const updatedServices: string[] = [];
+    for (const line of output.split('\n')) {
+      // Format varies but typically: "service Pulled" or "service Pulling"
+      const pullMatch = line.match(/^\s*(\S+)\s+(Pulled|Pulling|Pull complete)/i);
+      if (pullMatch) {
+        updatedServices.push(pullMatch[1]);
+      }
+    }
+    return { hasUpdates: updatedServices.length > 0, services: updatedServices };
+  } catch (error: unknown) {
+    // --dry-run may not be supported; fall back to no updates detected
+    const err = error as { stderr?: string; stdout?: string };
+    const output = (err.stdout || '') + (err.stderr || '');
+    // If --dry-run is unsupported, we get an error but we shouldn't crash
+    if (output.includes('unknown flag') || output.includes('--dry-run')) {
+      return { hasUpdates: false, services: [] };
+    }
+    return { hasUpdates: false, services: [] };
   }
 }
 

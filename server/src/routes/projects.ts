@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
-import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown } from '../services/docker.js';
+import { projectQueries, sessionQueries, settingQueries, DB_CONFIG } from '../db/index.js';
+import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates } from '../services/docker.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { FileWatcher } from '../services/watcher.js';
@@ -66,11 +66,21 @@ export async function projectRoutes(fastify: FastifyInstance) {
     return projects.map((project) => {
       const projectName = path.basename(path.dirname(project.path));
       const projectContainers = containers.filter(c => c.project === projectName);
-      
+
+      let updateAvailable = false;
+      try {
+        const cached = settingQueries.get(`image_updates_${project.id}`);
+        if (cached) {
+          const data = JSON.parse(cached);
+          updateAvailable = !!data.hasUpdates;
+        }
+      } catch {}
+
       return {
         ...project,
         auto_update: Boolean(project.auto_update),
         watch_enabled: Boolean(project.watch_enabled),
+        update_available: updateAvailable,
         containers: projectContainers,
         allRunning: projectContainers.length > 0 && projectContainers.every(c => c.state === 'running'),
         anyRunning: projectContainers.some(c => c.state === 'running'),
@@ -352,5 +362,38 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }
     
     return { valid: true };
+  });
+
+  // Check for image updates (cached, max once per 6 hours unless force=1)
+  fastify.get('/api/projects/:id/update-check', async (request, reply) => {
+    const id = parseInt((request.params as { id: string }).id);
+    const { force } = request.query as { force?: string };
+    const project = projectQueries.getById(id);
+    if (!project) {
+      return reply.status(404).send({ error: 'Project not found' });
+    }
+
+    const cacheKey = `image_updates_${id}`;
+    if (force !== '1') {
+      const cached = settingQueries.get(cacheKey);
+      if (cached) {
+        try {
+          const data = JSON.parse(cached);
+          const sixHours = 6 * 60 * 60 * 1000;
+          if (Date.now() - data.checkedAt < sixHours) {
+            return { hasUpdates: data.hasUpdates, services: data.services };
+          }
+        } catch {}
+      }
+    }
+
+    const result = await checkProjectImageUpdates(id);
+    settingQueries.set(cacheKey, JSON.stringify({ ...result, checkedAt: Date.now() }));
+
+    if (result.hasUpdates) {
+      fastify.broadcast?.({ type: 'project_update_available', projectId: id, hasUpdates: true });
+    }
+
+    return result;
   });
 }

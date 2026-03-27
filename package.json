@@ -1,5 +1,5 @@
 {
-  "name": "homelab-container-manager",
+  "name": "homer",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -11,7 +11,9 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:web": "npm run dev --workspace=web",
     "build": "npm run build --workspace=server && npm run build --workspace=web",
-    "start": "npm run start --workspace=server"
+    "start": "npm run start --workspace=server",
+    "docker:build": "docker build --build-arg BUILD_VERSION=$(node -p \"require('./package.json').version\") -t homer:$(node -p \"require('./package.json').version\") -t homer:latest .",
+    "docker:up": "docker compose up --build -d"
   },
   "devDependencies": {
     "@types/sql.js": "^1.4.10",

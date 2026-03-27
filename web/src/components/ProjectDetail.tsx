@@ -3,9 +3,13 @@ import { YamlEditor } from './YamlEditor';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
 import { api } from '../api';
-import type { Project, Container } from '../api';
+import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
+import { useProxyHosts } from '../hooks/useProxyHosts';
+import { ProxyHostForm } from './ProxyHostForm';
+import { ProxyHostList } from './ProxyHostList';
+import '../styles/proxy.css';
 
-type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal';
+type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
 type ToastType = 'success' | 'error' | 'warning';
 
 // ─── ANSI → HTML ─────────────────────────────────────────────────────────────
@@ -184,7 +188,7 @@ function SettingToggle({ label, description, value, onChange }: {
         <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{label}</div>
         <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>{description}</div>
       </div>
-      <div className={`toggle ${value ? 'active' : ''}`} onClick={() => onChange(!value)}>
+      <div className={`toggle ${value ? 'toggle-active' : ''}`} onClick={() => onChange(!value)}>
         <div className="toggle-handle" />
       </div>
     </div>
@@ -193,9 +197,11 @@ function SettingToggle({ label, description, value, onChange }: {
 
 export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialTab }: ProjectDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'overview');
+  const { hosts: proxyHosts, loading: proxyLoading, createHost, updateHost, deleteHost, toggleHost, refetch: refetchProxy } = useProxyHosts(project.id);
 
   // Action states
   const [updating, setUpdating] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
 
   // Deploy panel state
   const [deployPanelOpen, setDeployPanelOpen] = useState(false);
@@ -203,8 +209,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [deployRunning, setDeployRunning] = useState(false);
   const deployWsRef = useRef<WebSocket | null>(null);
   const deployScrollRef = useRef<HTMLDivElement | null>(null);
-  const [urlInput, setUrlInput] = useState(project.url ?? '');
-  const [urlSaving, setUrlSaving] = useState(false);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -562,6 +566,23 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   };
 
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const result = await api.projects.checkUpdates(project.id, true);
+      if (result.hasUpdates) {
+        addToast('warning', `Mises à jour disponibles : ${result.services.join(', ')}`);
+      } else {
+        addToast('success', 'Toutes les images sont à jour');
+      }
+      onRefresh();
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Vérification échouée');
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
   const handleStartAll = async () => {
     const stopped = project.containers.filter(c => c.state !== 'running');
     if (stopped.length === 0) { addToast('warning', 'All containers are already running'); return; }
@@ -638,21 +659,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   };
 
-  const handleSaveUrl = async () => {
-    setUrlSaving(true);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await api.projects.update(project.id, { url: urlInput || null } as any);
-      addToast('success', 'URL saved');
-      onRefresh();
-    } catch {
-      addToast('error', 'Failed to save URL');
-    } finally {
-      setUrlSaving(false);
-    }
-  };
-
-
   const runningCount = project.containers.filter(c => c.state === 'running').length;
   const totalCount = project.containers.length;
   const allPorts = project.containers
@@ -665,6 +671,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     { id: 'compose', label: 'Compose' },
     { id: 'env', label: 'Env' },
     { id: 'terminal', label: 'Terminal' },
+    { id: 'proxy', label: 'Proxy' },
   ];
 
   return (
@@ -683,6 +690,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               <span className="status-dot" />
               {runningCount}/{totalCount} running
             </span>
+            {project.update_available && (
+              <span className="update-pill" title="Des images plus récentes sont disponibles">
+                Mise à jour dispo
+              </span>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
@@ -691,6 +703,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           </button>
           <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating}>
             {updating ? 'Updating...' : 'Update Images'}
+          </button>
+          <button className="btn btn-sm btn-secondary" onClick={handleCheckUpdates} disabled={checkingUpdates} title="Vérifier les mises à jour d'images">
+            {checkingUpdates ? '...' : 'Check Updates'}
           </button>
           <button className="btn btn-sm btn-secondary" onClick={handleStartAll}>Start All</button>
           <button className="btn btn-sm btn-secondary" onClick={handleStopAll}>Stop All</button>
@@ -728,21 +743,22 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               </div>
             )}
 
-            {(project.url || allPorts.length > 0) && (
+            {(allPorts.length > 0 || proxyHosts.filter(h => h.show_on_overview && h.enabled).length > 0) && (
               <div style={{ marginTop: '1.5rem' }}>
                 <h3 className="section-title">Exposed Services</h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {project.url && (
+                  {proxyHosts.filter(h => h.show_on_overview && h.enabled).map(host => (
                     <a
-                      href={project.url}
+                      key={`proxy-${host.id}`}
+                      href={`https://${host.domain}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn btn-sm btn-link"
-                      title={project.url}
+                      title={`https://${host.domain} → ${host.upstream}`}
                     >
-                      {project.name} ↗
+                      <span className="proxy-badge-sm">proxy</span> {host.domain} ↗
                     </a>
-                  )}
+                  ))}
                   {allPorts.map(({ container, port }) => {
                     const host = window.location.hostname;
                     const url = `http://${host}:${port}`;
@@ -766,27 +782,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             <div style={{ marginTop: '1.5rem' }}>
               <h3 className="section-title">Settings</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.375rem' }}>Service URL</div>
-                    <input
-                      type="url"
-                      className="input"
-                      value={urlInput}
-                      onChange={e => setUrlInput(e.target.value)}
-                      placeholder="https://myservice.local"
-                      style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
-                    />
-                  </div>
-                  <button
-                    className="btn btn-sm btn-primary"
-                    onClick={handleSaveUrl}
-                    disabled={urlSaving || urlInput === (project.url ?? '')}
-                    style={{ alignSelf: 'flex-end', flexShrink: 0 }}
-                  >
-                    {urlSaving ? '...' : 'Save'}
-                  </button>
-                </div>
                 <SettingToggle
                   label="Auto-update images"
                   description="Pull latest images on each deploy"
@@ -942,6 +937,20 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           )
         )}
 
+        {/* Proxy */}
+        {activeTab === 'proxy' && (
+          <ProjectProxyTab
+            projectId={project.id}
+            containers={project.containers}
+            hosts={proxyHosts}
+            loading={proxyLoading}
+            createHost={createHost}
+            updateHost={updateHost}
+            deleteHost={deleteHost}
+            toggleHost={toggleHost}
+          />
+        )}
+
         {/* Terminal */}
         {activeTab === 'terminal' && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1077,6 +1086,90 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Project Proxy Tab ───────────────────────────────────────────────────────
+
+interface ProjectProxyTabProps {
+  projectId: number;
+  containers: Container[];
+  hosts: ProxyHost[];
+  loading: boolean;
+  createHost: (data: ProxyHostInput) => Promise<unknown>;
+  updateHost: (id: number, data: Partial<ProxyHostInput>) => Promise<unknown>;
+  deleteHost: (id: number) => Promise<unknown>;
+  toggleHost: (id: number) => Promise<unknown>;
+}
+
+function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, updateHost, deleteHost, toggleHost }: ProjectProxyTabProps) {
+  const [editingHost, setEditingHost] = useState<ProxyHost | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [domainSuffix, setDomainSuffix] = useState('');
+
+  useEffect(() => {
+    api.system.getSettings().then(s => setDomainSuffix(s.domainSuffix || ''));
+  }, []);
+
+  const handleSave = async (data: ProxyHostInput) => {
+    if (editingHost) {
+      await updateHost(editingHost.id, data);
+    } else {
+      await createHost({ ...data, project_id: projectId });
+    }
+    setShowForm(false);
+    setEditingHost(null);
+  };
+
+  const handleEdit = (host: ProxyHost) => {
+    setEditingHost(host);
+    setShowForm(true);
+  };
+
+  const handleDelete = async (host: ProxyHost) => {
+    if (confirm(`Supprimer le proxy pour ${host.domain} ?`)) {
+      await deleteHost(host.id);
+    }
+  };
+
+  const handleToggle = async (host: ProxyHost) => {
+    await toggleHost(host.id);
+  };
+
+  return (
+    <div style={{ padding: '0.5rem 0' }}>
+      <div className="proxy-tab-header">
+        <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+          Proxy reverse configurés pour ce projet
+        </span>
+        {!showForm && (
+          <button className="btn btn-sm btn-primary" onClick={() => { setEditingHost(null); setShowForm(true); }}>
+            + Ajouter
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--color-bg)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
+          <ProxyHostForm
+            proxyHost={editingHost || undefined}
+            projectId={projectId}
+            domainSuffix={domainSuffix}
+            containers={containers}
+            onSave={handleSave}
+            onCancel={() => { setShowForm(false); setEditingHost(null); }}
+          />
+        </div>
+      )}
+
+      <ProxyHostList
+        hosts={hosts}
+        loading={loading}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onToggle={handleToggle}
+      />
     </div>
   );
 }

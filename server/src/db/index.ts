@@ -88,6 +88,21 @@ async function initDb() {
       hidden INTEGER DEFAULT 0,
       sort_order INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS proxy_hosts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER,
+      domain TEXT NOT NULL,
+      upstream TEXT NOT NULL,
+      basic_auth_user TEXT,
+      basic_auth_password_hash TEXT,
+      local_only INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      tls_mode TEXT DEFAULT 'internal',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_proxy_hosts_domain ON proxy_hosts(domain);
   `);
 
   // Migrations
@@ -96,6 +111,17 @@ async function initDb() {
   try { db.run('ALTER TABLE home_tiles ADD COLUMN icon_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN card_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN sort_order INTEGER'); } catch {}
+  try { db.run('ALTER TABLE proxy_hosts ADD COLUMN show_on_overview INTEGER DEFAULT 1'); } catch {}
+  try { db.run('ALTER TABLE proxy_hosts ADD COLUMN show_on_home INTEGER DEFAULT 0'); } catch {}
+  try { db.run(`CREATE TABLE IF NOT EXISTS proxy_tile_overrides (
+    proxy_host_id INTEGER PRIMARY KEY,
+    display_name TEXT,
+    icon TEXT,
+    icon_bg TEXT,
+    card_bg TEXT,
+    hidden INTEGER DEFAULT 0,
+    sort_order INTEGER
+  )`); } catch {}
 
   saveDb();
 }
@@ -319,6 +345,125 @@ export const externalTileQueries = {
   },
   delete: (id: number) => {
     db.run('DELETE FROM home_external_tiles WHERE id = ?', [id]);
+    saveDb();
+  },
+};
+
+export interface ProxyTileOverride {
+  proxy_host_id: number;
+  display_name: string | null;
+  icon: string | null;
+  icon_bg: string | null;
+  card_bg: string | null;
+  hidden: number;
+  sort_order: number | null;
+}
+
+export const proxyTileQueries = {
+  getAll: (): ProxyTileOverride[] => {
+    const result = db.exec('SELECT * FROM proxy_tile_overrides');
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<ProxyTileOverride>(columns, row));
+  },
+  upsert: (proxyHostId: number, displayName: string | null, icon: string | null, iconBg: string | null, cardBg: string | null, hidden: number) => {
+    db.run(
+      'INSERT INTO proxy_tile_overrides (proxy_host_id, display_name, icon, icon_bg, card_bg, hidden) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(proxy_host_id) DO UPDATE SET display_name = excluded.display_name, icon = excluded.icon, icon_bg = excluded.icon_bg, card_bg = excluded.card_bg, hidden = excluded.hidden',
+      [proxyHostId, displayName, icon, iconBg, cardBg, hidden]
+    );
+    saveDb();
+  },
+  setOrderBatch: (items: Array<{ proxyHostId: number; sortOrder: number }>) => {
+    for (const { proxyHostId, sortOrder } of items) {
+      db.run(
+        'INSERT INTO proxy_tile_overrides (proxy_host_id, sort_order) VALUES (?, ?) ON CONFLICT(proxy_host_id) DO UPDATE SET sort_order = excluded.sort_order',
+        [proxyHostId, sortOrder]
+      );
+    }
+    saveDb();
+  },
+};
+
+export interface ProxyHost {
+  id: number;
+  project_id: number | null;
+  domain: string;
+  upstream: string;
+  basic_auth_user: string | null;
+  basic_auth_password_hash: string | null;
+  local_only: number;
+  enabled: number;
+  tls_mode: string;
+  show_on_overview: number;
+  show_on_home: number;
+  created_at: string;
+}
+
+export const proxyHostQueries = {
+  getAll: (): ProxyHost[] => {
+    const result = db.exec('SELECT * FROM proxy_hosts ORDER BY domain');
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<ProxyHost>(columns, row));
+  },
+  getByProject: (projectId: number): ProxyHost[] => {
+    const result = db.exec('SELECT * FROM proxy_hosts WHERE project_id = ? ORDER BY domain', [projectId]);
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<ProxyHost>(columns, row));
+  },
+  getById: (id: number): ProxyHost | undefined => {
+    const stmt = db.prepare('SELECT * FROM proxy_hosts WHERE id = ?');
+    stmt.bind([id]);
+    if (stmt.step()) {
+      const columns = stmt.getColumnNames();
+      const row = stmt.get();
+      stmt.free();
+      return rowToObj<ProxyHost>(columns, row);
+    }
+    stmt.free();
+    return undefined;
+  },
+  create: (domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0) => {
+    db.run(
+      'INSERT INTO proxy_hosts (domain, upstream, project_id, basic_auth_user, basic_auth_password_hash, local_only, enabled, tls_mode, show_on_overview, show_on_home) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome]
+    );
+    const result = db.exec('SELECT last_insert_rowid() as id');
+    saveDb();
+    return { id: result[0].values[0][0] as number };
+  },
+  update: (id: number, domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0) => {
+    db.run(
+      'UPDATE proxy_hosts SET domain = ?, upstream = ?, project_id = ?, basic_auth_user = ?, basic_auth_password_hash = ?, local_only = ?, enabled = ?, tls_mode = ?, show_on_overview = ?, show_on_home = ? WHERE id = ?',
+      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome, id]
+    );
+    saveDb();
+  },
+  delete: (id: number) => {
+    db.run('DELETE FROM proxy_hosts WHERE id = ?', [id]);
+    saveDb();
+  },
+  deleteByProject: (projectId: number) => {
+    db.run('DELETE FROM proxy_hosts WHERE project_id = ?', [projectId]);
+    saveDb();
+  },
+};
+
+export const settingQueries = {
+  get: (key: string): string | null => {
+    const stmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+    stmt.bind([key]);
+    if (stmt.step()) {
+      const row = stmt.get();
+      stmt.free();
+      return row[0] as string | null;
+    }
+    stmt.free();
+    return null;
+  },
+  set: (key: string, value: string) => {
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value]);
     saveDb();
   },
 };

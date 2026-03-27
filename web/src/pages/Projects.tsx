@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
 import type { StandaloneContainer, ContainerDecision, ParseWarnings } from '../api';
-import bigiconImage from '@assets/bigicon.png';
 
 function slugify(name: string): string {
   return name
@@ -395,21 +395,9 @@ export function ProjectsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'running' | 'stopped'>('all');
+  const [filter, setFilter] = useState<'all' | 'running' | 'stopped' | 'updatable'>('all');
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const { logout, status } = useAuth();
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setShowUserMenu(false);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
+  const { status } = useAuth();
 
   const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -438,6 +426,7 @@ export function ProjectsPage() {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === 'running' && !p.anyRunning) return false;
     if (filter === 'stopped' && p.anyRunning) return false;
+    if (filter === 'updatable' && !p.update_available) return false;
     return true;
   });
 
@@ -452,43 +441,10 @@ export function ProjectsPage() {
 
   return (
     <div className="layout">
-      {/* Header */}
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <Link to="/home" className="header-logo-link">
-            <img src={bigiconImage} alt="" className="header-icon" />
-            <div>
-              <h1 className="page-title">HOMER</h1>
-              <p className="page-subtitle">
-                <span className="accent">Hom</span>elab manag<span className="accent">er</span>
-              </p>
-            </div>
-          </Link>
-          {projects.length > 0 && (
-            <span className="header-stats">
-              {projects.length} project{projects.length !== 1 ? 's' : ''} · {runningContainers}/{totalContainers} running
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <div className="user-menu-container" ref={userMenuRef}>
-            <button className="user-menu-trigger" onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}>
-              <span>{status?.username}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.6 }}>
-                <path d="M2 4L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            {showUserMenu && (
-              <div className="user-dropdown">
-                <div className="user-dropdown-username">{status?.username}</div>
-                <button className="user-dropdown-logout" onClick={logout}>Logout</button>
-              </div>
-            )}
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowImportModal(true)}>Import</button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>Add Project</button>
-        </div>
-      </header>
+      <AppHeader stats={projects.length > 0 ? `${projects.length} project${projects.length !== 1 ? 's' : ''} · ${runningContainers}/${totalContainers} running` : undefined}>
+        <button className="btn btn-secondary btn-sm" onClick={() => setShowImportModal(true)}>Import</button>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>Add Project</button>
+      </AppHeader>
 
       {/* Body: sidebar + detail */}
       <div className="layout-body">
@@ -503,11 +459,17 @@ export function ProjectsPage() {
               style={{ marginBottom: '0.5rem' }}
             />
             <div className="filter-chips">
-              {(['all', 'running', 'stopped'] as const).map(f => (
-                <button key={f} className={`chip ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              ))}
+              {(['all', 'running', 'stopped', 'updatable'] as const).map(f => {
+                const labels: Record<string, string> = { all: 'All', running: 'Running', stopped: 'Stopped', updatable: 'Updates' };
+                return (
+                  <button key={f} className={`chip ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>
+                    {labels[f]}
+                    {f === 'updatable' && projects.some(p => p.update_available) && (
+                      <span className="update-dot" style={{ marginLeft: '0.25rem' }} />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -533,7 +495,10 @@ export function ProjectsPage() {
                 >
                   <span className={`status-dot-lg ${dotClass}`} />
                   <div className="project-list-item-info">
-                    <span className="project-list-item-name">{project.name}</span>
+                    <span className="project-list-item-name">
+                      {project.name}
+                      {project.update_available && <span className="update-dot" title="Mise à jour disponible" />}
+                    </span>
                     <span className="project-list-item-meta">
                       {running}/{total} running
                       {project.auto_update ? ' · auto' : ''}

@@ -1,24 +1,40 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: homer-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - homelab-network
+    restart: unless-stopped
+
   homelab-manager:
     build:
       context: .
       dockerfile: Dockerfile
-    image: homelab-container-manager:latest
+    image: homer:latest
     container_name: homelab-manager
-    ports:
-      - "4000:4000"
     environment:
       - NODE_ENV=production
       - PORT=4000
       - HOST=0.0.0.0
+      - CADDY_ADMIN_URL=http://caddy:2019
+      - HOMER_DOMAIN=desk.local
+      - HOMER_GITHUB_REPO=malko/homer
+      - HOMER_IMAGE=ghcr.io/malko/homer:latest
+      - HOMER_COMPOSE_FILE=/host/path/to/docker-compose.yml
     volumes:
       - ./data:/app/data
+      - ./data/caddy/data:/app/caddy-data:ro
       - /var/run/docker.sock:/var/run/docker.sock:rw
+    depends_on:
+      - caddy
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.homelab-manager.rule=Host(`homelab.local`)"
-      - "traefik.http.services.homelab-manager.loadbalancer.server.port=4000"
     networks:
       - homelab-network
 

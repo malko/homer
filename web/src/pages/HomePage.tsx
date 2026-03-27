@@ -3,9 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { AppHeader } from '../components/AppHeader';
 import { api } from '../api';
-import type { Project, HomeTileOverride, ExternalTile } from '../api';
-import bigiconImage from '@assets/bigicon.png';
+import type { Project, ProxyHost, HomeTileOverride, ExternalTile, ProxyTileOverride } from '../api';
 
 // ─── Tile model ───────────────────────────────────────────────────────────────
 
@@ -27,46 +27,21 @@ interface Tile {
   sortOrder: number | null;
 }
 
-function buildTiles(projects: Project[], overrides: HomeTileOverride[], external: ExternalTile[]): Tile[] {
+function buildTiles(projects: Project[], overrides: HomeTileOverride[], external: ExternalTile[], proxyHosts: ProxyHost[] = [], proxyOverrides: ProxyTileOverride[] = []): Tile[] {
   const overrideMap = new Map<string, HomeTileOverride>();
   for (const o of overrides) overrideMap.set(`${o.project_id}:${o.service_key}`, o);
+  const proxyOverrideMap = new Map<number, ProxyTileOverride>();
+  for (const o of proxyOverrides) proxyOverrideMap.set(o.proxy_host_id, o);
 
   const tiles: Tile[] = [];
   const host = window.location.hostname;
 
   for (const project of projects) {
-    if (project.url) {
-      const ov = overrideMap.get(`${project.id}:url`);
-      tiles.push({
-        tileKey: `${project.id}:url`,
-        projectId: project.id,
-        projectName: project.name,
-        serviceKey: 'url',
-        externalId: null,
-        defaultName: project.name,
-        url: project.url,
-        isRunning: project.containers.some(c => c.state === 'running'),
-        isExternal: false,
-        displayName: ov?.display_name ?? null,
-        icon: ov?.icon ?? project.icon,
-        iconBg: ov?.icon_bg ?? null,
-        cardBg: ov?.card_bg ?? null,
-        hidden: !!(ov?.hidden),
-        sortOrder: ov?.sort_order ?? null,
-      });
-    }
-
     const seenPorts = new Set<string>();
     for (const container of project.containers) {
       for (const port of container.ports ?? []) {
         if (seenPorts.has(port)) continue;
         seenPorts.add(port);
-        if (project.url) {
-          try {
-            const u = new URL(project.url);
-            if (u.port === port || (!u.port && (port === '80' || port === '443'))) continue;
-          } catch {}
-        }
         const serviceKey = `port:${port}`;
         const ov = overrideMap.get(`${project.id}:${serviceKey}`);
         const protocol = port === '443' ? 'https' : 'http';
@@ -89,6 +64,32 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
         });
       }
     }
+  }
+
+  // Proxy host tiles (show_on_home)
+  for (const ph of proxyHosts) {
+    const serviceKey = `proxy:${ph.id}`;
+    const project = ph.project_id ? projects.find(p => p.id === ph.project_id) : null;
+    const ov = ph.project_id ? overrideMap.get(`${ph.project_id}:${serviceKey}`) : undefined;
+    const pov = !ph.project_id ? proxyOverrideMap.get(ph.id) : undefined;
+    const anyOv = ov ?? pov;
+    tiles.push({
+      tileKey: ph.project_id ? `${ph.project_id}:${serviceKey}` : `proxy:${ph.id}`,
+      projectId: ph.project_id,
+      projectName: project?.name ?? null,
+      serviceKey,
+      externalId: null,
+      defaultName: ph.domain,
+      url: `https://${ph.domain}`,
+      isRunning: project ? project.containers.some(c => c.state === 'running') : true,
+      isExternal: false,
+      displayName: anyOv?.display_name ?? null,
+      icon: anyOv?.icon ?? null,
+      iconBg: anyOv?.icon_bg ?? null,
+      cardBg: anyOv?.card_bg ?? null,
+      hidden: !!(anyOv?.hidden),
+      sortOrder: anyOv?.sort_order ?? null,
+    });
   }
 
   for (const ext of external) {
@@ -119,41 +120,46 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
 
 // ─── Tile icon ────────────────────────────────────────────────────────────────
 
+const FORCE_LETTER = '__letter__';
+
 function TileIcon({ tile, size = 52 }: { tile: Tile; size?: number }) {
+  const [faviconUri, setFaviconUri] = useState<string | null>(null);
   const [faviconFailed, setFaviconFailed] = useState(false);
   const name = tile.displayName ?? tile.defaultName;
-  const bgStyle = tile.iconBg ? { backgroundColor: tile.iconBg, borderRadius: '10px', padding: '4px' } : {};
+  const bgStyle = tile.iconBg
+    ? { backgroundColor: tile.iconBg, borderRadius: '10px', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+    : { display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
-  if (tile.icon) {
+  const forceLetter = tile.icon === FORCE_LETTER;
+
+  useEffect(() => {
+    if (forceLetter || tile.icon || !tile.url || faviconFailed) return;
+    let cancelled = false;
+    const token = localStorage.getItem('token');
+    const proxyUrl = `/api/home/favicon?url=${encodeURIComponent(tile.url)}`;
+    fetch(proxyUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((data: { dataUri: string }) => {
+        if (!cancelled) setFaviconUri(data.dataUri);
+      })
+      .catch(() => { if (!cancelled) setFaviconFailed(true); });
+    return () => { cancelled = true; };
+  }, [forceLetter, tile.icon, tile.url, faviconFailed]);
+
+  const imgSrc = !forceLetter && (tile.icon || faviconUri);
+
+  if (imgSrc) {
     return (
       <div style={bgStyle}>
-        <img src={tile.icon} alt="" className="service-tile-icon" style={{ width: size, height: size }} />
+        <img src={imgSrc} alt="" className="service-tile-icon" style={{ width: size, height: size }} />
       </div>
     );
-  }
-
-  if (!faviconFailed) {
-    let faviconUrl: string | null = null;
-    try { faviconUrl = new URL('/favicon.ico', tile.url).href; } catch {}
-    if (faviconUrl) {
-      return (
-        <div style={bgStyle}>
-          <img
-            src={faviconUrl}
-            alt=""
-            className="service-tile-icon"
-            style={{ width: size, height: size }}
-            onError={() => setFaviconFailed(true)}
-          />
-        </div>
-      );
-    }
   }
 
   return (
     <div
       className="service-tile-icon service-tile-icon-letter"
-      style={{ width: size, height: size, ...(tile.iconBg ? { backgroundColor: tile.iconBg } : {}) }}
+      style={{ width: size, height: size, ...(tile.iconBg ? { background: tile.iconBg } : {}) }}
     >
       {name[0]?.toUpperCase() ?? '?'}
     </div>
@@ -223,12 +229,13 @@ interface EditModalProps {
 function EditModal({ tile, onClose, onSave }: EditModalProps) {
   const [displayName, setDisplayName] = useState(tile.displayName ?? (tile.isExternal ? tile.defaultName : ''));
   const [url, setUrl] = useState(tile.url);
-  const [icon, setIcon] = useState(tile.icon ?? '');
+  const [icon, setIcon] = useState(tile.icon === FORCE_LETTER ? FORCE_LETTER : (tile.icon ?? ''));
   const [iconBg, setIconBg] = useState(tile.iconBg ?? '');
   const [cardBg, setCardBg] = useState(tile.cardBg ?? '');
   const [iconPreviewError, setIconPreviewError] = useState(false);
   const [hidden, setHidden] = useState(tile.hidden);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [faviconLoading, setFaviconLoading] = useState(false);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -255,16 +262,22 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave(tile, {
-      displayName: displayName.trim() || null,
-      url: url.trim() || tile.url,
-      icon: icon.trim() || null,
-      iconBg: iconBg.trim() || null,
-      cardBg: cardBg.trim() || null,
-      hidden,
-    });
-    setSaving(false);
-    onClose();
+    setSaveError(null);
+    try {
+      await onSave(tile, {
+        displayName: displayName.trim() || null,
+        url: url.trim() || tile.url,
+        icon: icon.trim() || null,
+        iconBg: iconBg.trim() || null,
+        cardBg: cardBg.trim() || null,
+        hidden,
+      });
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const previewTile: Tile = {
@@ -341,7 +354,7 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
         <div className="input-group" style={{ marginTop: '1rem' }}>
           <label className="input-label">Icon</label>
           <div className="icon-picker">
-            {icon && !iconPreviewError ? (
+            {icon && icon !== FORCE_LETTER && !iconPreviewError ? (
               <img src={icon} alt="" className="icon-picker-preview" onError={() => setIconPreviewError(true)} />
             ) : (
               <div className="icon-picker-letter">{previewName[0]?.toUpperCase() ?? '?'}</div>
@@ -350,7 +363,7 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
               <input
                 type="url"
                 className="input"
-                value={icon}
+                value={icon === FORCE_LETTER ? '' : icon}
                 onChange={e => { setIcon(e.target.value); setIconPreviewError(false); }}
                 placeholder="https://example.com/icon.png"
                 style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
@@ -368,11 +381,14 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
                   ↑ Upload file
                   <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
                 </label>
-                {icon && (
-                  <button className="btn btn-sm btn-secondary" onClick={() => { setIcon(''); setIconPreviewError(false); }} style={{ fontSize: '0.75rem' }}>
-                    ✕
-                  </button>
-                )}
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => { setIcon(FORCE_LETTER); setIconPreviewError(false); }}
+                  style={{ fontSize: '0.75rem', opacity: icon === FORCE_LETTER ? 0.5 : 1 }}
+                  title="Force letter display"
+                >
+                  A
+                </button>
               </div>
             </div>
           </div>
@@ -398,6 +414,11 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
           </div>
         </div>
 
+        {saveError && (
+          <div style={{ marginTop: '1rem', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-error-bg, #3d1a1a)', color: 'var(--color-error, #f87171)', borderRadius: '0.375rem', fontSize: '0.825rem' }}>
+            {saveError}
+          </div>
+        )}
         <div className="form-actions" style={{ marginTop: '1.25rem' }}>
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
@@ -579,7 +600,7 @@ function ServiceTileCard({
 
 export function HomePage() {
   const { projects, refetch: refetchProjects } = useProjects();
-  const { logout, status } = useAuth();
+  const { status } = useAuth();
   const [overrides, setOverrides] = useState<HomeTileOverride[]>([]);
   const [externalTiles, setExternalTiles] = useState<ExternalTile[]>([]);
   const [editMode, setEditMode] = useState(false);
@@ -587,15 +608,21 @@ export function HomePage() {
   const localOrderRef = useRef<string[] | null>(null);
   const [editingTile, setEditingTile] = useState<Tile | null>(null);
   const [showAddExternal, setShowAddExternal] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const dragSourceKey = useRef<string | null>(null);
+  const [homeProxyHosts, setHomeProxyHosts] = useState<ProxyHost[]>([]);
+  const [proxyOverrides, setProxyOverrides] = useState<ProxyTileOverride[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
-      const { overrides: ov, external: ext } = await api.home.getTiles();
-      setOverrides(ov);
-      setExternalTiles(ext);
+      const [tilesData, proxyData] = await Promise.all([
+        api.home.getTiles(),
+        api.proxy.listForHome(),
+      ]);
+      setOverrides(tilesData.overrides);
+      setExternalTiles(tilesData.external);
+      setProxyOverrides(tilesData.proxyOverrides);
+      setHomeProxyHosts(proxyData);
     } catch {}
   }, []);
 
@@ -606,8 +633,8 @@ export function HomePage() {
   });
 
   const baseTiles = useMemo(
-    () => buildTiles(projects, overrides, externalTiles),
-    [projects, overrides, externalTiles]
+    () => buildTiles(projects, overrides, externalTiles, homeProxyHosts, proxyOverrides),
+    [projects, overrides, externalTiles, homeProxyHosts, proxyOverrides]
   );
 
   // Apply local order if set, otherwise use base order
@@ -666,6 +693,9 @@ export function HomePage() {
       if (key.startsWith('ext:')) {
         return { type: 'external' as const, id: parseInt(key.slice(4)), sortOrder: idx };
       }
+      if (key.startsWith('proxy:')) {
+        return { type: 'proxy-tile' as const, proxyHostId: parseInt(key.slice(6)), sortOrder: idx };
+      }
       const [projectId, ...rest] = key.split(':');
       return { type: 'tile' as const, projectId: parseInt(projectId), serviceKey: rest.join(':'), sortOrder: idx };
     });
@@ -712,6 +742,15 @@ export function HomePage() {
         card_bg: patch.cardBg,
         hidden: patch.hidden,
       });
+    } else if (tile.serviceKey?.startsWith('proxy:')) {
+      const proxyHostId = parseInt(tile.serviceKey.replace('proxy:', ''), 10);
+      await api.home.updateProxyTile(proxyHostId, {
+        display_name: patch.displayName,
+        icon: patch.icon,
+        icon_bg: patch.iconBg,
+        card_bg: patch.cardBg,
+        hidden: patch.hidden,
+      });
     }
     await fetchData();
   };
@@ -745,33 +784,10 @@ export function HomePage() {
   };
 
   return (
-    <div className="layout" onClick={() => showUserMenu && setShowUserMenu(false)}>
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <img src={bigiconImage} alt="" className="header-icon" />
-          <div>
-            <h1 className="page-title">HOMER</h1>
-            <p className="page-subtitle"><span className="accent">Hom</span>elab manag<span className="accent">er</span></p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
-            <button className="user-menu-trigger" onClick={e => { e.stopPropagation(); setShowUserMenu(v => !v); }}>
-              <span>{status?.username}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ opacity: 0.6 }}>
-                <path d="M2 4L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            {showUserMenu && (
-              <div className="user-dropdown" onClick={() => setShowUserMenu(false)}>
-                <div className="user-dropdown-username">{status?.username}</div>
-                <button className="user-dropdown-logout" onClick={logout}>Logout</button>
-              </div>
-            )}
-          </div>
-          <Link to="/projects" className="btn btn-primary btn-sm">Manage Projects</Link>
-        </div>
-      </header>
+    <div className="layout">
+      <AppHeader>
+        <Link to="/projects" className="btn btn-primary btn-sm">Manage Projects</Link>
+      </AppHeader>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
         {editMode && (
