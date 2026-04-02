@@ -316,7 +316,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       wsRef.current = ws;
       ws.onopen = () => {
         for (const c of project.containers) {
-          ws.send(JSON.stringify({ type: 'subscribe_logs', containerId: c.id }));
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'subscribe_logs', containerId: c.id }));
+          }
         }
       };
       ws.onmessage = (event) => {
@@ -376,7 +378,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     ws.onopen = () => {
       const cols = terminalHandle.current?.getDimensions().cols ?? 80;
       const rows = terminalHandle.current?.getDimensions().rows ?? 24;
-      ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId: terminalContainerId, cols, rows }));
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId: terminalContainerId, cols, rows }));
+      }
       setTerminalConnected(true);
       terminalHandle.current?.focus();
     };
@@ -436,7 +440,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   const handleTerminalData = useCallback((data: string) => {
     if (!terminalWsRef.current || !terminalConnected || !terminalContainerId) return;
-    // xterm.js onData sends raw terminal data (keystrokes, special chars) — forward directly
+    if (terminalWsRef.current.readyState !== WebSocket.OPEN) return;
     terminalWsRef.current.send(JSON.stringify({
       type: 'terminal_input',
       containerId: terminalContainerId,
@@ -446,6 +450,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   const handleTerminalResize = useCallback((cols: number, rows: number) => {
     if (!terminalWsRef.current || !terminalContainerId) return;
+    if (terminalWsRef.current.readyState !== WebSocket.OPEN) return;
     terminalWsRef.current.send(JSON.stringify({
       type: 'terminal_resize',
       containerId: terminalContainerId,
@@ -508,7 +513,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     deployWsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe_deploy', projectId: project.id }));
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe_deploy', projectId: project.id }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -842,13 +849,13 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             {logsLoading ? (
               <div className="loading"><div className="spinner" />Loading logs...</div>
             ) : (
-              <div ref={logsScrollRef} style={{ flex: 1, overflow: 'auto' }}>
+              <div ref={logsScrollRef} style={{ flex: 1, overflow: 'auto', minHeight: 0, backgroundColor: 'var(--color-bg)', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--color-border)' }}>
                 {project.containers.length === 0 ? (
                   <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No containers to show logs for.</p>
                 ) : project.containers
                     .filter(c => selectedContainerId === null || c.id === selectedContainerId)
-                    .map(container => (
-                  <div key={container.id} style={{ marginBottom: '1.5rem' }}>
+                    .map((container, idx, arr) => (
+                  <div key={container.id} style={{ marginBottom: idx < arr.length - 1 ? '1.5rem' : 0 }}>
                     {(selectedContainerId === null && project.containers.length > 1) && (
                       <h4 style={{ marginBottom: '0.5rem', color: 'var(--color-text-muted)', fontSize: '0.875rem', display: 'flex', justifyContent: 'space-between' }}>
                         <span>{container.name}</span>
@@ -857,7 +864,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                         )}
                       </h4>
                     )}
-                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', backgroundColor: 'var(--color-bg)', padding: '0.75rem', borderRadius: '4px', fontSize: '0.75rem', lineHeight: '1.4', border: '1px solid var(--color-border)', margin: 0 }}>
+                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.75rem', lineHeight: '1.4', margin: 0 }}>
                       {logs[container.id]?.length
                         ? logs[container.id].map((line, i) => <><AnsiLine key={i} line={line} index={i} />{i < logs[container.id].length - 1 ? '\n' : ''}</>)
                         : 'No logs available'}

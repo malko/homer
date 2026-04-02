@@ -48,6 +48,13 @@
   padding: 1.5rem;
 }
 
+.settings-content--fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
 .settings-section {
   max-width: 800px;
   margin: 0 auto;

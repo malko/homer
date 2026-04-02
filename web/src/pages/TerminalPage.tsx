@@ -50,7 +50,9 @@ export function TerminalPage() {
     ws.onopen = () => {
       const cols = terminalHandle.current?.getDimensions().cols ?? initCols;
       const rows = terminalHandle.current?.getDimensions().rows ?? initRows;
-      ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId, cols, rows }));
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId, cols, rows }));
+      }
       setConnected(true);
       terminalHandle.current?.focus();
     };
@@ -87,7 +89,7 @@ export function TerminalPage() {
   }, [connected, containerId]);
 
   const handleResize = useCallback((cols: number, rows: number) => {
-    if (!wsRef.current) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ type: 'terminal_resize', containerId, cols, rows }));
   }, [containerId]);
 

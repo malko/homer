@@ -1,6 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { sessionQueries, settingQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate } from '../services/updater.js';
+import { listContainers } from '../services/docker.js';
+
+const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
 
 export async function systemRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', async (request: FastifyRequest) => {
@@ -48,5 +51,10 @@ export async function systemRoutes(fastify: FastifyInstance) {
       () => fastify.broadcast({ type: 'update_pull_done' }),
       (message) => fastify.broadcast({ type: 'update_error', message }),
     );
+  });
+
+  fastify.get('/api/system/containers', async () => {
+    const allContainers = await listContainers();
+    return allContainers.filter(c => HOMER_CONTAINERS.includes(c.name));
   });
 }

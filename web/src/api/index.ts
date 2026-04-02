@@ -261,6 +261,7 @@ export const api = {
       }),
     update: () =>
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
+    getContainers: () => request<Container[]>('/system/containers'),
   },
 
   proxy: {
