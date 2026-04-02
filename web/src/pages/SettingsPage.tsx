@@ -181,11 +181,29 @@ function GeneralSettings() {
       </div>
 
       <div className="settings-card">
-        <h3>Mises à jour</h3>
-        <div className="toggle-row">
+        <h3>Mises à jour des containers</h3>
+        <div className="settings-field">
+          <label htmlFor="update-interval">Intervalle de vérification</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              id="update-interval"
+              type="number"
+              className="input"
+              style={{ maxWidth: '100px' }}
+              min={30}
+              max={10080}
+              value={settings.updateCheckInterval}
+              onChange={e => setSettings({ ...settings, updateCheckInterval: parseInt(e.target.value) || 360 })}
+              onBlur={() => saveSettings({ updateCheckInterval: settings.updateCheckInterval })}
+            />
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>minutes</span>
+          </div>
+          <span className="form-help">Fréquence à laquelle les images Docker sont comparées au registre (min. 30 min). Redémarrage requis pour prendre effet.</span>
+        </div>
+        <div className="toggle-row" style={{ marginTop: '0.75rem' }}>
           <label className="toggle-label">
-            <span>Mises à jour automatiques</span>
-            <span className="form-help">Vérifier et appliquer les mises à jour automatiquement</span>
+            <span>Mises à jour app automatiques</span>
+            <span className="form-help">Installer automatiquement les nouvelles versions de HOMER</span>
           </label>
           <button
             type="button"

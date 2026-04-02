@@ -22,15 +22,23 @@ export async function systemRoutes(fastify: FastifyInstance) {
     const autoUpdate = settingQueries.get('auto_update');
     const domainSuffix = settingQueries.get('caddy_domain_suffix') || '';
     const extraHostname = settingQueries.get('caddy_extra_hostname') || '';
+    const raw = settingQueries.get('update_check_interval');
+    const updateCheckInterval = raw ? parseInt(raw, 10) : 360;
     return {
       autoUpdate: autoUpdate === 'true',
       domainSuffix,
       extraHostname,
+      updateCheckInterval: isNaN(updateCheckInterval) ? 360 : updateCheckInterval,
     };
   });
 
   fastify.put('/api/system/settings', async (request) => {
-    const body = request.body as { autoUpdate?: boolean; domainSuffix?: string; extraHostname?: string };
+    const body = request.body as {
+      autoUpdate?: boolean;
+      domainSuffix?: string;
+      extraHostname?: string;
+      updateCheckInterval?: number;
+    };
     if (body.autoUpdate !== undefined) {
       settingQueries.set('auto_update', body.autoUpdate ? 'true' : 'false');
     }
@@ -39,6 +47,11 @@ export async function systemRoutes(fastify: FastifyInstance) {
     }
     if (body.extraHostname !== undefined) {
       settingQueries.set('caddy_extra_hostname', body.extraHostname);
+    }
+    if (body.updateCheckInterval !== undefined) {
+      // Clamp to sensible range: 30 min – 7 days
+      const minutes = Math.max(30, Math.min(10080, Math.round(body.updateCheckInterval)));
+      settingQueries.set('update_check_interval', String(minutes));
     }
     return { success: true };
   });

@@ -355,6 +355,7 @@ export interface SystemSettings {
   autoUpdate: boolean;
   domainSuffix: string;
   extraHostname: string;
+  updateCheckInterval: number;
 }
 
 export interface HomeTileOverride {

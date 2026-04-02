@@ -186,70 +186,38 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
   const projectDir = path.dirname(project.path);
   const projectName = path.basename(projectDir);
 
-  const imageToService = new Map<string, string>();
+  // Collect service → image mappings from compose config
+  const serviceImages: Array<{ service: string; image: string }> = [];
   try {
     const { stdout } = await execAsync(
       `docker compose -f "${project.path}" -p "${projectName}" config --format json`,
       { cwd: projectDir, timeout: 30000 }
     );
-    const config = JSON.parse(stdout);
-    for (const [serviceName, serviceConfig] of Object.entries(config.services || {})) {
-      const svc = serviceConfig as { image?: string };
-      if (svc.image) {
-        const imageName = svc.image.split(':')[0];
-        imageToService.set(imageName, serviceName);
-      }
+    const config = JSON.parse(stdout) as { services?: Record<string, { image?: string }> };
+    for (const [serviceName, svc] of Object.entries(config.services ?? {})) {
+      if (svc.image) serviceImages.push({ service: serviceName, image: svc.image });
     }
-  } catch {}
-
-  try {
-    const { stdout, stderr } = await execAsync(
-      `docker compose -f "${project.path}" -p "${projectName}" pull --dry-run 2>&1`,
-      { cwd: projectDir, timeout: 120000 }
-    );
-    const output = (stdout || '') + (stderr || '');
-    const servicesWithUpdates: string[] = [];
-
-    for (const line of output.split('\n')) {
-      const pullingMatch = line.match(/Image\s+(\S+):\S+\s+Pulled/i);
-      if (pullingMatch) {
-        const imageName = pullingMatch[1].split(':')[0];
-        const service = imageToService.get(imageName) || imageName;
-        if (!servicesWithUpdates.includes(service)) {
-          servicesWithUpdates.push(service);
-        }
-      }
-    }
-
-    if (servicesWithUpdates.length > 0) {
-      return { hasUpdates: true, services: servicesWithUpdates };
-    }
-
-    return { hasUpdates: false, services: [] };
-  } catch (error: unknown) {
-    const err = error as { stderr?: string; stdout?: string };
-    const output = (err.stdout || '') + (err.stderr || '');
-    if (output.includes('unknown flag') || output.includes('--dry-run')) {
-      console.warn(`--dry-run not supported for project ${projectId}, skipping update check`);
-      return { hasUpdates: false, services: [] };
-    }
-    const servicesWithUpdates: string[] = [];
-    for (const line of output.split('\n')) {
-      const pullingMatch = line.match(/Image\s+(\S+):\S+\s+Pulled/i);
-      if (pullingMatch) {
-        const imageName = pullingMatch[1].split(':')[0];
-        const service = imageToService.get(imageName) || imageName;
-        if (!servicesWithUpdates.includes(service)) {
-          servicesWithUpdates.push(service);
-        }
-      }
-    }
-    if (servicesWithUpdates.length > 0) {
-      return { hasUpdates: true, services: servicesWithUpdates };
-    }
-    console.error(`Image update check failed for project ${projectId}: ${output}`);
+  } catch (err) {
+    console.warn(`[update-check] Could not parse compose config for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`);
     return { hasUpdates: false, services: [] };
   }
+
+  if (serviceImages.length === 0) return { hasUpdates: false, services: [] };
+
+  // Check each image against its registry digest
+  const { checkImageUpdate } = await import('./registry.js');
+  const servicesWithUpdates: string[] = [];
+
+  await Promise.all(serviceImages.map(async ({ service, image }) => {
+    try {
+      const result = await checkImageUpdate(image);
+      if (result.hasUpdate) servicesWithUpdates.push(service);
+    } catch (err) {
+      console.warn(`[update-check] Failed for ${image}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }));
+
+  return { hasUpdates: servicesWithUpdates.length > 0, services: servicesWithUpdates };
 }
 
 export async function validateComposeFile(filePath: string): Promise<{ valid: boolean; error?: string }> {

@@ -1,0 +1,34 @@
+# TODO
+
+- [ ] Vérification des mises à jour
+    - [x] revoir système de vérification des mises à jour des containers qui ne fonctionne pas. Implémenter un système de vérification du qui va se connecter directement aux hubs (Open Container Initiative) par api pour récuperer le digest de la dernière version (utilisation de fecth pas de libs). Récupération du digest actuel via commande docker inspect ou autre.
+    - [!] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
+    - [x] Ajout d'une tache chronique pour vérifier les mises à jour plus options dans les paramètres pour le délai de vérification des mises à jour
+    - [ ] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
+- [ ] Update
+    - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées
+    - [ ] Proposer un setting par projet (ou container) pour permettre une mise à jour automatique
+- [ ] Moniteur système
+    - [ ] Ajouter une page moniteur avec:
+        - nombre de containers running / nombre de containers
+        - occupation RAM / CPU avec graphique
+- [ ] Revue Page Projets
+    - [ ] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
+    - [ ] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
+- [ ] Genéral:
+    - [ ] Ajout d'une section volumes listant tout les volumes des projets
+    - [ ] Ajout d'une section networks 
+    - [ ] Ajout d'une section Images  (possibilité de prune tout les images inutilisées, une seule)
+    - [ ] Ajout d'une section Containers (voir les status et la dispo de mises à jour)
+    - [ ] Déplacer la section proxy hosts et caddy de la section paramètres à une nouvelle section Proxy accessibles du menu principal
+- [ ] UI/UX
+    - [ ] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
+    - [ ] Ajouter titre des pages dans le header
+    - [ ] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
+    - [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
+    - [ ] Déplacer l'entrée de menu paramètres vers le bas du menu
+    - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut et laisser l'utilisateur saisir (1h, 6h, 12h, 1 jours, 1 semaine)
+- [ ] Accès distant
+    - Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
+- [ ] PAAS
+    - [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence. 

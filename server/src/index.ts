@@ -120,9 +120,11 @@ const start = async () => {
         fastify.log.error('Image update check failed: %s', err instanceof Error ? err.message : String(err));
       }
     };
-    // Initial check after 2 minutes, then every 6 hours
+    // Initial check after 2 minutes, then at the configured interval (default 6 hours)
+    const intervalRaw = settingQueries.get('update_check_interval');
+    const intervalMinutes = intervalRaw ? Math.max(30, parseInt(intervalRaw, 10)) : 360;
     setTimeout(checkAllProjectUpdates, 2 * 60 * 1000);
-    setInterval(checkAllProjectUpdates, 6 * 60 * 60 * 1000);
+    setInterval(checkAllProjectUpdates, intervalMinutes * 60 * 1000);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
