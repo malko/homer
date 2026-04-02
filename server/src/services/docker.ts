@@ -186,30 +186,68 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
   const projectDir = path.dirname(project.path);
   const projectName = path.basename(projectDir);
 
+  const imageToService = new Map<string, string>();
+  try {
+    const { stdout } = await execAsync(
+      `docker compose -f "${project.path}" -p "${projectName}" config --format json`,
+      { cwd: projectDir, timeout: 30000 }
+    );
+    const config = JSON.parse(stdout);
+    for (const [serviceName, serviceConfig] of Object.entries(config.services || {})) {
+      const svc = serviceConfig as { image?: string };
+      if (svc.image) {
+        const imageName = svc.image.split(':')[0];
+        imageToService.set(imageName, serviceName);
+      }
+    }
+  } catch {}
+
   try {
     const { stdout, stderr } = await execAsync(
       `docker compose -f "${project.path}" -p "${projectName}" pull --dry-run 2>&1`,
       { cwd: projectDir, timeout: 120000 }
     );
     const output = (stdout || '') + (stderr || '');
-    // Parse output: lines with "Pulling" or "pulled" indicate available updates
-    const updatedServices: string[] = [];
+    const servicesWithUpdates: string[] = [];
+
     for (const line of output.split('\n')) {
-      // Format varies but typically: "service Pulled" or "service Pulling"
-      const pullMatch = line.match(/^\s*(\S+)\s+(Pulled|Pulling|Pull complete)/i);
-      if (pullMatch) {
-        updatedServices.push(pullMatch[1]);
+      const pullingMatch = line.match(/Image\s+(\S+):\S+\s+Pulled/i);
+      if (pullingMatch) {
+        const imageName = pullingMatch[1].split(':')[0];
+        const service = imageToService.get(imageName) || imageName;
+        if (!servicesWithUpdates.includes(service)) {
+          servicesWithUpdates.push(service);
+        }
       }
     }
-    return { hasUpdates: updatedServices.length > 0, services: updatedServices };
+
+    if (servicesWithUpdates.length > 0) {
+      return { hasUpdates: true, services: servicesWithUpdates };
+    }
+
+    return { hasUpdates: false, services: [] };
   } catch (error: unknown) {
-    // --dry-run may not be supported; fall back to no updates detected
     const err = error as { stderr?: string; stdout?: string };
     const output = (err.stdout || '') + (err.stderr || '');
-    // If --dry-run is unsupported, we get an error but we shouldn't crash
     if (output.includes('unknown flag') || output.includes('--dry-run')) {
+      console.warn(`--dry-run not supported for project ${projectId}, skipping update check`);
       return { hasUpdates: false, services: [] };
     }
+    const servicesWithUpdates: string[] = [];
+    for (const line of output.split('\n')) {
+      const pullingMatch = line.match(/Image\s+(\S+):\S+\s+Pulled/i);
+      if (pullingMatch) {
+        const imageName = pullingMatch[1].split(':')[0];
+        const service = imageToService.get(imageName) || imageName;
+        if (!servicesWithUpdates.includes(service)) {
+          servicesWithUpdates.push(service);
+        }
+      }
+    }
+    if (servicesWithUpdates.length > 0) {
+      return { hasUpdates: true, services: servicesWithUpdates };
+    }
+    console.error(`Image update check failed for project ${projectId}: ${output}`);
     return { hasUpdates: false, services: [] };
   }
 }

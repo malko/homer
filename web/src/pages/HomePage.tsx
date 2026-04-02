@@ -168,6 +168,44 @@ function TileIcon({ tile, size = 52 }: { tile: Tile; size?: number }) {
 
 // ─── Color picker row ─────────────────────────────────────────────────────────
 
+const PRESET_COLORS = [
+  '#0f172a', '#1e293b', '#1f2937', '#111827',
+  '#dc2626', '#ea580c', '#ca8a04', '#16a34a',
+  '#0891b2', '#2563eb', '#7c3aed', '#db2777',
+];
+
+const RECENT_COLORS_KEY = 'homelab_recent_colors';
+const MAX_RECENT = 8;
+
+function getRecentColors(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) ?? '[]'); }
+  catch { return []; }
+}
+
+function pushRecentColor(color: string) {
+  if (!color) return;
+  const recent = getRecentColors().filter(c => c !== color);
+  recent.unshift(color);
+  localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
+}
+
+function ColorSwatch({ color, active, onClick }: { color: string; active: boolean; onClick: () => void }) {
+  const isTransparent = !color;
+  return (
+    <div
+      onClick={onClick}
+      title={color || 'none'}
+      style={{
+        width: '22px', height: '22px', borderRadius: '5px', flexShrink: 0, cursor: 'pointer',
+        border: active ? '2px solid var(--color-primary)' : '2px solid var(--color-border)',
+        backgroundColor: isTransparent ? 'transparent' : color,
+        backgroundImage: isTransparent ? 'repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 0 0 / 8px 8px' : 'none',
+        boxShadow: active ? '0 0 0 1px var(--color-primary)' : undefined,
+      }}
+    />
+  );
+}
+
 function ColorRow({
   label,
   value,
@@ -180,39 +218,138 @@ function ColorRow({
   onClear: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [recentColors, setRecentColors] = useState<string[]>(() => getRecentColors());
+  const [panelOpen, setPanelOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!panelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [panelOpen]);
+
+  // Swatch / preset click — immediate + push to recent + close panel
+  const pick = (color: string) => {
+    onChange(color);
+    if (color) {
+      pushRecentColor(color);
+      setRecentColors(getRecentColors());
+    }
+    setPanelOpen(false);
+  };
+
+  // Live preview while dragging the native picker — debounced, no recent push
+  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const color = e.target.value;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onChange(color), 80);
+  };
+
+  // Native picker closed — flush final value + push to recent
+  const handleColorBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const color = e.target.value;
+    onChange(color);
+    if (color) {
+      pushRecentColor(color);
+      setRecentColors(getRecentColors());
+    }
+  };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', width: '90px', flexShrink: 0 }}>{label}</span>
-      <div
-        onClick={() => inputRef.current?.click()}
-        style={{
-          width: '28px', height: '28px', borderRadius: '6px', flexShrink: 0, cursor: 'pointer',
-          border: '2px solid var(--color-border)',
-          backgroundColor: value || 'transparent',
-          backgroundImage: value ? 'none' : 'repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 0 0 / 8px 8px',
-        }}
-        title="Pick color"
-      />
-      <input
-        ref={inputRef}
-        type="color"
-        value={value || '#1e293b'}
-        onChange={e => onChange(e.target.value)}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
-      />
-      <input
-        type="text"
-        className="input"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder="e.g. #1e293b or transparent"
-        style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem', flex: 1, fontFamily: 'monospace' }}
-      />
-      {value && (
-        <button className="btn btn-sm btn-secondary" onClick={onClear} style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>
-          ✕
-        </button>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', position: 'relative' }}>
+      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{label}</span>
+
+      {/* Main row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {/* Color preview — toggles the floating panel */}
+        <div
+          onClick={() => setPanelOpen(v => !v)}
+          style={{
+            width: '28px', height: '28px', borderRadius: '6px', flexShrink: 0, cursor: 'pointer',
+            border: panelOpen ? '2px solid var(--color-primary)' : '2px solid var(--color-border)',
+            backgroundColor: value || 'transparent',
+            backgroundImage: value ? 'none' : 'repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 0 0 / 8px 8px',
+            boxShadow: panelOpen ? '0 0 0 1px var(--color-primary)' : undefined,
+          }}
+          title="Choisir une couleur"
+        />
+        {/* Hidden native color input */}
+        <input
+          ref={inputRef}
+          type="color"
+          value={value || '#1e293b'}
+          onChange={handleColorChange}
+          onBlur={handleColorBlur}
+          style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0 }}
+        />
+        {/* Hex text input */}
+        <input
+          type="text"
+          className="input"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onBlur={e => { if (e.target.value) { pushRecentColor(e.target.value); setRecentColors(getRecentColors()); } }}
+          placeholder="ex: #1e293b"
+          style={{ fontSize: '0.78rem', padding: '0.25rem 0.5rem', flex: 1, fontFamily: 'monospace' }}
+        />
+        {value && (
+          <button className="btn btn-sm btn-secondary" onClick={onClear} style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Floating panel */}
+      {panelOpen && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200,
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border)',
+          borderRadius: '0.5rem',
+          padding: '0.625rem',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          display: 'flex', flexDirection: 'column', gap: '0.5rem',
+          minWidth: '220px',
+        }}>
+          {/* Preset grid */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+            {PRESET_COLORS.map(c => (
+              <ColorSwatch key={c} color={c} active={value === c} onClick={() => pick(c)} />
+            ))}
+          </div>
+
+          {/* Recent colors */}
+          {recentColors.length > 0 && (
+            <>
+              <div style={{ borderTop: '1px solid var(--color-border)' }} />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginRight: '0.1rem' }}>récent</span>
+                {recentColors.map(c => (
+                  <ColorSwatch key={c} color={c} active={value === c} onClick={() => pick(c)} />
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Custom color picker button */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.375rem' }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => inputRef.current?.click()}
+              style={{ width: '100%', fontSize: '0.78rem', justifyContent: 'center' }}
+            >
+              + Couleur personnalisée
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -295,7 +432,11 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
         <div className="modal-header">
           <h2 className="modal-title">
-            {tile.isExternal ? 'Edit external link' : `Edit — ${tile.projectName}${tile.serviceKey !== 'url' ? ` (${tile.serviceKey})` : ''}`}
+            {tile.isExternal
+              ? 'Edit external link'
+              : tile.projectName
+                ? `Edit — ${tile.projectName}${tile.serviceKey && tile.serviceKey !== 'url' && !tile.serviceKey.startsWith('proxy:') ? ` (${tile.serviceKey})` : ''}`
+                : `Edit — ${tile.defaultName}`}
           </h2>
           <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
@@ -397,8 +538,9 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
         {/* Colors */}
         <div className="input-group" style={{ marginTop: '1rem' }}>
           <label className="input-label">Colors</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
             <ColorRow label="Icon background" value={iconBg} onChange={setIconBg} onClear={() => setIconBg('')} />
+            <div style={{ borderTop: '1px solid var(--color-border)' }} />
             <ColorRow label="Card background" value={cardBg} onChange={setCardBg} onClear={() => setCardBg('')} />
           </div>
         </div>

@@ -6,8 +6,18 @@ import { TerminalPage } from './pages/TerminalPage';
 import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UpdateBanner } from './components/UpdateBanner';
+import { NavSidebar } from './components/NavSidebar';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="app-layout-with-nav">
+      <NavSidebar />
+      <div className="app-layout-content">{children}</div>
+    </div>
+  );
+}
+
+function ProtectedRoute({ children, noLayout }: { children: React.ReactNode; noLayout?: boolean }) {
   const { status, loading } = useAuth();
 
   if (loading) {
@@ -27,7 +37,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/change-password" replace />;
   }
 
-  return <>{children}</>;
+  if (noLayout) return <>{children}</>;
+  return <AppLayout>{children}</AppLayout>;
 }
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -131,7 +142,7 @@ function AppRoutes() {
       <Route
         path="/terminal"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute noLayout>
             <TerminalPage />
           </ProtectedRoute>
         }
