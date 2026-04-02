@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import type { ProxyHost, ProxyHostInput, SystemSettings, Container } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
-import { AppHeader } from '../components/AppHeader';
 import { ProxyHostForm } from '../components/ProxyHostForm';
 import { ProxyHostList } from '../components/ProxyHostList';
 import { JsonEditor } from '../components/JsonEditor';
@@ -40,8 +39,6 @@ export function SettingsPage() {
 
   return (
     <div className="settings-page">
-      <AppHeader />
-
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === 'general' ? 'settings-tab-active' : ''}`}
