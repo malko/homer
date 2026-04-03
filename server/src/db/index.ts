@@ -108,6 +108,7 @@ async function initDb() {
   // Migrations
   try { db.run('ALTER TABLE projects ADD COLUMN url TEXT'); } catch {}
   try { db.run('ALTER TABLE projects ADD COLUMN icon TEXT'); } catch {}
+  try { db.run("ALTER TABLE projects ADD COLUMN auto_update_policy TEXT DEFAULT 'all'"); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN icon_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN card_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN sort_order INTEGER'); } catch {}
@@ -146,6 +147,8 @@ export interface User {
   created_at: string;
 }
 
+export type AutoUpdatePolicy = 'disabled' | 'all' | 'semver_minor' | 'semver_patch';
+
 export interface Project {
   id: number;
   name: string;
@@ -154,6 +157,7 @@ export interface Project {
   url: string | null;
   icon: string | null;
   auto_update: number;
+  auto_update_policy: AutoUpdatePolicy;
   watch_enabled: number;
   created_at: string;
 }
@@ -247,14 +251,20 @@ export const projectQueries = {
     stmt.free();
     return undefined;
   },
-  create: (name: string, path: string, envPath: string | null) => {
-    db.run('INSERT INTO projects (name, path, env_path) VALUES (?, ?, ?)', [name, path, envPath]);
+  create: (name: string, path: string, envPath: string | null, autoUpdate: number = 0, autoUpdatePolicy: AutoUpdatePolicy = 'all') => {
+    db.run(
+      'INSERT INTO projects (name, path, env_path, auto_update, auto_update_policy) VALUES (?, ?, ?, ?, ?)',
+      [name, path, envPath, autoUpdate, autoUpdatePolicy]
+    );
     const result = db.exec('SELECT last_insert_rowid() as id');
     saveDb();
     return { lastInsertRowid: result[0].values[0][0] };
   },
-  update: (name: string, projectPath: string, envPath: string | null, url: string | null, icon: string | null, autoUpdate: number, watchEnabled: number, id: number) => {
-    db.run('UPDATE projects SET name = ?, path = ?, env_path = ?, url = ?, icon = ?, auto_update = ?, watch_enabled = ? WHERE id = ?', [name, projectPath, envPath, url, icon, autoUpdate, watchEnabled, id]);
+  update: (name: string, projectPath: string, envPath: string | null, url: string | null, icon: string | null, autoUpdate: number, autoUpdatePolicy: AutoUpdatePolicy, watchEnabled: number, id: number) => {
+    db.run(
+      'UPDATE projects SET name = ?, path = ?, env_path = ?, url = ?, icon = ?, auto_update = ?, auto_update_policy = ?, watch_enabled = ? WHERE id = ?',
+      [name, projectPath, envPath, url, icon, autoUpdate, autoUpdatePolicy, watchEnabled, id]
+    );
     saveDb();
   },
   delete: (id: number) => {

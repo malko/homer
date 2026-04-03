@@ -23,7 +23,7 @@ import { watcher } from './services/watcher.js';
 import { waitForDb, settingQueries, projectQueries } from './db/index.js';
 import { startAutoUpdateChecker, performUpdate } from './services/updater.js';
 import { initCaddyConfig } from './services/caddy.js';
-import { checkProjectImageUpdates } from './services/docker.js';
+import { checkProjectImageUpdates, updateProjectImages } from './services/docker.js';
 
 const fastify = Fastify({
   logger: true,
@@ -105,7 +105,7 @@ const start = async () => {
       ),
     );
 
-    // Periodic image update checker (every 6 hours)
+    // Periodic image update checker
     const checkAllProjectUpdates = async () => {
       try {
         const projects = projectQueries.getAll();
@@ -114,6 +114,15 @@ const start = async () => {
           settingQueries.set(`image_updates_${project.id}`, JSON.stringify({ ...result, checkedAt: Date.now() }));
           if (result.hasUpdates) {
             fastify.broadcast({ type: 'project_update_available', projectId: project.id, hasUpdates: true });
+            // Auto-apply if the project has auto_update enabled and policy is not disabled
+            if (project.auto_update && project.auto_update_policy !== 'disabled') {
+              fastify.log.info(`[auto-update] Applying updates for project ${project.id} (${project.name})`);
+              const updateResult = await updateProjectImages(project.id);
+              if (updateResult.changed) {
+                fastify.broadcast({ type: 'project_updated', projectId: project.id, changed: true });
+                fastify.log.info(`[auto-update] Updated project ${project.id}: ${updateResult.output}`);
+              }
+            }
           }
         }
       } catch (err) {

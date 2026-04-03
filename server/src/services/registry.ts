@@ -165,14 +165,59 @@ export async function getLocalDigest(image: string): Promise<string | null> {
   }
 }
 
+// ─── Semver helpers ───────────────────────────────────────────────────────────
+
+interface Semver { major: number; minor: number; patch: number; suffix: string }
+
+function parseSemver(tag: string): Semver | null {
+  // Support: 1.2.3, v1.2.3, 1.2 (patch = 0), 1 (minor = patch = 0)
+  // Support variant suffixes like -alpine, -slim, -bullseye
+  // Reject true pre-release tags like -rc1, -alpha2, -beta3 (letter + digit combo)
+  const m = tag.replace(/^v/, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(-.*)?$/);
+  if (!m) return null;
+  const suffix = m[4] ?? '';
+  if (suffix && /[a-zA-Z]/.test(suffix) && /\d/.test(suffix)) return null;
+  return {
+    major: parseInt(m[1]),
+    minor: m[2] !== undefined ? parseInt(m[2]) : 0,
+    patch: m[3] !== undefined ? parseInt(m[3]) : 0,
+    suffix,
+  };
+}
+
+function compareSemver(a: Semver, b: Semver): number {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
+// ─── Remote tag listing ───────────────────────────────────────────────────────
+
+async function listRemoteTags(ref: ImageRef, token: string | null): Promise<string[]> {
+  const url = `https://${ref.registry}/v2/${ref.repository}/tags/list`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  try {
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return [];
+    const data = await resp.json() as { tags?: string[] };
+    return data.tags ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface ImageUpdateResult {
   hasUpdate: boolean;
   localDigest: string | null;
   remoteDigest: string | null;
+  targetTag?: string;
   error?: string;
 }
+
+export type AutoUpdatePolicy = 'disabled' | 'all' | 'semver_minor' | 'semver_patch';
 
 export async function checkImageUpdate(image: string): Promise<ImageUpdateResult> {
   const [localDigest, remoteDigest] = await Promise.all([
@@ -184,9 +229,70 @@ export async function checkImageUpdate(image: string): Promise<ImageUpdateResult
     return { hasUpdate: false, localDigest, remoteDigest: null, error: 'Could not fetch remote digest' };
   }
   if (!localDigest) {
-    // Image not yet pulled locally — treat as no update needed
     return { hasUpdate: false, localDigest: null, remoteDigest, error: 'Image not found locally' };
   }
 
   return { hasUpdate: localDigest !== remoteDigest, localDigest, remoteDigest };
+}
+
+/** Check for updates respecting a semver policy.
+ *  For 'all': simple digest comparison (same as checkImageUpdate).
+ *  For semver policies: find the highest tag matching the constraint and compare digests.
+ *  Falls back to 'all' behaviour if the current tag is not valid semver.
+ */
+export async function checkImageUpdateWithPolicy(image: string, policy: AutoUpdatePolicy): Promise<ImageUpdateResult> {
+  if (policy === 'disabled') return { hasUpdate: false, localDigest: null, remoteDigest: null };
+  if (policy === 'all') return checkImageUpdate(image);
+
+  const ref = parseImageRef(image);
+  const currentSemver = parseSemver(ref.tag);
+  if (!currentSemver) {
+    // Non-semver tag (e.g. 'latest') — fall back to digest comparison
+    return checkImageUpdate(image);
+  }
+
+  const token = await getToken(ref);
+  if (token === null) return { hasUpdate: false, localDigest: null, remoteDigest: null, error: 'Auth failed' };
+
+  const allTags = await listRemoteTags(ref, token);
+
+  const compatible = allTags
+    .flatMap(t => { const sv = parseSemver(t); return sv ? [{ tag: t, sv }] : []; })
+    .filter(({ sv }) => {
+      if (sv.suffix !== currentSemver.suffix) return false; // same variant only (e.g. -alpine)
+      if (policy === 'semver_minor') return sv.major === currentSemver.major;
+      if (policy === 'semver_patch') return sv.major === currentSemver.major && sv.minor === currentSemver.minor;
+      return true;
+    })
+    .sort((a, b) => compareSemver(b.sv, a.sv));
+
+  if (compatible.length === 0) return checkImageUpdate(image);
+
+  const bestTag = compatible[0].tag;
+
+  // Build the image reference for the target tag
+  let targetImage: string;
+  if (ref.registry === 'registry-1.docker.io') {
+    const repoName = ref.repository.startsWith('library/')
+      ? ref.repository.slice(8)
+      : ref.repository;
+    targetImage = `${repoName}:${bestTag}`;
+  } else {
+    targetImage = `${ref.registry}/${ref.repository}:${bestTag}`;
+  }
+
+  const localDigest = await getLocalDigest(image);
+  const remoteDigest = bestTag === ref.tag
+    ? await getRemoteDigest(image)
+    : await getRemoteDigest(targetImage);
+
+  if (!remoteDigest) return { hasUpdate: false, localDigest, remoteDigest: null, error: 'Could not fetch remote digest', targetTag: bestTag };
+  if (!localDigest) return { hasUpdate: false, localDigest: null, remoteDigest, error: 'Image not found locally', targetTag: bestTag };
+
+  return {
+    hasUpdate: localDigest !== remoteDigest || bestTag !== ref.tag,
+    localDigest,
+    remoteDigest,
+    targetTag: bestTag !== ref.tag ? bestTag : undefined,
+  };
 }

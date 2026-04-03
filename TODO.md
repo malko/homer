@@ -2,33 +2,39 @@
 
 - [ ] Vérification des mises à jour
     - [x] revoir système de vérification des mises à jour des containers qui ne fonctionne pas. Implémenter un système de vérification du qui va se connecter directement aux hubs (Open Container Initiative) par api pour récuperer le digest de la dernière version (utilisation de fecth pas de libs). Récupération du digest actuel via commande docker inspect ou autre.
-    - [!] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
+    - [x] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
     - [x] Ajout d'une tache chronique pour vérifier les mises à jour plus options dans les paramètres pour le délai de vérification des mises à jour
     - [ ] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
 - [ ] Update
-    - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées
-    - [ ] Proposer un setting par projet (ou container) pour permettre une mise à jour automatique
+    - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées, vérifier que ça fonctionne ou corriger
 - [ ] Moniteur système
     - [ ] Ajouter une page moniteur avec:
         - nombre de containers running / nombre de containers
         - occupation RAM / CPU avec graphique
 - [ ] Revue Page Projets
-    - [ ] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
+    - [!] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
     - [ ] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
 - [ ] Genéral:
     - [ ] Ajout d'une section volumes listant tout les volumes des projets
     - [ ] Ajout d'une section networks 
     - [ ] Ajout d'une section Images  (possibilité de prune tout les images inutilisées, une seule)
-    - [ ] Ajout d'une section Containers (voir les status et la dispo de mises à jour)
+    - [ ] Ajout d'une section Containers (voir les status et la dispo de mises à jour) (réutiliser les composants container existants)
     - [ ] Déplacer la section proxy hosts et caddy de la section paramètres à une nouvelle section Proxy accessibles du menu principal
 - [ ] UI/UX
-    - [ ] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
-    - [ ] Ajouter titre des pages dans le header
-    - [ ] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
+    - [!] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
+    - [!] Ajouter titre des pages dans le header
+    - [!] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
     - [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
-    - [ ] Déplacer l'entrée de menu paramètres vers le bas du menu
-    - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut et laisser l'utilisateur saisir (1h, 6h, 12h, 1 jours, 1 semaine)
+    - [!] Déplacer l'entrée de menu paramètres vers le bas du menu
+    - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
 - [ ] Accès distant
     - Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
 - [ ] PAAS
-    - [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence. 
+    - [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence.
+        -  [ ] les builds pour les projets devront être exécutés dans des conteneurs isolés et jetables pour éviter de compromettre le système hote si les dépendances sont compromises. 
+- [ ] Template system:
+    - [ ] Regarder les templates proposer par d'autres solutions commes dokploy, casaos etc... et voir comment on pourrait permettre d'importer des templates depuis ces différentes sources.
+        - [ ] nécessité de pouvoir gérer des fichiers d'initialisation en plus du simple docker compose
+        - [ ] avoir des générateurs types mot de passe, nom de domaine etc pour pouvoir utiliser des templates types dokploy
+        - [ ] définir notre propre système de template pour qu'il soit le plus simple à unifier avec les autres systemes (Volonté de créer ensuite un standard ?)
+        - [ ] permettre de récupérer un template à partir d'un dépot git

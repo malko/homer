@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import { projectQueries } from '../db/index.js';
+import { checkImageUpdateWithPolicy } from './registry.js';
 
 const execAsync = promisify(exec);
 
@@ -185,6 +186,7 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
 
   const projectDir = path.dirname(project.path);
   const projectName = path.basename(projectDir);
+  const policy = project.auto_update_policy ?? 'all';
 
   // Collect service → image mappings from compose config
   const serviceImages: Array<{ service: string; image: string }> = [];
@@ -204,13 +206,11 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
 
   if (serviceImages.length === 0) return { hasUpdates: false, services: [] };
 
-  // Check each image against its registry digest
-  const { checkImageUpdate } = await import('./registry.js');
   const servicesWithUpdates: string[] = [];
 
   await Promise.all(serviceImages.map(async ({ service, image }) => {
     try {
-      const result = await checkImageUpdate(image);
+      const result = await checkImageUpdateWithPolicy(image, policy);
       if (result.hasUpdate) servicesWithUpdates.push(service);
     } catch (err) {
       console.warn(`[update-check] Failed for ${image}: ${err instanceof Error ? err.message : String(err)}`);

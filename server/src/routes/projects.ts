@@ -25,10 +25,13 @@ function getProjectPath(projectName: string): { composePath: string; envPath: st
   };
 }
 
+const AUTO_UPDATE_POLICIES = ['disabled', 'all', 'semver_minor', 'semver_patch'] as const;
+
 const projectSchema = z.object({
   name: z.string().min(1).max(100),
   envPath: z.string().optional().nullable(),
   autoUpdate: z.boolean().optional(),
+  autoUpdatePolicy: z.enum(AUTO_UPDATE_POLICIES).optional(),
   watchEnabled: z.boolean().optional(),
 });
 
@@ -38,6 +41,7 @@ const updateProjectSchema = z.object({
   url: z.string().url().optional().nullable().or(z.literal('')),
   icon: z.string().max(500000).optional().nullable(),
   autoUpdate: z.boolean().optional(),
+  autoUpdatePolicy: z.enum(AUTO_UPDATE_POLICIES).optional(),
   watchEnabled: z.boolean().optional(),
 });
 
@@ -129,7 +133,9 @@ export async function projectRoutes(fastify: FastifyInstance) {
       const result = projectQueries.create(
         body.name,
         composePath,
-        envPath
+        envPath,
+        body.autoUpdate ? 1 : 0,
+        body.autoUpdatePolicy ?? 'all'
       );
       
       const newProject = projectQueries.getById(Number(result.lastInsertRowid));
@@ -169,6 +175,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
       newUrl,
       newIcon,
       body.autoUpdate !== undefined ? (body.autoUpdate ? 1 : 0) : project.auto_update,
+      body.autoUpdatePolicy ?? project.auto_update_policy ?? 'all',
       body.watchEnabled !== undefined ? (body.watchEnabled ? 1 : 0) : project.watch_enabled,
       id
     );

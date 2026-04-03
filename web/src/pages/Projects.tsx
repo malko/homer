@@ -6,7 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
-import type { StandaloneContainer, ContainerDecision, ParseWarnings } from '../api';
+import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy } from '../api';
 
 function slugify(name: string): string {
   return name
@@ -26,9 +26,16 @@ const TOAST_ICONS: Record<ToastType, string> = { success: '✓', error: '✗', w
 
 // ─── Add Project Modal ──────────────────────────────────────────────────────
 
+const AUTO_UPDATE_POLICY_LABELS: Record<AutoUpdatePolicy, string> = {
+  disabled: 'Désactivée',
+  all: 'Toutes les mises à jour',
+  semver_minor: 'Mises à jour mineures (1.x.x)',
+  semver_patch: 'Patches uniquement (1.2.x)',
+};
+
 function AddProjectModal({ onClose, onAdd }: { onClose: () => void; onAdd: (projectId: number) => void }) {
   const [name, setName] = useState('');
-  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [autoUpdatePolicy, setAutoUpdatePolicy] = useState<AutoUpdatePolicy>('disabled');
   const [watchEnabled, setWatchEnabled] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,7 +53,11 @@ function AddProjectModal({ onClose, onAdd }: { onClose: () => void; onAdd: (proj
     setError('');
     setLoading(true);
     try {
-      const project = await addProject(name, { autoUpdate, watchEnabled });
+      const project = await addProject(name, {
+        autoUpdate: autoUpdatePolicy !== 'disabled',
+        autoUpdatePolicy,
+        watchEnabled,
+      });
       onAdd(project.id);
       onClose();
     } catch (err) {
@@ -81,14 +92,23 @@ function AddProjectModal({ onClose, onAdd }: { onClose: () => void; onAdd: (proj
               </p>
             )}
           </div>
-          <div className="toggle-group">
-            <div className={`toggle ${autoUpdate ? 'active' : ''}`} onClick={() => setAutoUpdate(!autoUpdate)}>
-              <div className="toggle-handle" />
-            </div>
-            <span className="toggle-label">Auto-update images</span>
+          <div className="input-group">
+            <label className="input-label">Mise à jour automatique</label>
+            <select
+              className="input"
+              value={autoUpdatePolicy}
+              onChange={(e) => setAutoUpdatePolicy(e.target.value as AutoUpdatePolicy)}
+            >
+              {(Object.keys(AUTO_UPDATE_POLICY_LABELS) as AutoUpdatePolicy[]).map(p => (
+                <option key={p} value={p}>{AUTO_UPDATE_POLICY_LABELS[p]}</option>
+              ))}
+            </select>
+            {autoUpdatePolicy !== 'disabled' && autoUpdatePolicy !== 'all' && (
+              <p className="form-help">Nécessite que les images utilisent des tags semver (ex: 1.25.3)</p>
+            )}
           </div>
           <div className="toggle-group">
-            <div className={`toggle ${watchEnabled ? 'active' : ''}`} onClick={() => setWatchEnabled(!watchEnabled)}>
+            <div className={`toggle ${watchEnabled ? 'toggle-active' : ''}`} onClick={() => setWatchEnabled(!watchEnabled)}>
               <div className="toggle-handle" />
             </div>
             <span className="toggle-label">Watch for file changes</span>

@@ -72,6 +72,8 @@ export interface Container {
   ports?: string[];
 }
 
+export type AutoUpdatePolicy = 'disabled' | 'all' | 'semver_minor' | 'semver_patch';
+
 export interface Project {
   id: number;
   name: string;
@@ -80,6 +82,7 @@ export interface Project {
   url: string | null;
   icon: string | null;
   auto_update: boolean;
+  auto_update_policy: AutoUpdatePolicy;
   watch_enabled: boolean;
   update_available?: boolean;
   created_at: string;
@@ -157,12 +160,12 @@ export const api = {
   projects: {
     list: () => request<Project[]>('/projects'),
     get: (id: number) => request<Project>(`/projects/${id}`),
-    create: (data: { name: string; autoUpdate?: boolean; watchEnabled?: boolean }) =>
+    create: (data: { name: string; autoUpdate?: boolean; autoUpdatePolicy?: AutoUpdatePolicy; watchEnabled?: boolean }) =>
       request<Project>('/projects', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (id: number, data: Partial<Project>) =>
+    update: (id: number, data: ProjectUpdatePayload) =>
       request<Project>(`/projects/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -349,6 +352,15 @@ export interface ProxyHostInput {
 export interface CaddySyncResult {
   success: boolean;
   error?: string;
+}
+
+export interface ProjectUpdatePayload {
+  name?: string;
+  url?: string | null;
+  icon?: string | null;
+  autoUpdate?: boolean;
+  autoUpdatePolicy?: AutoUpdatePolicy;
+  watchEnabled?: boolean;
 }
 
 export interface SystemSettings {

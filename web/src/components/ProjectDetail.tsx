@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
-import { api } from '../api';
+import { api, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { ProxyHostForm } from './ProxyHostForm';
@@ -190,6 +190,42 @@ function SettingToggle({ label, description, value, onChange }: {
       </div>
       <div className={`toggle ${value ? 'toggle-active' : ''}`} onClick={() => onChange(!value)}>
         <div className="toggle-handle" />
+      </div>
+    </div>
+  );
+}
+
+const AUTO_UPDATE_POLICY_LABELS: Record<AutoUpdatePolicy, string> = {
+  disabled: 'Désactivée',
+  all: 'Toutes les mises à jour',
+  semver_minor: 'Mises à jour mineures (1.x.x)',
+  semver_patch: 'Patches uniquement (1.2.x)',
+};
+
+function SettingSelect({ label, description, value, options, onChange }: {
+  label: string;
+  description: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+        <div>
+          <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{label}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>{description}</div>
+        </div>
+        <select
+          className="input"
+          style={{ width: 'auto', flexShrink: 0, fontSize: '0.8125rem' }}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {options.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
       </div>
     </div>
   );
@@ -789,14 +825,16 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             <div style={{ marginTop: '1.5rem' }}>
               <h3 className="section-title">Settings</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <SettingToggle
-                  label="Auto-update images"
-                  description="Pull latest images on each deploy"
-                  value={!!project.auto_update}
+                <SettingSelect
+                  label="Mise à jour automatique"
+                  description="Appliquer automatiquement les mises à jour lors de la vérification périodique"
+                  value={project.auto_update_policy ?? 'disabled'}
+                  options={(Object.keys(AUTO_UPDATE_POLICY_LABELS) as AutoUpdatePolicy[]).map(p => ({ value: p, label: AUTO_UPDATE_POLICY_LABELS[p] }))}
                   onChange={async (v) => {
+                    const policy = v as AutoUpdatePolicy;
                     try {
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      await api.projects.update(project.id, { autoUpdate: v } as any);
+                      await api.projects.update(project.id, { autoUpdate: policy !== 'disabled', autoUpdatePolicy: policy });
                       onRefresh();
                     } catch { addToast('error', 'Failed to update setting'); }
                   }}
@@ -808,7 +846,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   onChange={async (v) => {
                     try {
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      await api.projects.update(project.id, { watchEnabled: v } as any);
+                      await api.projects.update(project.id, { watchEnabled: v });
                       onRefresh();
                     } catch { addToast('error', 'Failed to update setting'); }
                   }}
