@@ -1,6 +1,6 @@
+import { useState, useRef, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { useTheme } from '../hooks/useTheme';
 import bigiconImage from '@assets/bigicon.png';
 
 function HomeIcon() {
@@ -32,7 +32,7 @@ function SettingsIcon() {
 
 function LogoutIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <polyline points="16 17 21 12 16 7" />
       <line x1="21" y1="12" x2="9" y2="12" />
@@ -40,40 +40,58 @@ function LogoutIcon() {
   );
 }
 
-function SunIcon() {
+function MenuExpandIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="5" />
-      <line x1="12" y1="1" x2="12" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="23" />
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-      <line x1="1" y1="12" x2="3" y2="12" />
-      <line x1="21" y1="12" x2="23" y2="12" />
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="18" x2="21" y2="18" />
     </svg>
   );
 }
 
-function MoonIcon() {
+function MenuCollapseIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      <polyline points="15 18 9 12 15 6" />
     </svg>
   );
 }
 
 export function NavSidebar() {
   const { logout, status } = useAuth();
-  const { resolvedTheme, toggleTheme } = useTheme();
+  const [expanded, setExpanded] = useState(() => {
+    return localStorage.getItem('nav-sidebar-expanded') === 'true';
+  });
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const toggleExpanded = () => {
+    setExpanded(prev => {
+      const next = !prev;
+      localStorage.setItem('nav-sidebar-expanded', String(next));
+      return next;
+    });
+  };
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showUserMenu]);
 
   const initials = status?.username
     ? status.username.slice(0, 2).toUpperCase()
     : '??';
 
   return (
-    <nav className="nav-sidebar">
+    <nav className={`nav-sidebar${expanded ? ' nav-sidebar--expanded' : ''}`}>
       {/* Header — same height as app-header, borders align */}
       <div className="nav-sidebar-header">
         <NavLink to="/home" className="nav-sidebar-logo-link">
@@ -104,6 +122,24 @@ export function NavSidebar() {
           <span className="nav-sidebar-label">Projets</span>
         </NavLink>
 
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Toggle button — always accessible */}
+        <button
+          className="nav-sidebar-item nav-sidebar-toggle-btn"
+          onClick={toggleExpanded}
+          title={expanded ? 'Réduire le menu' : 'Développer le menu'}
+        >
+          <span className="nav-sidebar-icon">
+            {expanded ? <MenuCollapseIcon /> : <MenuExpandIcon />}
+          </span>
+          <span className="nav-sidebar-label">Réduire</span>
+        </button>
+      </div>
+
+      {/* Bottom actions */}
+      <div className="nav-sidebar-bottom">
         <NavLink
           to="/settings"
           className={({ isActive }) =>
@@ -113,34 +149,26 @@ export function NavSidebar() {
           <span className="nav-sidebar-icon"><SettingsIcon /></span>
           <span className="nav-sidebar-label">Paramètres</span>
         </NavLink>
-      </div>
 
-      {/* Bottom actions */}
-      <div className="nav-sidebar-bottom">
-        <div className="nav-sidebar-user">
-          <div className="nav-sidebar-avatar">{initials}</div>
-          <span className="nav-sidebar-label nav-sidebar-username">{status?.username}</span>
+        {/* User section with dropdown */}
+        <div className="nav-sidebar-user-wrap" ref={userMenuRef}>
+          {showUserMenu && (
+            <div className="nav-sidebar-user-menu">
+              <button className="nav-sidebar-user-menu-item" onClick={() => { logout(); setShowUserMenu(false); }}>
+                <LogoutIcon />
+                <span>Déconnexion</span>
+              </button>
+            </div>
+          )}
+          <button
+            className={`nav-sidebar-user nav-sidebar-user-btn${showUserMenu ? ' nav-sidebar-user-btn--active' : ''}`}
+            onClick={() => setShowUserMenu(v => !v)}
+            title={status?.username}
+          >
+            <div className="nav-sidebar-avatar">{initials}</div>
+            <span className="nav-sidebar-label nav-sidebar-username">{status?.username}</span>
+          </button>
         </div>
-
-        <button
-          className="nav-sidebar-item nav-sidebar-theme"
-          onClick={toggleTheme}
-        >
-          <span className="nav-sidebar-icon">
-            {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
-          </span>
-          <span className="nav-sidebar-label">
-            {resolvedTheme === 'dark' ? 'Mode clair' : 'Mode sombre'}
-          </span>
-        </button>
-
-        <button
-          className="nav-sidebar-item nav-sidebar-logout"
-          onClick={logout}
-        >
-          <span className="nav-sidebar-icon"><LogoutIcon /></span>
-          <span className="nav-sidebar-label">Déconnexion</span>
-        </button>
       </div>
     </nav>
   );

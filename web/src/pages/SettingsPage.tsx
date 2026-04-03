@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { AppHeader } from '../components/AppHeader';
 import { api } from '../api';
 import type { ProxyHost, ProxyHostInput, SystemSettings, Container } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
@@ -39,6 +40,7 @@ export function SettingsPage() {
 
   return (
     <div className="settings-page">
+      <AppHeader title="Paramètres" />
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === 'general' ? 'settings-tab-active' : ''}`}

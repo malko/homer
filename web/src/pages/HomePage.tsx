@@ -118,6 +118,27 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
   return [...withOrder, ...withoutOrder];
 }
 
+// ─── Color utilities ─────────────────────────────────────────────────────────
+
+function isColorDark(color: string): boolean {
+  const c = color.trim();
+  let r = 0, g = 0, b = 0;
+  if (c.startsWith('#')) {
+    const hex = c.slice(1);
+    const full = hex.length === 3
+      ? hex.split('').map(x => x + x).join('')
+      : hex;
+    r = parseInt(full.slice(0, 2), 16);
+    g = parseInt(full.slice(2, 4), 16);
+    b = parseInt(full.slice(4, 6), 16);
+  } else {
+    const m = c.match(/\d+/g);
+    if (!m || m.length < 3) return false;
+    [r, g, b] = m.map(Number);
+  }
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
+}
+
 // ─── Tile icon ────────────────────────────────────────────────────────────────
 
 const FORCE_LETTER = '__letter__';
@@ -671,10 +692,12 @@ function ServiceTileCard({
     isDragOver ? 'service-tile-drag-over' : '',
   ].filter(Boolean).join(' ');
 
+  const textColor = tile.cardBg ? (isColorDark(tile.cardBg) ? '#ffffff' : '#0f172a') : undefined;
+
   return (
     <div
       className={tileClasses}
-      style={tile.cardBg ? { backgroundColor: tile.cardBg } : {}}
+      style={tile.cardBg ? { backgroundColor: tile.cardBg, color: textColor } : {}}
       draggable={editMode}
       onDragStart={e => onDragStart(e, tile.tileKey)}
       onDragOver={e => onDragOver(e, tile.tileKey)}
@@ -722,6 +745,7 @@ function ServiceTileCard({
         target="_blank"
         rel="noopener noreferrer"
         className="service-tile-link"
+        style={textColor ? { color: textColor } : {}}
         onClick={e => editMode && e.preventDefault()}
       >
         <TileIcon tile={tile} />
@@ -927,9 +951,7 @@ export function HomePage() {
 
   return (
     <div className="layout">
-      <AppHeader>
-        <Link to="/projects" className="btn btn-primary btn-sm">Manage Projects</Link>
-      </AppHeader>
+      <AppHeader title="Accueil" />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
         {editMode && (
@@ -946,22 +968,24 @@ export function HomePage() {
             <Link to="/projects" className="btn btn-primary" style={{ marginTop: '1rem' }}>Go to Projects</Link>
           </div>
         ) : (
-          <div className={`service-grid${editMode ? ' service-grid-edit' : ''}`}>
-            {displayTiles.map(tile => (
-              <ServiceTileCard
-                key={tile.tileKey}
-                tile={tile}
-                editMode={editMode}
-                isDragOver={dragOverKey === tile.tileKey}
-                onEdit={setEditingTile}
-                onToggleHidden={handleToggleHidden}
-                onDelete={tile.isExternal ? handleDeleteExternal : undefined}
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                onDragEnd={handleDragEnd}
-              />
-            ))}
+          <div className="home-grid-wrapper">
+            <div className={`service-grid${editMode ? ' service-grid-edit' : ''}`}>
+              {displayTiles.map(tile => (
+                <ServiceTileCard
+                  key={tile.tileKey}
+                  tile={tile}
+                  editMode={editMode}
+                  isDragOver={dragOverKey === tile.tileKey}
+                  onEdit={setEditingTile}
+                  onToggleHidden={handleToggleHidden}
+                  onDelete={tile.isExternal ? handleDeleteExternal : undefined}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

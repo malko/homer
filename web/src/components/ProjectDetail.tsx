@@ -9,7 +9,7 @@ import { ProxyHostForm } from './ProxyHostForm';
 import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
 
-type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
+export type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
 type ToastType = 'success' | 'error' | 'warning';
 
 // ─── ANSI → HTML ─────────────────────────────────────────────────────────────
@@ -117,6 +117,7 @@ interface ProjectDetailProps {
   onDelete: () => void;
   addToast: (type: ToastType, message: string) => void;
   initialTab?: TabType;
+  onTabChange?: (tab: TabType) => void;
 }
 
 function ContainerRow({ container, onRefresh }: { container: Container; onRefresh?: () => void }) {
@@ -231,8 +232,13 @@ function SettingSelect({ label, description, value, options, onChange }: {
   );
 }
 
-export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialTab }: ProjectDetailProps) {
+export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialTab, onTabChange }: ProjectDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'overview');
+
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
   const { hosts: proxyHosts, loading: proxyLoading, createHost, updateHost, deleteHost, toggleHost, refetch: refetchProxy } = useProxyHosts(project.id);
 
   // Action states
@@ -710,10 +716,10 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   const tabs: { id: TabType; label: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'logs', label: 'Logs' },
     { id: 'compose', label: 'Compose' },
     { id: 'env', label: 'Env' },
     { id: 'terminal', label: 'Terminal' },
+    { id: 'logs', label: 'Logs' },
     { id: 'proxy', label: 'Proxy' },
   ];
 
@@ -762,7 +768,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           <button
             key={tab.id}
             className={`detail-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
           >
             {tab.label}
           </button>

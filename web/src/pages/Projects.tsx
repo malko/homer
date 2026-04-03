@@ -6,6 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
+import type { TabType } from '../components/ProjectDetail';
 import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy } from '../api';
 
 function slugify(name: string): string {
@@ -402,16 +403,34 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
 
 export function ProjectsPage() {
   const { projects, loading, error, refetch } = useProjects();
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [initialTab, setInitialTab] = useState<'overview' | 'compose'>('overview');
-  const [searchParams] = useSearchParams();
-  useEffect(() => {
-    const selectId = searchParams.get('select');
-    if (selectId) {
-      const id = parseInt(selectId, 10);
-      if (!isNaN(id)) setSelectedProjectId(id);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() => {
+    const id = parseInt(searchParams.get('project') ?? '', 10);
+    return isNaN(id) ? null : id;
+  });
+  const [initialTab, setInitialTab] = useState<TabType>(() => {
+    const tab = searchParams.get('tab') as TabType | null;
+    const valid: TabType[] = ['overview', 'compose', 'env', 'terminal', 'logs', 'proxy'];
+    return tab && valid.includes(tab) ? tab : 'overview';
+  });
+
+  const selectProject = useCallback((id: number | null, tab: TabType = 'overview') => {
+    setSelectedProjectId(id);
+    setInitialTab(tab);
+    if (id === null) {
+      setSearchParams({}, { replace: true });
+    } else {
+      setSearchParams({ project: String(id), tab }, { replace: true });
     }
-  }, []);
+  }, [setSearchParams]);
+
+  const handleTabChange = useCallback((tab: TabType) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [search, setSearch] = useState('');
@@ -461,7 +480,7 @@ export function ProjectsPage() {
 
   return (
     <div className="layout">
-      <AppHeader stats={projects.length > 0 ? `${projects.length} project${projects.length !== 1 ? 's' : ''} · ${runningContainers}/${totalContainers} running` : undefined}>
+      <AppHeader title={selectedProject ? selectedProject.name : 'Projets'} stats={projects.length > 0 ? `${projects.length} projet${projects.length !== 1 ? 's' : ''} · ${runningContainers}/${totalContainers} running` : undefined}>
         <button className="btn btn-secondary btn-sm" onClick={() => setShowImportModal(true)}>Import</button>
         <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>Add Project</button>
       </AppHeader>
@@ -511,7 +530,7 @@ export function ProjectsPage() {
                 <div
                   key={project.id}
                   className={`project-list-item ${selectedProjectId === project.id ? 'selected' : ''}`}
-                  onClick={() => { setSelectedProjectId(project.id); setInitialTab('overview'); }}
+                  onClick={() => selectProject(project.id, 'overview')}
                 >
                   <span className={`status-dot-lg ${dotClass}`} />
                   <div className="project-list-item-info">
@@ -538,9 +557,10 @@ export function ProjectsPage() {
               key={selectedProject.id}
               project={selectedProject}
               onRefresh={refetch}
-              onDelete={() => { setSelectedProjectId(null); refetch(); }}
+              onDelete={() => { selectProject(null); refetch(); }}
               addToast={addToast}
               initialTab={initialTab}
+              onTabChange={handleTabChange}
             />
           ) : (
             <div className="empty-state">
@@ -568,7 +588,7 @@ export function ProjectsPage() {
         ))}
       </div>
 
-      {showAddModal && <AddProjectModal onClose={() => setShowAddModal(false)} onAdd={(projectId) => { setInitialTab('compose'); setSelectedProjectId(projectId); refetch(); }} />}
+      {showAddModal && <AddProjectModal onClose={() => setShowAddModal(false)} onAdd={(projectId) => { selectProject(projectId, 'compose'); refetch(); }} />}
       {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} onImport={refetch} />}
     </div>
   );
