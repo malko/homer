@@ -107,3 +107,53 @@
 .monitor-progress-fill--cpu {
   background: var(--color-success);
 }
+
+.stacked-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.stacked-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stacked-bar-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+
+.stacked-bar-track {
+  height: 6px;
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stacked-bar-fill {
+  position: absolute;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.stacked-bar-fill.system {
+  z-index: 1;
+}
+
+.stacked-bar-fill.homer {
+  background: var(--color-primary);
+  z-index: 2;
+  opacity: 0.9;
+}
+
+.stacked-bar-values {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
+}

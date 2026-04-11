@@ -34,6 +34,10 @@ export interface SystemStats {
   memoryUsage: number;
   memoryLimit: number;
   memoryPercent: number;
+  systemCpuPercent: number;
+  systemMemoryUsage: number;
+  systemMemoryTotal: number;
+  systemMemoryPercent: number;
 }
 
 export interface ImageInfo {
@@ -138,16 +142,41 @@ export async function getSystemStats(): Promise<SystemStats> {
     }
 
     let systemMemoryTotal = 0;
+    let systemMemoryAvailable = 0;
     try {
-      const meminfo = await execCommand("cat /proc/meminfo | grep MemTotal");
-      const match = meminfo.match(/MemTotal:\s+(\d+)/);
-      if (match) {
-        systemMemoryTotal = parseInt(match[1]) * 1024;
+      const meminfo = await execCommand("cat /proc/meminfo");
+      const totalMatch = meminfo.match(/MemTotal:\s+(\d+)/);
+      const availMatch = meminfo.match(/MemAvailable:\s+(\d+)/);
+      if (totalMatch) systemMemoryTotal = parseInt(totalMatch[1]) * 1024;
+      if (availMatch) systemMemoryAvailable = parseInt(availMatch[1]) * 1024;
+    } catch {}
+
+    let systemCpuPercent = 0;
+    try {
+      const stat1 = await execCommand("cat /proc/stat | grep '^cpu '");
+      const parts1 = stat1.match(/cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const stat2 = await execCommand("cat /proc/stat | grep '^cpu '");
+      const parts2 = stat2.match(/cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
+      
+      if (parts1 && parts2) {
+        const idle1 = parseInt(parts1[4]);
+        const total1 = parseInt(parts1[1]) + parseInt(parts1[2]) + parseInt(parts1[3]) + parseInt(parts1[4]);
+        const idle2 = parseInt(parts2[4]);
+        const total2 = parseInt(parts2[1]) + parseInt(parts2[2]) + parseInt(parts2[3]) + parseInt(parts2[4]);
+        
+        const idleDiff = idle2 - idle1;
+        const totalDiff = total2 - total1;
+        if (totalDiff > 0) {
+          systemCpuPercent = ((totalDiff - idleDiff) / totalDiff) * 100;
+        }
       }
     } catch {}
 
     const effectiveMemLimit = totalMemLimit > 0 ? totalMemLimit : systemMemoryTotal;
     const memoryPercent = effectiveMemLimit > 0 ? (totalMemUsage / effectiveMemLimit) * 100 : 0;
+    const systemMemoryUsage = systemMemoryTotal - systemMemoryAvailable;
+    const systemMemoryPercent = systemMemoryTotal > 0 ? (systemMemoryUsage / systemMemoryTotal) * 100 : 0;
 
     return {
       totalContainers: containers.length,
@@ -156,6 +185,10 @@ export async function getSystemStats(): Promise<SystemStats> {
       memoryUsage: totalMemUsage,
       memoryLimit: effectiveMemLimit,
       memoryPercent,
+      systemCpuPercent,
+      systemMemoryUsage,
+      systemMemoryTotal,
+      systemMemoryPercent,
     };
   } catch {
     return {
@@ -165,6 +198,10 @@ export async function getSystemStats(): Promise<SystemStats> {
       memoryUsage: 0,
       memoryLimit: 0,
       memoryPercent: 0,
+      systemCpuPercent: 0,
+      systemMemoryUsage: 0,
+      systemMemoryTotal: 0,
+      systemMemoryPercent: 0,
     };
   }
 }

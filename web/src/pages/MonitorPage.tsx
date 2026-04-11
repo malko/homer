@@ -10,11 +10,17 @@ interface SystemStats {
   memoryUsage: number;
   memoryLimit: number;
   memoryPercent: number;
+  systemCpuPercent: number;
+  systemMemoryUsage: number;
+  systemMemoryTotal: number;
+  systemMemoryPercent: number;
 }
 
 interface HistoryPoint {
   cpu: number;
   memory: number;
+  systemCpu: number;
+  systemMemory: number;
   timestamp: number;
 }
 
@@ -71,6 +77,40 @@ function SimpleChart({ data, maxValue }: { data: number[]; maxValue: number }) {
   );
 }
 
+function StackedBar({ label, systemValue, systemPercent, homerValue, homerPercent, color = 'var(--color-info)' }: {
+  label: string;
+  systemValue: string;
+  systemPercent: number;
+  homerValue: string;
+  homerPercent: number;
+  color?: string;
+}) {
+  const homerWidth = Math.min(homerPercent, 100);
+  const systemWidth = Math.min(systemPercent, 100);
+  
+  return (
+    <div className="stacked-bar-container">
+      <div className="stacked-bar-label">{label}</div>
+      <div className="stacked-bar-track">
+        <div 
+          className="stacked-bar-fill homer" 
+          style={{ width: `${homerWidth}%` }}
+          title={`HOMER: ${homerValue} (${homerPercent.toFixed(1)}%)`}
+        />
+        <div 
+          className="stacked-bar-fill system" 
+          style={{ width: `${systemWidth}%`, backgroundColor: color }}
+          title={`Système: ${systemValue} (${systemPercent.toFixed(1)}%)`}
+        />
+      </div>
+      <div className="stacked-bar-values">
+        <span>H: {homerValue}</span>
+        <span>S: {systemValue}</span>
+      </div>
+    </div>
+  );
+}
+
 export function MonitorPage() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +126,8 @@ export function MonitorPage() {
             const newPoint: HistoryPoint = {
               cpu: data.cpuPercent,
               memory: data.memoryPercent,
+              systemCpu: data.systemCpuPercent,
+              systemMemory: data.systemMemoryPercent,
               timestamp: Date.now(),
             };
             const newHistory = [...h, newPoint];
@@ -121,100 +163,100 @@ export function MonitorPage() {
     ? (stats.runningContainers / stats.totalContainers) * 100
     : 0;
 
-  const cpuMax = Math.max(100, (stats?.cpuPercent ?? 0) * 1.5, 10);
+  const cpuMax = Math.max(100, (stats?.systemCpuPercent ?? 0) * 1.5, 10);
   const memMax = 100;
 
   return (
     <div className="monitor-page">
       <AppHeader title="Moniteur système" stats={stats ? `${stats.runningContainers}/${stats.totalContainers} containers` : undefined} />
       <div className="monitor-content" ref={containerRef}>
-      <div className="monitor-section">
-        <h3 className="monitor-section-title">Containers</h3>
-        <div className="monitor-cards">
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats?.totalContainers ?? 0}</div>
-            <div className="monitor-card-label">Total</div>
+        <div className="monitor-section">
+          <h3 className="monitor-section-title">Containers</h3>
+          <div className="monitor-cards">
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats?.totalContainers ?? 0}</div>
+              <div className="monitor-card-label">Total</div>
+            </div>
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats?.runningContainers ?? 0}</div>
+              <div className="monitor-card-label">En cours</div>
+            </div>
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats ? (stats.totalContainers - stats.runningContainers) : 0}</div>
+              <div className="monitor-card-label">Arrêtés</div>
+            </div>
           </div>
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats?.runningContainers ?? 0}</div>
-            <div className="monitor-card-label">En cours</div>
-          </div>
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats ? (stats.totalContainers - stats.runningContainers) : 0}</div>
-            <div className="monitor-card-label">Arrêtés</div>
+          <div className="monitor-progress">
+            <div className="monitor-progress-label">
+              <span>Utilisation des containers</span>
+              <span>{containerPercent.toFixed(0)}%</span>
+            </div>
+            <div className="monitor-progress-bar">
+              <div
+                className="monitor-progress-fill"
+                style={{ width: `${containerPercent}%` }}
+              />
+            </div>
           </div>
         </div>
-        <div className="monitor-progress">
-          <div className="monitor-progress-label">
-            <span>Utilisation des containers</span>
-            <span>{containerPercent.toFixed(0)}%</span>
-          </div>
-          <div className="monitor-progress-bar">
-            <div
-              className="monitor-progress-fill"
-              style={{ width: `${containerPercent}%` }}
-            />
-          </div>
-        </div>
-      </div>
 
-      <div className="monitor-section">
-        <h3 className="monitor-section-title">Mémoire</h3>
-        <div className="monitor-cards">
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats ? formatBytes(stats.memoryUsage) : '0 B'}</div>
-            <div className="monitor-card-label">Utilisée</div>
+        <div className="monitor-section">
+          <h3 className="monitor-section-title">Mémoire</h3>
+          <div className="monitor-cards">
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats ? formatBytes(stats.memoryUsage) : '0 B'}</div>
+              <div className="monitor-card-label">HOMER</div>
+            </div>
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats && stats.systemMemoryTotal > 0 ? formatBytes(stats.systemMemoryTotal) : 'N/A'}</div>
+              <div className="monitor-card-label">Système</div>
+            </div>
           </div>
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats && stats.memoryLimit > 0 ? formatBytes(stats.memoryLimit) : 'N/A'}</div>
-            <div className="monitor-card-label">Limite système</div>
-          </div>
-        </div>
-        {history.length > 1 && (
-          <div className="monitor-chart-wrapper">
-            <SimpleChart data={history.map(h => h.memory)} maxValue={memMax} />
-          </div>
-        )}
-        <div className="monitor-progress">
-          <div className="monitor-progress-label">
-            <span>Utilisation mémoire</span>
-            <span>{stats?.memoryPercent?.toFixed(1) ?? 0}%</span>
-          </div>
-          <div className="monitor-progress-bar">
-            <div
-              className="monitor-progress-fill monitor-progress-fill--memory"
-              style={{ width: `${Math.min(stats?.memoryPercent ?? 0, 100)}%` }}
+          {history.length > 1 && (
+            <div className="monitor-chart-wrapper">
+              <SimpleChart data={history.map(h => h.systemMemory)} maxValue={memMax} />
+            </div>
+          )}
+          <div className="stacked-bars">
+            <StackedBar 
+              label="Mémoire" 
+              homerValue={stats ? formatBytes(stats.memoryUsage) : '0 B'}
+              homerPercent={stats?.memoryPercent ?? 0}
+              systemValue={stats ? formatBytes(stats.systemMemoryUsage) : '0 B'}
+              systemPercent={stats?.systemMemoryPercent ?? 0}
+              color="var(--color-info)"
             />
           </div>
         </div>
-      </div>
 
-      <div className="monitor-section">
-        <h3 className="monitor-section-title">CPU</h3>
-        <div className="monitor-cards">
-          <div className="monitor-card">
-            <div className="monitor-card-value">{stats?.cpuPercent?.toFixed(1) ?? 0}%</div>
-            <div className="monitor-card-label">Total</div>
+        <div className="monitor-section">
+          <h3 className="monitor-section-title">CPU</h3>
+          <div className="monitor-cards">
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats?.cpuPercent?.toFixed(1) ?? 0}%</div>
+              <div className="monitor-card-label">HOMER</div>
+            </div>
+            <div className="monitor-card">
+              <div className="monitor-card-value">{stats?.systemCpuPercent?.toFixed(1) ?? 0}%</div>
+              <div className="monitor-card-label">Système</div>
+            </div>
           </div>
-        </div>
-        {history.length > 1 && (
-          <div className="monitor-chart-wrapper">
-            <SimpleChart data={history.map(h => h.cpu)} maxValue={cpuMax} />
-          </div>
-        )}
-        <div className="monitor-progress">
-          <div className="monitor-progress-label">
-            <span>Utilisation CPU</span>
-            <span>{stats?.cpuPercent?.toFixed(1) ?? 0}%</span>
-          </div>
-          <div className="monitor-progress-bar">
-            <div
-              className="monitor-progress-fill monitor-progress-fill--cpu"
-              style={{ width: `${Math.min(stats?.cpuPercent ?? 0, 100)}%` }}
+          {history.length > 1 && (
+            <div className="monitor-chart-wrapper">
+              <SimpleChart data={history.map(h => h.systemCpu)} maxValue={cpuMax} />
+            </div>
+          )}
+          <div className="stacked-bars">
+            <StackedBar 
+              label="CPU" 
+              homerValue={`${stats?.cpuPercent?.toFixed(1) ?? 0}%`}
+              homerPercent={stats?.cpuPercent ?? 0}
+              systemValue={`${stats?.systemCpuPercent?.toFixed(1) ?? 0}%`}
+              systemPercent={stats?.systemCpuPercent ?? 0}
+              color="var(--color-success)"
             />
           </div>
         </div>
-      </div>
       </div>
     </div>
   );
