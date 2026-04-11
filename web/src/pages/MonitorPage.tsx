@@ -44,7 +44,9 @@ function SimpleChart({
   label,
   currentValue,
   color,
-  chartId
+  chartId,
+  homerData,
+  homerCurrent
 }: { 
   data: number[]; 
   maxValue: number;
@@ -52,17 +54,25 @@ function SimpleChart({
   currentValue: string;
   color: string;
   chartId: string;
+  homerData?: number[];
+  homerCurrent?: string;
 }) {
   if (data.length < 2 || maxValue <= 0) return null;
   
   const width = 200;
   const height = 50;
   const pathPoints: number[] = [];
+  const homerPoints: number[] = [];
   
   for (let i = 0; i < data.length; i++) {
     const x = (i / (data.length - 1)) * width;
     const y = height - Math.min((data[i] / maxValue) * height, height);
     pathPoints.push(x, y);
+    
+    if (homerData && homerData[i] !== undefined) {
+      const hy = height - Math.min((homerData[i] / maxValue) * height, height);
+      homerPoints.push(x, hy);
+    }
   }
   
   let pathD = `M ${pathPoints[0]} ${pathPoints[1]}`;
@@ -73,8 +83,20 @@ function SimpleChart({
   const linePathD = pathD;
   const areaPathD = `${pathD} L ${width} ${height} L 0 ${height} Z`;
   
+  let homerPathD = '';
+  if (homerPoints.length > 0) {
+    homerPathD = `M ${homerPoints[0]} ${homerPoints[1]}`;
+    for (let i = 2; i < homerPoints.length; i += 2) {
+      homerPathD += ` L ${homerPoints[i]} ${homerPoints[i + 1]}`;
+    }
+  }
+  
+  const title = homerCurrent 
+    ? `${label}: ${currentValue} | HOMER: ${homerCurrent}`
+    : `${label}: ${currentValue}`;
+  
   return (
-    <div className="simple-chart" title={`${label}: ${currentValue}`}>
+    <div className="simple-chart" title={title}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <defs>
           <linearGradient id={`chartGradient-${chartId}`} x1="0" y1="0" x2="0" y2="1">
@@ -83,6 +105,9 @@ function SimpleChart({
           </linearGradient>
         </defs>
         <path d={areaPathD} fill={`url(#chartGradient-${chartId})`} />
+        {homerPoints.length > 0 && (
+          <path d={homerPathD} fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4,2" />
+        )}
         <path d={linePathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
@@ -234,6 +259,8 @@ export function MonitorPage() {
                 currentValue={`${stats?.systemMemoryPercent?.toFixed(1) ?? 0}%`}
                 color="var(--color-info)"
                 chartId="memory"
+                homerData={history.map(h => h.memory)}
+                homerCurrent={`${stats?.memoryPercent?.toFixed(1) ?? 0}%`}
               />
             </div>
           )}
@@ -271,6 +298,8 @@ export function MonitorPage() {
                 currentValue={`${stats?.systemCpuPercent?.toFixed(1) ?? 0}%`}
                 color="var(--color-success)"
                 chartId="cpu"
+                homerData={history.map(h => h.cpu)}
+                homerCurrent={`${stats?.cpuPercent?.toFixed(1) ?? 0}%`}
               />
             </div>
           )}
