@@ -7,6 +7,7 @@ import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
 import type { TabType } from '../components/ProjectDetail';
+import { PROJECT_SOURCES } from '../config/projectSources';
 import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy } from '../api';
 
 function slugify(name: string): string {
@@ -24,6 +25,66 @@ type ToastType = 'success' | 'error' | 'warning';
 interface Toast { id: number; type: ToastType; message: string; }
 
 const TOAST_ICONS: Record<ToastType, string> = { success: '✓', error: '✗', warning: '!' };
+
+// ─── Add Project Selector Modal ───────────────────────────────────────────
+
+type SelectorAction = 'create' | 'docker-run' | 'migrate' | 'existing';
+
+interface AddProjectSelectorModalProps {
+  onClose: () => void;
+  onSelect: (action: SelectorAction, existingProjectsCount?: number) => void;
+}
+
+function AddProjectSelectorModal({ onClose, onSelect }: AddProjectSelectorModalProps) {
+  const [existingCount, setExistingCount] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function checkExisting() {
+      try {
+        const { api } = await import('../api');
+        const result = await api.import.getExistingProjects();
+        setExistingCount(result.projects.length);
+      } catch (err) {
+        console.error('Failed to check existing projects:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    checkExisting();
+  }, []);
+
+  const handleSelect = (action: SelectorAction) => {
+    onSelect(action, existingCount);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <div className="modal-header">
+          <h2 className="modal-title">Ajouter un projet</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="project-source-grid">
+          {PROJECT_SOURCES.map((source) => {
+            if (source.id === 'existing' && existingCount === 0 && !loading) return null;
+            return (
+              <button
+                key={source.id}
+                className="project-source-card"
+                onClick={() => handleSelect(source.id as SelectorAction)}
+              >
+                <span className="project-source-icon">{source.icon}</span>
+                <span className="project-source-label">{source.label}</span>
+                <span className="project-source-desc">{source.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Add Project Modal ──────────────────────────────────────────────────────
 
@@ -129,9 +190,18 @@ function AddProjectModal({ onClose, onAdd }: { onClose: () => void; onAdd: (proj
 
 // ─── Import Modal ───────────────────────────────────────────────────────────
 
-function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () => void }) {
+interface ImportModalProps {
+  onClose: () => void;
+  onImport: () => void;
+  initialTab?: 'run' | 'migrate' | 'existing';
+}
+
+function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps) {
   const [step, setStep] = useState<'input' | 'decisions' | 'preview'>('input');
-  const [tab, setTab] = useState<'run' | 'migrate'>('run');
+  const [tab, setTab] = useState<'run' | 'migrate' | 'existing'>(() => {
+    const valid: ('run' | 'migrate' | 'existing')[] = ['run', 'migrate', 'existing'];
+    return valid.includes(initialTab) ? initialTab : 'run';
+  });
   const [dockerRunCmd, setDockerRunCmd] = useState('');
   const [standaloneContainers, setStandaloneContainers] = useState<StandaloneContainer[]>([]);
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
@@ -144,12 +214,51 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [existingProjects, setExistingProjects] = useState<Array<{ name: string; path: string; composeExists: boolean }>>([]);
+  const [selectedExisting, setSelectedExisting] = useState<Set<string>>(new Set());
+  const [importingExisting, setImportingExisting] = useState(false);
+  const [containerSearch, setContainerSearch] = useState('');
 
   const resetState = () => {
     setStep('input'); setDockerRunCmd(''); setStandaloneContainers([]);
     setSelectedContainers(new Set()); setDecisions([]); setAcceptedDecisions({});
     setWarnings({ unsupported: [], skipped: [] }); setEditedCompose('');
     setEditedEnv(''); setProjectName(''); setError('');
+    setExistingProjects([]); setSelectedExisting(new Set());
+    setContainerSearch('');
+  };
+
+  const handleLoadExistingProjects = async () => {
+    setLoading(true);
+    try {
+      const { api } = await import('../api');
+      const result = await api.import.getExistingProjects();
+      setExistingProjects(result.projects);
+    } catch (err) {
+      console.error('Failed to load existing projects:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleExistingProject = (path: string) => {
+    const next = new Set(selectedExisting);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    setSelectedExisting(next);
+  };
+
+  const handleImportExistingProjects = async () => {
+    if (selectedExisting.size === 0) { setError('Please select at least one project'); return; }
+    setImportingExisting(true); setError('');
+    try {
+      const { api } = await import('../api');
+      await api.import.importExisting(Array.from(selectedExisting));
+      onImport(); onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import projects');
+    } finally {
+      setImportingExisting(false);
+    }
   };
 
   const handleParseCommand = async () => {
@@ -207,11 +316,19 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
   };
 
   const generateMigrateCompose = async (decs: Record<string, boolean>) => {
-    const { api } = await import('../api');
-    const result = await api.import.containersToCompose(Array.from(selectedContainers), decs);
-    setEditedCompose(result.compose); setEditedEnv(result.envContent);
-    setWarnings(result.warnings);
-    if (!projectName) setProjectName('migrated-project');
+    setLoading(true);
+    try {
+      const { api } = await import('../api');
+      const result = await api.import.containersToCompose(Array.from(selectedContainers), decs);
+      setEditedCompose(result.compose); setEditedEnv(result.envContent);
+      setWarnings(result.warnings);
+      if (!projectName) setProjectName('migrated-project');
+      setStep('preview');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate compose');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleConfirmDecisions = async () => {
@@ -255,8 +372,8 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
   };
 
   const renderStepIndicator = () => {
-    const steps = tab === 'run' ? ['Input', 'Preview'] : ['Select', 'Decisions', 'Preview'];
-    const currentIndex = step === 'input' ? 0 : step === 'decisions' ? 1 : 2;
+    const steps = tab === 'run' ? ['Input', 'Preview'] : tab === 'migrate' ? ['Select', 'Decisions', 'Preview'] : ['Select Projects'];
+    const currentIndex = tab === 'existing' ? 0 : step === 'input' ? 0 : step === 'decisions' ? 1 : 2;
     return (
       <div className="wizard-steps">
         {steps.map((s, i) => (
@@ -271,7 +388,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal import-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px' }}>
+      <div className="modal import-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '90vw' }}>
         <div className="modal-header">
           <h2 className="modal-title">Import / Migrate</h2>
           <button className="modal-close" onClick={onClose}>&times;</button>
@@ -280,6 +397,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
         <div className="import-tabs">
           <button className={`import-tab ${tab === 'run' ? 'active' : ''}`} onClick={() => { setTab('run'); resetState(); }}>From docker run</button>
           <button className={`import-tab ${tab === 'migrate' ? 'active' : ''}`} onClick={() => { setTab('migrate'); resetState(); }}>Migrate containers</button>
+          <button className={`import-tab ${tab === 'existing' ? 'active' : ''}`} onClick={() => { setTab('existing'); resetState(); }}>Existing projects</button>
         </div>
 
         {step === 'input' && (
@@ -303,8 +421,22 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
                 <button className="btn btn-secondary" onClick={handleLoadStandalone} disabled={loading}>{loading ? 'Scanning...' : 'Scan for Containers'}</button>
                 {!loading && standaloneContainers.length > 0 && (
                   <>
-                    <div className="standalone-list" style={{ marginTop: '1rem', maxHeight: '200px', overflowY: 'auto' }}>
-                      {standaloneContainers.map((c) => (
+                    <div style={{ marginTop: '1rem' }}>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Search containers..."
+                        value={containerSearch}
+                        onChange={(e) => setContainerSearch(e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div className="standalone-list" style={{ marginTop: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                      {standaloneContainers.filter(c => 
+                        containerSearch === '' || 
+                        c.name.toLowerCase().includes(containerSearch.toLowerCase()) ||
+                        c.image.toLowerCase().includes(containerSearch.toLowerCase())
+                      ).map((c) => (
                         <div key={c.id} className={`standalone-item ${selectedContainers.has(c.id) ? 'selected' : ''}`} onClick={() => handleToggleContainer(c.id)}>
                           <input type="checkbox" checked={selectedContainers.has(c.id)} onChange={() => {}} onClick={(e) => e.stopPropagation()} />
                           <div className="standalone-info">
@@ -324,6 +456,37 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: () 
                 )}
                 {!loading && standaloneContainers.length === 0 && (
                   <p style={{ color: 'var(--color-text-muted)', marginTop: '1rem', fontSize: '0.875rem' }}>No standalone containers found.</p>
+                )}
+              </>
+            )}
+            {tab === 'existing' && (
+              <>
+                <p style={{ color: 'var(--color-text-muted)', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                  Discover projects in the data folder that are not yet managed
+                </p>
+                <button className="btn btn-secondary" onClick={handleLoadExistingProjects} disabled={loading}>{loading ? 'Scanning...' : 'Scan for Projects'}</button>
+                {!loading && existingProjects.length > 0 && (
+                  <>
+                    <div className="standalone-list" style={{ marginTop: '1rem', maxHeight: '200px', overflowY: 'auto' }}>
+                      {existingProjects.map((p) => (
+                        <div key={p.path} className={`standalone-item ${selectedExisting.has(p.path) ? 'selected' : ''}`} onClick={() => handleToggleExistingProject(p.path)}>
+                          <input type="checkbox" checked={selectedExisting.has(p.path)} onChange={() => {}} onClick={(e) => e.stopPropagation()} />
+                          <div className="standalone-info">
+                            <span className="standalone-name">{p.name}</span>
+                            <span className="standalone-image">{p.path}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="form-actions" style={{ marginTop: '1rem' }}>
+                      <button className="btn btn-primary" onClick={handleImportExistingProjects} disabled={importingExisting || selectedExisting.size === 0}>
+                        {importingExisting ? 'Importing...' : `Import ${selectedExisting.size} project${selectedExisting.size !== 1 ? 's' : ''}`}
+                      </button>
+                    </div>
+                  </>
+                )}
+                {!loading && existingProjects.length === 0 && (
+                  <p style={{ color: 'var(--color-text-muted)', marginTop: '1rem', fontSize: '0.875rem' }}>No new projects found in the data folder.</p>
                 )}
               </>
             )}
@@ -431,8 +594,10 @@ export function ProjectsPage() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+  const [showSelectorModal, setShowSelectorModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importInitialTab, setImportInitialTab] = useState<'run' | 'migrate' | 'existing'>('run');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'running' | 'stopped' | 'updatable'>('all');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -455,6 +620,31 @@ export function ProjectsPage() {
       refetch();
     }
   });
+
+  const handleSelectorAction = (action: SelectorAction) => {
+    setShowSelectorModal(false);
+    switch (action) {
+      case 'create':
+        setShowAddModal(true);
+        break;
+      case 'docker-run':
+        setImportInitialTab('run');
+        setShowImportModal(true);
+        break;
+      case 'migrate':
+        setImportInitialTab('migrate');
+        setShowImportModal(true);
+        break;
+      case 'existing':
+        setImportInitialTab('existing');
+        setShowImportModal(true);
+        break;
+    }
+  };
+
+  const handleSelectorClose = () => {
+    setShowSelectorModal(false);
+  };
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) ?? null;
 
@@ -481,8 +671,7 @@ export function ProjectsPage() {
   return (
     <div className="layout">
       <AppHeader title={selectedProject ? selectedProject.name : 'Projets'} stats={projects.length > 0 ? `${projects.length} projet${projects.length !== 1 ? 's' : ''} · ${runningContainers}/${totalContainers} running` : undefined}>
-        <button className="btn btn-secondary btn-sm" onClick={() => setShowImportModal(true)}>Import</button>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>Add Project</button>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowSelectorModal(true)}>Ajouter un projet</button>
       </AppHeader>
 
       {/* Body: sidebar + detail */}
@@ -568,7 +757,7 @@ export function ProjectsPage() {
               <h3>Select a project</h3>
               <p>Click a project in the sidebar to view details</p>
               {projects.length === 0 && (
-                <button className="btn btn-primary" onClick={() => setShowAddModal(true)} style={{ marginTop: '1rem' }}>
+                <button className="btn btn-primary" onClick={() => setShowSelectorModal(true)} style={{ marginTop: '1rem' }}>
                   Add your first project
                 </button>
               )}
@@ -588,8 +777,9 @@ export function ProjectsPage() {
         ))}
       </div>
 
+      {showSelectorModal && <AddProjectSelectorModal onClose={handleSelectorClose} onSelect={handleSelectorAction} />}
       {showAddModal && <AddProjectModal onClose={() => setShowAddModal(false)} onAdd={(projectId) => { selectProject(projectId, 'compose'); refetch(); }} />}
-      {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} onImport={refetch} />}
+      {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} onImport={refetch} initialTab={importInitialTab} />}
     </div>
   );
 }
