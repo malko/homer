@@ -43,13 +43,15 @@ function SimpleChart({
   maxValue, 
   label,
   currentValue,
-  color 
+  color,
+  chartId
 }: { 
   data: number[]; 
   maxValue: number;
   label: string;
   currentValue: string;
   color: string;
+  chartId: string;
 }) {
   if (data.length < 2 || maxValue <= 0) return null;
   
@@ -75,12 +77,12 @@ function SimpleChart({
     <div className="simple-chart" title={`${label}: ${currentValue}`}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <defs>
-          <linearGradient id={`chartGradient-${label}`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`chartGradient-${chartId}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.3" />
             <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
         </defs>
-        <path d={areaPathD} fill={`url(#chartGradient-${label})`} />
+        <path d={areaPathD} fill={`url(#chartGradient-${chartId})`} />
         <path d={linePathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
@@ -231,6 +233,7 @@ export function MonitorPage() {
                 label="Mémoire système"
                 currentValue={`${stats?.systemMemoryPercent?.toFixed(1) ?? 0}%`}
                 color="var(--color-info)"
+                chartId="memory"
               />
             </div>
           )}
@@ -267,6 +270,7 @@ export function MonitorPage() {
                 label="CPU système"
                 currentValue={`${stats?.systemCpuPercent?.toFixed(1) ?? 0}%`}
                 color="var(--color-success)"
+                chartId="cpu"
               />
             </div>
           )}
