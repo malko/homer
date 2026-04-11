@@ -395,6 +395,13 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [faviconLoading, setFaviconLoading] = useState(false);
+  const [colorsLoading, setColorsLoading] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -405,16 +412,34 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
     e.target.value = '';
   };
 
-  const handleFetchFavicon = async () => {
+const handleFetchFavicon = async () => {
     setFaviconLoading(true);
     try {
       const { dataUri } = await api.home.fetchFavicon(url || tile.url);
       setIcon(dataUri);
       setIconPreviewError(false);
     } catch {
-      // silently ignore — favicon not available
+      showToast('Could not fetch favicon');
     } finally {
       setFaviconLoading(false);
+    }
+  };
+
+  const handleFetchColors = async () => {
+    setColorsLoading(true);
+    try {
+      const colors = await api.home.fetchColors(url || tile.url);
+      if (colors.iconBg) setIconBg(colors.iconBg);
+      if (colors.cardBg) setCardBg(colors.cardBg);
+      if (colors.iconBg || colors.cardBg) {
+        setIconPreviewError(false);
+      } else {
+        showToast('No colors found on this site');
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not fetch colors');
+    } finally {
+      setColorsLoading(false);
     }
   };
 
@@ -558,7 +583,17 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
 
         {/* Colors */}
         <div className="input-group" style={{ marginTop: '1rem' }}>
-          <label className="input-label">Colors</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label className="input-label">Colors</label>
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={handleFetchColors}
+              disabled={colorsLoading}
+              style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem' }}
+            >
+              {colorsLoading ? 'Fetching…' : '⬇ From site'}
+            </button>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
             <ColorRow label="Icon background" value={iconBg} onChange={setIconBg} onClear={() => setIconBg('')} />
             <div style={{ borderTop: '1px solid var(--color-border)' }} />
@@ -580,6 +615,11 @@ function EditModal({ tile, onClose, onSave }: EditModalProps) {
         {saveError && (
           <div style={{ marginTop: '1rem', padding: '0.5rem 0.75rem', backgroundColor: 'var(--color-error-bg, #3d1a1a)', color: 'var(--color-error, #f87171)', borderRadius: '0.375rem', fontSize: '0.825rem' }}>
             {saveError}
+          </div>
+        )}
+        {toast && (
+          <div style={{ marginTop: '1rem', padding: '0.5rem 0.75rem', backgroundColor: toast.type === 'error' ? 'var(--color-error-bg, #3d1a1a)' : 'var(--color-success-bg, #1a3d1a)', color: toast.type === 'error' ? 'var(--color-error, #f87171)' : 'var(--color-success, #4ade80)', borderRadius: '0.375rem', fontSize: '0.825rem' }}>
+            {toast.message}
           </div>
         )}
         <div className="form-actions" style={{ marginTop: '1.25rem' }}>

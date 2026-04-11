@@ -4,10 +4,60 @@ import { homeTileQueries, externalTileQueries, sessionQueries, proxyHostQueries,
 
 const MAX_FAVICON_BYTES = 512 * 1024;
 
-async function fetchWithTimeout(url: string): Promise<Response | null> {
+const LOCAL_DOMAINS = ['.home', '.local', '.lan'];
+
+function isLocalDomain(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return LOCAL_DOMAINS.some(d => hostname.endsWith(d));
+  } catch {
+    return false;
+  }
+}
+
+async function fetchWithTimeout(url: string, redirectCount = 0, currentUrl?: string): Promise<Response | null> {
+  if (redirectCount > 5) return null;
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
+  currentUrl ??= url;
+
   try {
+    if (isLocalDomain(url)) {
+      const httpOrHttps = url.startsWith('https') ? (await import('https')) : (await import('http'));
+      const httpsOptions = url.startsWith('https') ? { rejectUnauthorized: false } : {};
+      const response = await new Promise<Response>((resolve) => {
+        const req = httpOrHttps.get(url, httpsOptions, (res) => {
+          const location = res.headers.location;
+          if (location && res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
+            clearTimeout(timeout);
+            const newUrl = new URL(location, url).href;
+            fetchWithTimeout(newUrl, redirectCount + 1, newUrl).then(r => resolve(r as Response));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            clearTimeout(timeout);
+            const body = Buffer.concat(chunks);
+            const headers: Record<string, string> = {};
+            for (const [k, v] of Object.entries(res.headers)) {
+              if (v) headers[k] = Array.isArray(v) ? v[0] : v;
+            }
+            resolve(new Response(body, { status: res.statusCode, headers }));
+          });
+        });
+        req.on('error', () => { clearTimeout(timeout); resolve(null as unknown as Response); });
+      });
+      if (response) {
+        const location = response.headers.get('location');
+        if (location && response.status && response.status >= 300 && response.status < 400) {
+          return fetchWithTimeout(new URL(location, url).href, redirectCount + 1, new URL(location, url).href);
+        }
+      }
+      return response;
+    }
+
     return await fetch(url, { signal: controller.signal });
   } catch {
     return null;
@@ -49,13 +99,14 @@ async function tryFetchImage(url: string): Promise<{ dataUri: string } | null> {
   return { dataUri: `data:${mime};base64,${base64}` };
 }
 
-async function findFaviconInHtml(serviceUrl: string): Promise<string | null> {
+async function findFaviconInHtml(serviceUrl: string): Promise<{ href: string; finalUrl: string } | null> {
   const res = await fetchWithTimeout(serviceUrl);
   if (!res || !res.ok) return null;
   const ct = (res.headers.get('content-type') ?? '');
   if (!ct.includes('text/html')) return null;
 
   const html = await res.text();
+  const finalUrl = serviceUrl;
   const linkRe = /<link([^>]+)>/gi;
   const relRe = /\brel=["']([^"']+)["']/i;
   const hrefRe = /\bhref=["']([^"']+)["']/i;
@@ -68,9 +119,144 @@ async function findFaviconInHtml(serviceUrl: string): Promise<string | null> {
     if (!relM || !iconRels.has(relM[1].toLowerCase())) continue;
     const hrefM = hrefRe.exec(attrs);
     if (!hrefM) continue;
-    try { return new URL(hrefM[1], serviceUrl).href; } catch {}
+    try { return { href: new URL(hrefM[1], serviceUrl).href, finalUrl: serviceUrl }; } catch {}
   }
   return null;
+}
+
+interface SiteColors {
+  iconBg: string | null;
+  cardBg: string | null;
+}
+
+function isColorValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return /^#/.test(v) || /^rgb/.test(v) || /^hsl/.test(v);
+}
+
+function extractColorFromCss(css: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = css.match(pattern);
+    if (match && isColorValue(match[1])) return match[1].trim();
+  }
+  return null;
+}
+
+async function fetchExternalCss(baseUrl: string, html: string): Promise<string> {
+  const linkRe = /<link[^>]+rel=["']stylesheet["'][^>]*>/gi;
+  const hrefRe = /href=["']([^"']+)["']/i;
+  const results: string[] = [];
+
+  const inlineStyles = html.replace(/<\/?style[^>]*>/gi, ' ');
+  results.push(inlineStyles);
+
+  let match;
+  while ((match = linkRe.exec(html)) !== null) {
+    const attrs = match[0];
+    const hrefMatch = hrefRe.exec(attrs);
+    if (!hrefMatch) continue;
+    const cssUrl = hrefMatch[1];
+    try {
+      const fullUrl = new URL(cssUrl, baseUrl).href;
+      const cssRes = await fetchWithTimeout(fullUrl);
+      if (cssRes && cssRes.ok) {
+        const cssText = await cssRes.text();
+        results.push(cssText);
+      }
+    } catch {}
+  }
+
+  return results.join('\n');
+}
+
+function parseThemeColorMeta(html: string): { primary: string | null; background: string | null } {
+  const themeMetaRe = /<meta[^>]+name=["']theme-color["'][^>]*content=["']([^"']+)["']/i;
+  const metaMatch = themeMetaRe.exec(html);
+  const themeColor = metaMatch?.[1] ?? null;
+
+  if (!themeColor) return { primary: null, background: null };
+
+  const isLight = (hex: string) => {
+    const h = hex.replace('#', '');
+    const full = h.length === 3 ? h[0]+h[0]+h[1]+h[1]+h[2]+h[2] : h;
+    if (full.length < 6) return true;
+    const r = parseInt(full.substring(0, 2), 16);
+    const g = parseInt(full.substring(2, 4), 16);
+    const b = parseInt(full.substring(4, 6), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return true;
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 128;
+  };
+
+  const hex = themeColor.replace('#', '');
+  const isLightBg = hex.length >= 6 ? isLight(hex) : isLight(hex);
+
+  return isLightBg 
+    ? { background: themeColor, primary: null }
+    : { primary: themeColor, background: null };
+}
+
+async function findThemeColors(serviceUrl: string): Promise<SiteColors | null> {
+  const baseUrlObj = new URL(serviceUrl);
+  const res = await fetchWithTimeout(serviceUrl);
+  if (!res || !res.ok) return null;
+  const ct = (res.headers.get('content-type') ?? '');
+  if (!ct.includes('text/html')) return null;
+
+  const html = await res.text();
+  const { primary: metaPrimary, background: metaBackground } = parseThemeColorMeta(html);
+
+  const allCss = await fetchExternalCss(serviceUrl, html);
+
+  const iconBgPatterns = [
+    /--primary\s*:\s*([^;]+)/i,
+    /--accent\s*:\s*([^;]+)/i,
+    /--brand\s*:\s*([^;]+)/i,
+    /--color-primary\s*:\s*([^;]+)/i,
+    /--theme\s*:\s*([^;]+)/i,
+    /\.btn-primary[^}]*\{[^}]*background[^:]*:\s*([^;]+)/i,
+    /\.button-primary[^}]*\{[^}]*background[^:]*:\s*([^;]+)/i,
+    /\.text-primary[^}]*\{[^}]*color[^:]*:\s*([^;]+)/i,
+    /\[data-theme[^}]*\{[^}]*--primary\s*:\s*([^;]+)/i,
+  ];
+
+  const cardBgPatterns = [
+    /--bg\s*:\s*([^;]+)/i,
+    /--background(?:-color)?\s*:\s*([^;]+)/i,
+    /--page-bg\s*:\s*([^;]+)/i,
+    /--card-bg\s*:\s*([^;]+)/i,
+    /--surface\s*:\s*([^;]+)/i,
+    /--color-bg\s*:\s*([^;]+)/i,
+    /--body-bg\s*:\s*([^;]+)/i,
+    /body\s*\{[^}]*background(-color)?[^:]*:\s*([^;]+)/i,
+    /html\s*\{[^}]*background(-color)?[^:]*:\s*([^;]+)/i,
+  ];
+
+  let iconBg = metaPrimary || extractColorFromCss(allCss, iconBgPatterns);
+  let cardBg = metaBackground || extractColorFromCss(allCss, cardBgPatterns);
+
+  if (!iconBg && cardBg) {
+    const getBrightness = (color: string): number => {
+      const hex = color.replace('#', '').replace(/^rgb\(/, '').replace(/^rgba\(/, '').replace(/\).*/, '').split(',')[0].trim();
+      if (hex.length < 2 || isNaN(parseInt(hex, 16))) return 0;
+      const full = hex.length === 3 ? hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2] : hex;
+      if (full.length < 6) return 0;
+      const r = parseInt(full.substring(0, 2), 16);
+      const g = parseInt(full.substring(2, 4), 16);
+      const b = parseInt(full.substring(4, 6), 16);
+      if (isNaN(r) || isNaN(g) || isNaN(b)) return 0;
+      return (r * 299 + g * 587 + b * 114) / 1000;
+    };
+
+    if (getBrightness(cardBg) > 180) {
+      iconBg = cardBg;
+      cardBg = null;
+    }
+  }
+
+  if (!iconBg && !cardBg) return null;
+
+  return { iconBg, cardBg };
 }
 
 function resolveUpstreamUrl(serviceUrl: string): string {
@@ -87,15 +273,32 @@ function resolveUpstreamUrl(serviceUrl: string): string {
 }
 
 async function fetchFavicon(serviceUrl: string): Promise<{ dataUri: string } | null> {
-  const resolvedUrl = resolveUpstreamUrl(serviceUrl);
   let base: URL;
-  try { base = new URL(resolvedUrl); } catch { return null; }
+  try { base = new URL(serviceUrl); } catch { return null; }
 
   const direct = await tryFetchImage(new URL('/favicon.ico', base).href);
   if (direct) return direct;
 
-  const iconHref = await findFaviconInHtml(base.href);
-  if (iconHref) return tryFetchImage(iconHref);
+  const iconResult = await findFaviconInHtml(base.href);
+  if (iconResult) {
+    const finalBase = new URL(iconResult.finalUrl);
+    const iconUrl = new URL(iconResult.href, finalBase).href;
+    return tryFetchImage(iconUrl);
+  }
+
+  const resolvedUrl = resolveUpstreamUrl(serviceUrl);
+  if (resolvedUrl === serviceUrl) return null;
+  try { base = new URL(resolvedUrl); } catch { return null; }
+
+  const directResolved = await tryFetchImage(new URL('/favicon.ico', base).href);
+  if (directResolved) return directResolved;
+
+  const iconResultResolved = await findFaviconInHtml(base.href);
+  if (iconResultResolved) {
+    const finalBaseResolved = new URL(iconResultResolved.finalUrl);
+    const iconUrlResolved = new URL(iconResultResolved.href, finalBaseResolved).href;
+    return tryFetchImage(iconUrlResolved);
+  }
 
   return null;
 }
@@ -143,6 +346,25 @@ export async function homeRoutes(fastify: FastifyInstance) {
     const result = await fetchFavicon(url);
     if (!result) return reply.status(404).send({ error: 'Favicon not found' });
     return result;
+  });
+
+  fastify.get('/api/home/colors', async (request, reply) => {
+    const { url } = request.query as { url?: string };
+    if (!url) return reply.status(400).send({ error: 'Missing url parameter' });
+
+    try { new URL(url); } catch {
+      return reply.status(400).send({ error: 'Invalid url' });
+    }
+
+    try {
+      const result = await findThemeColors(url);
+      if (!result) return reply.status(404).send({ error: 'No colors found' });
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      fastify.log.error(err, 'Error fetching colors');
+      return reply.status(500).send({ error: msg });
+    }
   });
 
   fastify.get('/api/home/tiles', async () => {

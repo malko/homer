@@ -230,6 +230,8 @@ export const api = {
       }),
     fetchFavicon: (url: string) =>
       request<{ dataUri: string }>(`/home/favicon?url=${encodeURIComponent(url)}`),
+    fetchColors: (url: string) =>
+      request<{ iconBg: string | null; cardBg: string | null }>(`/home/colors?url=${encodeURIComponent(url)}`),
     setOrder: (items: Array<{ type: 'tile'; projectId: number; serviceKey: string; sortOrder: number } | { type: 'external'; id: number; sortOrder: number } | { type: 'proxy-tile'; proxyHostId: number; sortOrder: number }>) =>
       request<{ success: boolean }>('/home/order', {
         method: 'POST',
@@ -318,6 +320,13 @@ export const api = {
       request<{ success: boolean; project: Project; composePath: string; envPath: string | null }>('/import/save', {
         method: 'POST',
         body: JSON.stringify(data),
+      }),
+    getExistingProjects: () =>
+      request<{ projects: Array<{ name: string; path: string; composeExists: boolean }> }>('/import/existing-projects'),
+    importExisting: (projectPaths: string[]) =>
+      request<{ results: Array<{ name: string; path: string; success: boolean; error?: string }> }>('/import/existing', {
+        method: 'POST',
+        body: JSON.stringify({ projectPaths }),
       }),
   },
 };
