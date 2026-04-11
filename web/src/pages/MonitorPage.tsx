@@ -38,7 +38,19 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function SimpleChart({ data, maxValue }: { data: number[]; maxValue: number }) {
+function SimpleChart({ 
+  data, 
+  maxValue, 
+  label,
+  currentValue,
+  color 
+}: { 
+  data: number[]; 
+  maxValue: number;
+  label: string;
+  currentValue: string;
+  color: string;
+}) {
   if (data.length < 2 || maxValue <= 0) return null;
   
   const width = 200;
@@ -59,31 +71,30 @@ function SimpleChart({ data, maxValue }: { data: number[]; maxValue: number }) {
   const linePathD = pathD;
   const areaPathD = `${pathD} L ${width} ${height} L 0 ${height} Z`;
   
-  const strokeColor = maxValue > 50 ? 'var(--color-success)' : 'var(--color-info)';
-  
   return (
-    <div className="simple-chart">
+    <div className="simple-chart" title={`${label}: ${currentValue}`}>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <defs>
-          <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.3" />
-            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.05" />
+          <linearGradient id={`chartGradient-${label}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
         </defs>
-        <path d={areaPathD} fill="url(#chartGradient)" />
-        <path d={linePathD} fill="none" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={areaPathD} fill={`url(#chartGradient-${label})`} />
+        <path d={linePathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   );
 }
 
-function StackedBar({ label, systemValue, systemPercent, homerValue, homerPercent, color = 'var(--color-info)' }: {
+function StackedBar({ label, systemValue, systemPercent, homerValue, homerPercent, homerColor = 'var(--color-primary)', systemColor = 'var(--color-info)' }: {
   label: string;
   systemValue: string;
   systemPercent: number;
   homerValue: string;
   homerPercent: number;
-  color?: string;
+  homerColor?: string;
+  systemColor?: string;
 }) {
   const homerWidth = Math.min(homerPercent, 100);
   const systemWidth = Math.min(systemPercent, 100);
@@ -94,18 +105,18 @@ function StackedBar({ label, systemValue, systemPercent, homerValue, homerPercen
       <div className="stacked-bar-track">
         <div 
           className="stacked-bar-fill homer" 
-          style={{ width: `${homerWidth}%` }}
+          style={{ width: `${homerWidth}%`, backgroundColor: homerColor }}
           title={`HOMER: ${homerValue} (${homerPercent.toFixed(1)}%)`}
         />
         <div 
           className="stacked-bar-fill system" 
-          style={{ width: `${systemWidth}%`, backgroundColor: color }}
+          style={{ width: `${systemWidth}%`, backgroundColor: systemColor }}
           title={`Système: ${systemValue} (${systemPercent.toFixed(1)}%)`}
         />
       </div>
       <div className="stacked-bar-values">
-        <span>H: {homerValue}</span>
-        <span>S: {systemValue}</span>
+        <span style={{ color: homerColor }}>● HOMER: {homerValue}</span>
+        <span style={{ color: systemColor }}>● Système: {systemValue}</span>
       </div>
     </div>
   );
@@ -214,7 +225,13 @@ export function MonitorPage() {
           </div>
           {history.length > 1 && (
             <div className="monitor-chart-wrapper">
-              <SimpleChart data={history.map(h => h.systemMemory)} maxValue={memMax} />
+              <SimpleChart 
+                data={history.map(h => h.systemMemory)} 
+                maxValue={memMax} 
+                label="Mémoire système"
+                currentValue={`${stats?.systemMemoryPercent?.toFixed(1) ?? 0}%`}
+                color="var(--color-info)"
+              />
             </div>
           )}
           <div className="stacked-bars">
@@ -224,7 +241,8 @@ export function MonitorPage() {
               homerPercent={stats?.memoryPercent ?? 0}
               systemValue={stats ? formatBytes(stats.systemMemoryUsage) : '0 B'}
               systemPercent={stats?.systemMemoryPercent ?? 0}
-              color="var(--color-info)"
+              homerColor="var(--color-primary)"
+              systemColor="var(--color-info)"
             />
           </div>
         </div>
@@ -243,7 +261,13 @@ export function MonitorPage() {
           </div>
           {history.length > 1 && (
             <div className="monitor-chart-wrapper">
-              <SimpleChart data={history.map(h => h.systemCpu)} maxValue={cpuMax} />
+              <SimpleChart 
+                data={history.map(h => h.systemCpu)} 
+                maxValue={cpuMax}
+                label="CPU système"
+                currentValue={`${stats?.systemCpuPercent?.toFixed(1) ?? 0}%`}
+                color="var(--color-success)"
+              />
             </div>
           )}
           <div className="stacked-bars">
@@ -253,7 +277,8 @@ export function MonitorPage() {
               homerPercent={stats?.cpuPercent ?? 0}
               systemValue={`${stats?.systemCpuPercent?.toFixed(1) ?? 0}%`}
               systemPercent={stats?.systemCpuPercent ?? 0}
-              color="var(--color-success)"
+              homerColor="var(--color-primary)"
+              systemColor="var(--color-success)"
             />
           </div>
         </div>

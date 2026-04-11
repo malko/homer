@@ -143,17 +143,18 @@
 
 .stacked-bar-fill.system {
   z-index: 1;
+  background: var(--color-info) !important;
 }
 
 .stacked-bar-fill.homer {
-  background: var(--color-primary);
+  background: var(--color-primary) !important;
   z-index: 2;
-  opacity: 0.9;
 }
 
 .stacked-bar-values {
   display: flex;
   justify-content: space-between;
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   color: var(--color-text-muted);
+  margin-top: 0.25rem;
 }
