@@ -70,6 +70,7 @@ export interface Container {
   service?: string;
   created: string;
   ports?: string[];
+  update_available?: boolean;
 }
 
 export type AutoUpdatePolicy = 'disabled' | 'all' | 'semver_minor' | 'semver_patch';
@@ -267,6 +268,8 @@ export const api = {
     update: () =>
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
     getContainers: () => request<Container[]>('/system/containers'),
+    getUpdates: () => request<{ hasUpdates: boolean; projects: Array<{ id: number; name: string; services: string[] }> }>('/system/updates'),
+    getStats: () => request<{ totalContainers: number; runningContainers: number; cpuPercent: number; memoryUsage: number; memoryLimit: number; memoryPercent: number }>('/system/stats'),
   },
 
   proxy: {

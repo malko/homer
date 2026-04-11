@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { sessionQueries, settingQueries } from '../db/index.js';
+import { sessionQueries, settingQueries, projectQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate } from '../services/updater.js';
-import { listContainers } from '../services/docker.js';
+import { listContainers, getSystemStats } from '../services/docker.js';
 
 const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
 
@@ -69,5 +69,35 @@ export async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/api/system/containers', async () => {
     const allContainers = await listContainers();
     return allContainers.filter(c => HOMER_CONTAINERS.includes(c.name));
+  });
+
+  fastify.get('/api/system/updates', async () => {
+    const projects = projectQueries.getAll();
+    const projectsWithUpdates: Array<{ id: number; name: string; services: string[] }> = [];
+
+    for (const project of projects) {
+      const stored = settingQueries.get(`image_updates_${project.id}`);
+      if (stored) {
+        try {
+          const data = JSON.parse(stored) as { hasUpdates: boolean; services?: string[] };
+          if (data.hasUpdates) {
+            projectsWithUpdates.push({
+              id: project.id,
+              name: project.name,
+              services: data.services || [],
+            });
+          }
+        } catch {}
+      }
+    }
+
+    return {
+      hasUpdates: projectsWithUpdates.length > 0,
+      projects: projectsWithUpdates,
+    };
+  });
+
+  fastify.get('/api/system/stats', async () => {
+    return getSystemStats();
   });
 }

@@ -4,18 +4,18 @@
     - [x] revoir système de vérification des mises à jour des containers qui ne fonctionne pas. Implémenter un système de vérification du qui va se connecter directement aux hubs (Open Container Initiative) par api pour récuperer le digest de la dernière version (utilisation de fecth pas de libs). Récupération du digest actuel via commande docker inspect ou autre.
     - [x] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
     - [x] Ajout d'une tache chronique pour vérifier les mises à jour plus options dans les paramètres pour le délai de vérification des mises à jour
-    - [ ] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
-    - [ ] Quand des mises à jour sont disponibles afficher un badge dans le header, un clic sur le badge ouvre une modal avec la liste des mises à jour disponibles.
-    - [ ] Ajouter des tests unitaires pour qu'on puisse modifier à l'avenir en vérifiant qu'on a rien cassé
+    - [!] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
+    - [!] Quand des mises à jour sont disponibles afficher un badge dans le header, un clic sur le badge ouvre une modal avec la liste des mises à jour disponibles.
+    - [!] Ajouter des tests unitaires pour qu'on puisse modifier à l'avenir en vérifiant qu'on a rien cassé
 - [ ] Update
     - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées, vérifier que ça fonctionne ou corriger
-- [ ] Moniteur système
-    - [ ] Ajouter une page moniteur avec:
+- [!] Moniteur système
+    - [!] Ajouter une page moniteur avec:
         - nombre de containers running / nombre de containers
         - occupation RAM / CPU avec graphique
 - [ ] Revue Page Projets
     - [x] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
-    - [ ] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
+    - [!] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
 - [ ] Genéral:
     - [ ] Ajout d'une section volumes listant tout les volumes des projets
     - [ ] Ajout d'une section networks 

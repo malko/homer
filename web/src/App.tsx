@@ -1,19 +1,26 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
+import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpdates';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
 import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MonitorPage } from './pages/MonitorPage';
 import { UpdateBanner } from './components/UpdateBanner';
 import { NavSidebar } from './components/NavSidebar';
+import { UpdatesModal } from './components/UpdatesModal';
+import { AppHeader } from './components/AppHeader';
+import './styles/updates.css';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-layout-with-nav">
       <NavSidebar />
-      <div className="app-layout-content">{children}</div>
+      <div className="app-layout-content">
+        {children}
+      </div>
     </div>
   );
 }
@@ -94,6 +101,7 @@ function AppRoutes() {
   return (
     <>
       {status?.authenticated && !status?.mustChangePassword && <UpdateBanner />}
+      <UpdatesModal />
       <Routes>
       <Route path="/" element={<InitialRoute />} />
       <Route
@@ -141,6 +149,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/monitor"
+        element={
+          <ProtectedRoute>
+            <MonitorPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/terminal"
         element={
           <ProtectedRoute noLayout>
@@ -166,7 +182,9 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <AppRoutes />
+          <ProjectUpdatesProvider>
+            <AppRoutes />
+          </ProjectUpdatesProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

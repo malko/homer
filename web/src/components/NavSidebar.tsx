@@ -15,8 +15,19 @@ function HomeIcon() {
 function ProjectsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <path d="M8 21h8M12 17v4" />
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <line x1="9" y1="14" x2="15" y2="14" />
+    </svg>
+  );
+}
+
+function MonitorIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3v18h18" />
+      <path d="M18 17V9" />
+      <path d="M13 17V5" />
+      <path d="M8 17v-3" />
     </svg>
   );
 }
@@ -110,6 +121,16 @@ export function NavSidebar() {
         >
           <span className="nav-sidebar-icon"><HomeIcon /></span>
           <span className="nav-sidebar-label">Accueil</span>
+        </NavLink>
+
+        <NavLink
+          to="/monitor"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><MonitorIcon /></span>
+          <span className="nav-sidebar-label">Moniteur</span>
         </NavLink>
 
         <NavLink

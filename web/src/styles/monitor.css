@@ -1,0 +1,109 @@
+.monitor-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.monitor-content {
+  flex: 1;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+.monitor-section {
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.monitor-section-title {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.monitor-cards {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.monitor-card {
+  flex: 1;
+  background: var(--color-bg);
+  border-radius: 6px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.monitor-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 0.25rem;
+}
+
+.monitor-card-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.monitor-chart-wrapper {
+  height: 60px;
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+
+.monitor-chart-wrapper .simple-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.monitor-chart-wrapper svg {
+  width: 100%;
+  height: 100%;
+}
+
+.simple-chart svg {
+  display: block;
+}
+
+.monitor-progress {
+  margin-top: 0.5rem;
+}
+
+.monitor-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.monitor-progress-bar {
+  height: 8px;
+  background: var(--color-bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.monitor-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.monitor-progress-fill--memory {
+  background: var(--color-info);
+}
+
+.monitor-progress-fill--cpu {
+  background: var(--color-success);
+}

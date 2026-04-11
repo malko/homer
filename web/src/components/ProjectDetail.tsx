@@ -120,7 +120,7 @@ interface ProjectDetailProps {
   onTabChange?: (tab: TabType) => void;
 }
 
-function ContainerRow({ container, onRefresh }: { container: Container; onRefresh?: () => void }) {
+function ContainerRow({ container, onRefresh, showUpdateInfo }: { container: Container; onRefresh?: () => void; showUpdateInfo?: boolean }) {
   const [loading, setLoading] = useState<string | null>(null);
   const isRunning = container.state === 'running';
 
@@ -134,6 +134,11 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
     }
   };
 
+  const imageParts = container.image.split(':');
+  const imageName = imageParts[0];
+  const imageTag = imageParts[1] || 'latest';
+  const imageId = container.id.slice(0, 12);
+
   return (
     <div className="container-item">
       <div className="container-info">
@@ -143,7 +148,10 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
         </span>
         <div style={{ flex: 1 }}>
           <div className="container-name" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>{container.name}</span>
+            <span>
+              {container.name}
+              {showUpdateInfo && <span className="update-dot" title="Mise à jour disponible" style={{ marginLeft: '0.5rem' }} />}
+            </span>
             {container.ports && container.ports.length > 0 && (
               <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
                 {container.ports.map(port => (
@@ -154,7 +162,11 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
               </span>
             )}
           </div>
-          <div className="container-image">{container.image}</div>
+          <div className="container-image">
+            <span style={{ fontWeight: 500 }}>{imageName}</span>
+            <span style={{ color: 'var(--color-primary)' }}>:{imageTag}</span>
+            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem', marginLeft: '0.5rem' }}>ID: {imageId}</span>
+          </div>
         </div>
       </div>
       <div className="container-actions">
@@ -788,7 +800,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               </p>
             ) : (
               <div className="container-list">
-                {project.containers.map(c => <ContainerRow key={c.id} container={c} onRefresh={onRefresh} />)}
+                {project.containers.map(c => <ContainerRow key={c.id} container={c} onRefresh={onRefresh} showUpdateInfo={project.update_available} />)}
               </div>
             )}
 

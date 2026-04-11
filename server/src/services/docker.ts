@@ -27,6 +27,15 @@ export interface ContainerStats {
   memoryPercent: number;
 }
 
+export interface SystemStats {
+  totalContainers: number;
+  runningContainers: number;
+  cpuPercent: number;
+  memoryUsage: number;
+  memoryLimit: number;
+  memoryPercent: number;
+}
+
 export interface ImageInfo {
   id: string;
   repository: string;
@@ -86,6 +95,78 @@ export async function listProjectContainers(projectPath: string): Promise<Contai
   const containers = await listContainers();
   const projectName = path.basename(path.dirname(projectPath));
   return containers.filter(c => c.project === projectName);
+}
+
+export async function getSystemStats(): Promise<SystemStats> {
+  try {
+    const containers = await listContainers();
+    const runningCount = containers.filter(c => c.state === 'running').length;
+
+    const statsOutput = await execCommand(
+      "docker stats --no-stream --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}'"
+    );
+
+    let totalCpu = 0;
+    let totalMemUsage = 0;
+    let totalMemLimit = 0;
+
+    if (statsOutput) {
+      const lines = statsOutput.split('\n').filter(Boolean);
+      for (const line of lines) {
+        const [id, cpuStr, memStr, memPercStr] = line.split('|');
+        if (!id) continue;
+
+        const cpu = parseFloat(cpuStr.replace('%', '')) || 0;
+        totalCpu += cpu;
+
+        const memMatch = memStr.match(/([\d.]+)([KMG]i?)/);
+        if (memMatch) {
+          const value = parseFloat(memMatch[1]);
+          const unit = memMatch[2];
+          const multiplier = unit.startsWith('G') ? 1024 * 1024 * 1024 : unit.startsWith('M') ? 1024 * 1024 : 1024;
+          totalMemUsage += value * multiplier;
+        }
+
+        const memLimitMatch = memStr.match(/\/([\d.]+)([KMG]i?)/);
+        if (memLimitMatch) {
+          const value = parseFloat(memLimitMatch[1]);
+          const unit = memLimitMatch[2];
+          const multiplier = unit.startsWith('G') ? 1024 * 1024 * 1024 : unit.startsWith('M') ? 1024 * 1024 : 1024;
+          totalMemLimit += value * multiplier;
+        }
+      }
+    }
+
+    let systemMemoryTotal = 0;
+    try {
+      const meminfo = await execCommand("cat /proc/meminfo | grep MemTotal");
+      const match = meminfo.match(/MemTotal:\s+(\d+)/);
+      if (match) {
+        systemMemoryTotal = parseInt(match[1]) * 1024;
+      }
+    } catch {}
+
+    const effectiveMemLimit = totalMemLimit > 0 ? totalMemLimit : systemMemoryTotal;
+    const memoryPercent = effectiveMemLimit > 0 ? (totalMemUsage / effectiveMemLimit) * 100 : 0;
+
+    return {
+      totalContainers: containers.length,
+      runningContainers: runningCount,
+      cpuPercent: totalCpu,
+      memoryUsage: totalMemUsage,
+      memoryLimit: effectiveMemLimit,
+      memoryPercent,
+    };
+  } catch {
+    return {
+      totalContainers: 0,
+      runningContainers: 0,
+      cpuPercent: 0,
+      memoryUsage: 0,
+      memoryLimit: 0,
+      memoryPercent: 0,
+    };
+  }
 }
 
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {

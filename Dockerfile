@@ -3,13 +3,13 @@ RUN corepack enable && apk add --no-cache docker-cli docker-cli-compose bash
 
 FROM base AS server-deps
 WORKDIR /app/server
-COPY server/package.json package-lock.json ./
+COPY server/package.json server/package-lock.json ./
 # node-pty requires a C++ compiler at install time
-RUN apk add --no-cache python3 make g++ linux-headers && npm ci
+RUN apk add --no-cache python3 make g++ linux-headers && npm install --ignore-scripts && npm rebuild node-pty
 
 FROM base AS web-deps
 WORKDIR /app/web
-COPY web/package.json package-lock.json ./
+COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
 FROM base AS server-build

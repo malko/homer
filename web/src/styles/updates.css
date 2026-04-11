@@ -1,0 +1,125 @@
+.updates-badge-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.updates-badge-btn:hover {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+.updates-badge-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background-color: var(--color-danger);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 8px;
+}
+
+/* Updates Modal */
+.updates-modal {
+  width: 500px;
+  max-width: 90vw;
+}
+
+.updates-modal-content {
+  padding: 1rem 0;
+}
+
+.updates-empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 2rem 0;
+}
+
+.updates-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.updates-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.updates-list-item:last-child {
+  border-bottom: none;
+}
+
+.updates-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.updates-project-name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.updates-project-services {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.updates-project-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.updates-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.5rem;
+}
+
+.updates-notifications-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.updates-notifications-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.updates-modal-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.updates-modal-footer-actions .btn-ghost {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
