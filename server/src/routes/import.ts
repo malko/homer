@@ -109,6 +109,85 @@ export async function importRoutes(fastify: FastifyInstance) {
     return { decisions: allDecisions };
   });
 
+  fastify.get('/api/import/existing-projects', async () => {
+    const existingProjects = projectQueries.getAll();
+    const managedPaths = new Set(existingProjects.map(p => p.path));
+
+    const dirents = await fs.readdir(DB_CONFIG.projectsDir, { withFileTypes: true });
+    const foundProjects: Array<{ name: string; path: string; composeExists: boolean }> = [];
+
+    for (const dirent of dirents) {
+      if (!dirent.isDirectory()) continue;
+
+      const projectPath = path.join(DB_CONFIG.projectsDir, dirent.name);
+      const composePath = path.join(projectPath, 'docker-compose.yml');
+
+      try {
+        const stat = await fs.stat(composePath);
+        if (stat.isFile()) {
+          if (!managedPaths.has(composePath)) {
+            foundProjects.push({
+              name: dirent.name,
+              path: composePath,
+              composeExists: true,
+            });
+          }
+        }
+      } catch {
+      }
+    }
+
+    return { projects: foundProjects };
+  });
+
+  fastify.post('/api/import/existing', async (request, reply) => {
+    const { projectPaths } = request.body as {
+      projectPaths?: string[];
+    };
+
+    if (!projectPaths || !Array.isArray(projectPaths) || projectPaths.length === 0) {
+      return reply.status(400).send({ error: 'At least one project path is required' });
+    }
+
+    const existingProjects = projectQueries.getAll();
+    const managedPaths = new Set(existingProjects.map(p => p.path));
+
+    const results: Array<{ name: string; path: string; success: boolean; error?: string }> = [];
+
+    for (const composePath of projectPaths) {
+      try {
+        if (managedPaths.has(composePath)) {
+          results.push({ name: path.basename(path.dirname(composePath)), path: composePath, success: false, error: 'Already managed' });
+          continue;
+        }
+
+        const projectName = path.basename(path.dirname(composePath));
+        const envPath = path.join(path.dirname(composePath), '.env');
+
+        let envPathValue: string | null = null;
+        try {
+          await fs.access(envPath);
+          envPathValue = envPath;
+        } catch {}
+
+        const result = projectQueries.create(projectName, composePath, envPathValue);
+        const newProject = projectQueries.getById(Number(result.lastInsertRowid));
+
+        if (!newProject) {
+          results.push({ name: projectName, path: composePath, success: false, error: 'Failed to create project' });
+          continue;
+        }
+
+        results.push({ name: newProject.name, path: newProject.path, success: true });
+      } catch (error: unknown) {
+        const err = error as { message?: string };
+        results.push({ name: path.basename(path.dirname(composePath)), path: composePath, success: false, error: err.message || 'Unknown error' });
+      }
+    }
+
+    return { results };
+  });
+
   fastify.post('/api/import/save', async (request, reply) => {
     const { compose, envContent, projectName } = request.body as {
       compose?: string;
