@@ -22,6 +22,22 @@ interface UpdatesContextValue {
 const ProjectUpdatesContext = createContext<UpdatesContextValue | null>(null);
 
 const NOTIFICATION_PERMISSION_KEY = 'web_notifications_enabled';
+const DISMISSED_UPDATES_KEY = 'dismissed_updates';
+
+function loadDismissedIds(): Set<number> {
+  try {
+    const stored = localStorage.getItem(DISMISSED_UPDATES_KEY);
+    if (stored) {
+      const ids = JSON.parse(stored) as number[];
+      return new Set(ids);
+    }
+  } catch {}
+  return new Set();
+}
+
+function saveDismissedIds(ids: Set<number>) {
+  localStorage.setItem(DISMISSED_UPDATES_KEY, JSON.stringify([...ids]));
+}
 
 export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   const [updates, setUpdates] = useState<ProjectUpdate[]>([]);
@@ -29,7 +45,8 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem(NOTIFICATION_PERMISSION_KEY) === 'true';
   });
   const [showModal, setShowModal] = useState(false);
-  const [dismissedIds, setDismissedIds] = useState<Set<number>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<number>>(() => loadDismissedIds());
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
   const previousUpdatesRef = useRef<ProjectUpdate[]>([]);
   const fetchTimeoutRef = useRef<number | null>(null);
@@ -74,8 +91,9 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
     }
   }, [dismissedIds]);
 
-  const sendNotification = useCallback((projects: ProjectUpdate[]) => {
+  const sendNotification = useCallback((projects: ProjectUpdate[], isInitial: boolean) => {
     if (!notificationsEnabled || Notification.permission !== 'granted') return;
+    if (isInitial) return;
 
     const title = 'Mise à jour disponible';
     const body = projects.length === 1
@@ -92,17 +110,22 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   }, [notificationsEnabled]);
 
   const dismissProject = useCallback((projectId: number) => {
-    setDismissedIds(prev => new Set(prev).add(projectId));
+    setDismissedIds(prev => {
+      const newSet = new Set(prev).add(projectId);
+      saveDismissedIds(newSet);
+      return newSet;
+    });
     setUpdates(prev => prev.filter(p => p.id !== projectId));
   }, []);
 
   const clearDismissed = useCallback(() => {
     setDismissedIds(new Set());
+    saveDismissedIds(new Set());
     fetchUpdates();
   }, [fetchUpdates]);
 
   useEffect(() => {
-    fetchUpdates();
+    fetchUpdates().then(() => setIsFirstLoad(false));
     fetchTimeoutRef.current = window.setInterval(fetchUpdates, 60000);
     return () => {
       if (fetchTimeoutRef.current) clearInterval(fetchTimeoutRef.current);
@@ -149,11 +172,11 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
     const newProjects = updates.filter(p => !currentIds.has(p.id));
 
     if (newProjects.length > 0) {
-      sendNotification(newProjects);
+      sendNotification(newProjects, isFirstLoad);
     }
 
     previousUpdatesRef.current = updates;
-  }, [updates, sendNotification]);
+  }, [updates, sendNotification, isFirstLoad]);
 
   const value: UpdatesContextValue = {
     updates,
