@@ -38,14 +38,15 @@ npm run dev:web
 ```
 
 ### Production
+This machine is not intended to run the service directly
 ```bash
 # Build both server and frontend
 npm run build
 
-# Start production server
-npm start
+# Start production server -> NEVER EXECUTE THIS ON THIS MACHINE
+npm start 
 
-# Build and run in Docker
+# Build and run in Docker -> NEVER EXECUTE THIS ON THIS MACHINE
 docker compose up --build -d
 ```
 
@@ -208,6 +209,23 @@ Before adding a dependency, verify it is truly necessary.
 - All file paths for compose projects reference host paths
 - SQLite database stored in `./data/` volume mount
 - Socket mount: `/var/run/docker.sock:/var/run/docker.sock:ro`
+
+## Testing Guidelines
+
+Unit tests are **required** for all new features to ensure code reliability and prevent regressions.
+
+### Test Structure
+
+- Place test files in a `__tests__/` directory alongside the code being tested
+- Test files should use the naming convention `*.test.ts` or `*.test.tsx`
+- Run tests with `npm test` (server) or the appropriate test command for the frontend
+
+### Writing Tests
+
+- Test business logic and utility functions with unit tests
+- Test API routes using integration tests when feasible
+- Aim for meaningful coverage of critical paths
+- Tests should be independent and not depend on execution order
 
 ## Git conventions
 - Use feature branches for new features or bug fixes

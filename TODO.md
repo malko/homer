@@ -5,6 +5,8 @@
     - [x] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
     - [x] Ajout d'une tache chronique pour vérifier les mises à jour plus options dans les paramètres pour le délai de vérification des mises à jour
     - [ ] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
+    - [ ] Quand des mises à jour sont disponibles afficher un badge dans le header, un clic sur le badge ouvre une modal avec la liste des mises à jour disponibles.
+    - [ ] Ajouter des tests unitaires pour qu'on puisse modifier à l'avenir en vérifiant qu'on a rien cassé
 - [ ] Update
     - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées, vérifier que ça fonctionne ou corriger
 - [ ] Moniteur système
@@ -12,7 +14,7 @@
         - nombre de containers running / nombre de containers
         - occupation RAM / CPU avec graphique
 - [ ] Revue Page Projets
-    - [!] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
+    - [x] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
     - [ ] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
 - [ ] Genéral:
     - [ ] Ajout d'une section volumes listant tout les volumes des projets
@@ -21,11 +23,11 @@
     - [ ] Ajout d'une section Containers (voir les status et la dispo de mises à jour) (réutiliser les composants container existants)
     - [ ] Déplacer la section proxy hosts et caddy de la section paramètres à une nouvelle section Proxy accessibles du menu principal
 - [ ] UI/UX
-    - [!] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
-    - [!] Ajouter titre des pages dans le header
-    - [!] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
+    - [x] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
+    - [x] Ajouter titre des pages dans le header
+    - [x] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
     - [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
-    - [!] Déplacer l'entrée de menu paramètres vers le bas du menu
+    - [x] Déplacer l'entrée de menu paramètres vers le bas du menu
     - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
 - [ ] Accès distant
     - Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
@@ -38,3 +40,13 @@
         - [ ] avoir des générateurs types mot de passe, nom de domaine etc pour pouvoir utiliser des templates types dokploy
         - [ ] définir notre propre système de template pour qu'il soit le plus simple à unifier avec les autres systemes (Volonté de créer ensuite un standard ?)
         - [ ] permettre de récupérer un template à partir d'un dépot git
+- [ ] Backup:
+    - [ ] implement differents backups systems: network share, s3, nas system... 
+    - [ ] propose different strategies for backup:
+        - config only, db only volumes ?
+        - how many backups should be kept, when to run incremental vs full backup, password protection for backups etc...
+        - backup strategies for the db and global conf should go to global settings, details of what needs to be backup for projects should be set in projects
+    - [ ] Once we have backup added to the UI and the backend we need to implement restore from backup
+        - Backup listing from global settings and from projects
+        - Restore button to restore to a particular backup
+        - delete button to delete some past backup
