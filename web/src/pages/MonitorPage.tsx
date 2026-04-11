@@ -46,7 +46,8 @@ function SimpleChart({
   color,
   chartId,
   homerData,
-  homerCurrent
+  homerCurrent,
+  homerColor = 'var(--color-primary)'
 }: { 
   data: number[]; 
   maxValue: number;
@@ -56,6 +57,7 @@ function SimpleChart({
   chartId: string;
   homerData?: number[];
   homerCurrent?: string;
+  homerColor?: string;
 }) {
   if (data.length < 2 || maxValue <= 0) return null;
   
@@ -83,12 +85,13 @@ function SimpleChart({
   const linePathD = pathD;
   const areaPathD = `${pathD} L ${width} ${height} L 0 ${height} Z`;
   
-  let homerPathD = '';
+  let homerAreaPathD = '';
   if (homerPoints.length > 0) {
-    homerPathD = `M ${homerPoints[0]} ${homerPoints[1]}`;
+    homerAreaPathD = `M ${homerPoints[0]} ${homerPoints[1]}`;
     for (let i = 2; i < homerPoints.length; i += 2) {
-      homerPathD += ` L ${homerPoints[i]} ${homerPoints[i + 1]}`;
+      homerAreaPathD += ` L ${homerPoints[i]} ${homerPoints[i + 1]}`;
     }
+    homerAreaPathD += ` L ${width} ${height} L 0 ${height} Z`;
   }
   
   const title = homerCurrent 
@@ -103,13 +106,22 @@ function SimpleChart({
             <stop offset="0%" stopColor={color} stopOpacity="0.3" />
             <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
+          <linearGradient id={`chartGradient-${chartId}-homer`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={homerColor} stopOpacity="0.4" />
+            <stop offset="100%" stopColor={homerColor} stopOpacity="0.1" />
+          </linearGradient>
         </defs>
+        {homerAreaPathD && <path d={homerAreaPathD} fill={`url(#chartGradient-${chartId}-homer)`} />}
         <path d={areaPathD} fill={`url(#chartGradient-${chartId})`} />
         {homerPoints.length > 0 && (
-          <path d={homerPathD} fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4,2" />
+          <path d={linePathD} fill="none" stroke={homerColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         )}
         <path d={linePathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      <div className="chart-legend">
+        <span style={{ color: homerColor }}>● HOMER</span>
+        <span style={{ color }}>● Système</span>
+      </div>
     </div>
   );
 }
@@ -261,6 +273,7 @@ export function MonitorPage() {
                 chartId="memory"
                 homerData={history.map(h => h.memory)}
                 homerCurrent={`${stats?.memoryPercent?.toFixed(1) ?? 0}%`}
+                homerColor="var(--color-primary)"
               />
             </div>
           )}
@@ -300,6 +313,7 @@ export function MonitorPage() {
                 chartId="cpu"
                 homerData={history.map(h => h.cpu)}
                 homerCurrent={`${stats?.cpuPercent?.toFixed(1) ?? 0}%`}
+                homerColor="var(--color-primary)"
               />
             </div>
           )}

@@ -74,6 +74,14 @@
   display: block;
 }
 
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  font-size: 0.625rem;
+  margin-top: 0.25rem;
+}
+
 .monitor-progress {
   margin-top: 0.25rem;
 }
