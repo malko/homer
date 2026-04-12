@@ -8,6 +8,11 @@ import { TerminalPage } from './pages/TerminalPage';
 import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MonitorPage } from './pages/MonitorPage';
+import { VolumesPage } from './pages/VolumesPage';
+import { NetworksPage } from './pages/NetworksPage';
+import { ImagesPage } from './pages/ImagesPage';
+import { AllContainersPage } from './pages/AllContainersPage';
+import { ProxyPage } from './pages/ProxyPage';
 import { UpdateBanner } from './components/UpdateBanner';
 import { NavSidebar } from './components/NavSidebar';
 import { UpdatesModal } from './components/UpdatesModal';
@@ -153,6 +158,46 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <MonitorPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/volumes"
+        element={
+          <ProtectedRoute>
+            <VolumesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/networks"
+        element={
+          <ProtectedRoute>
+            <NetworksPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/images"
+        element={
+          <ProtectedRoute>
+            <ImagesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/containers"
+        element={
+          <ProtectedRoute>
+            <AllContainersPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/proxy"
+        element={
+          <ProtectedRoute>
+            <ProxyPage />
           </ProtectedRoute>
         }
       />

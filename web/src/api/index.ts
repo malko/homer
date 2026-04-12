@@ -71,6 +71,7 @@ export interface Container {
   created: string;
   ports?: string[];
   update_available?: boolean;
+  hasUpdate?: boolean;
 }
 
 export type AutoUpdatePolicy = 'disabled' | 'all' | 'semver_minor' | 'semver_patch';
@@ -215,6 +216,10 @@ export const api = {
       request<{ success: boolean }>(`/containers/${id}/stop`, { method: 'POST' }),
     restart: (id: string) =>
       request<{ success: boolean }>(`/containers/${id}/restart`, { method: 'POST' }),
+    remove: (id: string) =>
+      request<{ success: boolean; output: string }>(`/containers/${id}`, { method: 'DELETE' }),
+    updateImage: (id: string) =>
+      request<{ success: boolean; output: string }>(`/containers/${id}/update-image`, { method: 'POST' }),
   },
 
   home: {
@@ -268,6 +273,7 @@ export const api = {
     update: () =>
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
     getContainers: () => request<Container[]>('/system/containers'),
+    getAllContainers: () => request<Container[]>('/system/all-containers'),
     getUpdates: () => request<{ hasUpdates: boolean; projects: Array<{ id: number; name: string; services: string[] }> }>('/system/updates'),
     getStats: () => request<{
       totalContainers: number;
@@ -281,6 +287,26 @@ export const api = {
       systemMemoryTotal: number;
       systemMemoryPercent: number;
     }>('/system/stats'),
+    getVolumes: () => request<VolumeInfo[]>('/system/volumes'),
+    getNetworks: () => request<NetworkInfo[]>('/system/networks'),
+    getImages: () => request<ImageInfo[]>('/system/images'),
+    pruneImages: (danglingOnly = true) =>
+      request<{ success: boolean; output: string }>('/system/images/prune', {
+        method: 'POST',
+        body: JSON.stringify({ danglingOnly }),
+      }),
+    removeImage: (id: string, force = false) =>
+      request<{ success: boolean; output: string }>(`/system/images/${encodeURIComponent(id)}?force=${force}`, {
+        method: 'DELETE',
+      }),
+    pruneNetworks: () =>
+      request<{ success: boolean; output: string }>('/system/networks/prune', {
+        method: 'POST',
+      }),
+    removeNetwork: (name: string) =>
+      request<{ success: boolean; output: string }>(`/system/networks/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      }),
   },
 
   proxy: {
@@ -424,6 +450,36 @@ export interface ExternalTile {
   card_bg: string | null;
   hidden: boolean;
   sort_order: number | null;
+}
+
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  scope: string;
+  created: string;
+  project?: string;
+  type?: 'docker' | 'compose';
+}
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  created: string;
+  containers?: string[];
+  used?: boolean;
+}
+
+export interface ImageInfo {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: string;
+  used?: boolean;
 }
 
 export { ApiError };

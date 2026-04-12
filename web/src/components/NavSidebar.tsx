@@ -32,6 +32,58 @@ function MonitorIcon() {
   );
 }
 
+function VolumesIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  );
+}
+
+function NetworksIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="2" />
+      <path d="M12 2v4" />
+      <path d="M12 18v4" />
+      <path d="M2 12h4" />
+      <path d="M18 12h4" />
+      <path d="M4.93 4.93l2.83 2.83" />
+      <path d="M16.24 16.24l2.83 2.83" />
+      <path d="M4.93 19.07l2.83-2.83" />
+      <path d="M16.24 7.76l2.83-2.83" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  );
+}
+
+function ContainerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  );
+}
+
+function ProxyIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -141,6 +193,56 @@ export function NavSidebar() {
         >
           <span className="nav-sidebar-icon"><ProjectsIcon /></span>
           <span className="nav-sidebar-label">Projets</span>
+        </NavLink>
+
+        <NavLink
+          to="/containers"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><ContainerIcon /></span>
+          <span className="nav-sidebar-label">Containers</span>
+        </NavLink>
+
+        <NavLink
+          to="/volumes"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><VolumesIcon /></span>
+          <span className="nav-sidebar-label">Volumes</span>
+        </NavLink>
+
+        <NavLink
+          to="/networks"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><NetworksIcon /></span>
+          <span className="nav-sidebar-label">Réseaux</span>
+        </NavLink>
+
+        <NavLink
+          to="/images"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><ImageIcon /></span>
+          <span className="nav-sidebar-label">Images</span>
+        </NavLink>
+
+        <NavLink
+          to="/proxy"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><ProxyIcon /></span>
+          <span className="nav-sidebar-label">Proxy</span>
         </NavLink>
 
         {/* Spacer */}

@@ -40,12 +40,34 @@ export interface SystemStats {
   systemMemoryPercent: number;
 }
 
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  scope: string;
+  created: string;
+  project?: string;
+  type?: 'docker' | 'compose';
+}
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  created: string;
+  containers?: string[];
+  used?: boolean;
+}
+
 export interface ImageInfo {
   id: string;
   repository: string;
   tag: string;
   size: string;
   created: string;
+  used?: boolean;
 }
 
 async function execCommand(cmd: string): Promise<string> {
@@ -224,6 +246,47 @@ export async function stopContainer(containerId: string): Promise<void> {
 
 export async function restartContainer(containerId: string): Promise<void> {
   await execCommand(`docker restart ${containerId}`);
+}
+
+export async function removeContainer(containerId: string): Promise<{ success: boolean; output: string }> {
+  try {
+    await execCommand(`docker rm -f ${containerId}`);
+    return { success: true, output: 'Container supprimé' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function updateContainerImage(containerId: string): Promise<{ success: boolean; output: string }> {
+  try {
+    const infoOutput = await execCommand(`docker inspect ${containerId} --format "{{.Config.Image}}"`);
+    if (!infoOutput) {
+      return { success: false, output: 'Image du container non trouvée' };
+    }
+    
+    const imageName = infoOutput.trim();
+    await execCommand(`docker pull ${imageName}`);
+    await execCommand(`docker stop ${containerId}`);
+    await execCommand(`docker rm -f ${containerId}`);
+    
+    const containerName = (await execCommand(`docker inspect ${containerId} --format "{{.Name}}"`).catch(() => '')).replace(/^\//, '');
+    const projectLabel = await execCommand(`docker inspect ${containerId} --format '{{index .Config.Labels "com.docker.compose.project"}}'`).catch(() => '');
+    const serviceLabel = await execCommand(`docker inspect ${containerId} --format '{{index .Config.Labels "com.docker.compose.service"}}'`).catch(() => '');
+
+    let runCmd = 'docker run -d';
+    if (containerName) runCmd += ' --name ' + containerName;
+    if (projectLabel) runCmd += ' --label com.docker.compose.project=' + projectLabel;
+    if (serviceLabel) runCmd += ' --label com.docker.compose.service=' + serviceLabel;
+    runCmd += ' ' + imageName;
+
+    await execCommand(runCmd);
+    
+    return { success: true, output: `Container mis à jour avec l'image ${imageName}` };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
 }
 
 export async function deployProject(projectId: number): Promise<{ success: boolean; output: string }> {
@@ -428,4 +491,173 @@ export async function streamLogs(containerId: string, callback: (line: string) =
   return () => {
     proc.kill();
   };
+}
+
+export async function listVolumes(): Promise<VolumeInfo[]> {
+  const volumes: VolumeInfo[] = [];
+  const volumeNames = new Set<string>();
+  
+  try {
+    const output = await execCommand(
+      'docker volume ls --format "{{.Name}}|{{.Driver}}|{{.Mountpoint}}|{{.Scope}}|{{.CreatedAt}}"'
+    );
+    
+    if (output) {
+      for (const line of output.split('\n')) {
+        const [name, driver, mountpoint, scope, created] = line.split('|');
+        if (!name) continue;
+        volumeNames.add(name);
+        volumes.push({ name, driver, mountpoint, scope, created, type: 'docker' });
+      }
+    }
+  } catch {}
+
+  const projects = projectQueries.getAll();
+  for (const project of projects) {
+    try {
+      const projectDir = path.dirname(project.path);
+      const { stdout } = await execAsync(
+        `docker compose -f "${project.path}" config --format json`,
+        { cwd: projectDir, timeout: 30000 }
+      );
+      const config = JSON.parse(stdout);
+      
+      if (config.volumes) {
+        for (const [volName, volConfig] of Object.entries(config.volumes)) {
+          if (volName.includes(':')) continue;
+          
+          const fullName = `${project.name.replace(/-/g, '_')}_${volName}`;
+          
+          if (!volumeNames.has(fullName) && !volumeNames.has(volName)) {
+            const driver = (volConfig as any)?.driver || 'local';
+            volumes.push({
+              name: volName,
+              driver,
+              mountpoint: '',
+              scope: 'local',
+              created: '',
+              project: project.name,
+              type: 'compose'
+            });
+            volumeNames.add(volName);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return volumes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listNetworks(): Promise<NetworkInfo[]> {
+  try {
+    const output = await execCommand(
+      'docker network ls --format "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}|{{.Internal}}|{{.CreatedAt}}"'
+    );
+    
+    if (!output) return [];
+    
+    const networks: NetworkInfo[] = [];
+    
+    for (const line of output.split('\n')) {
+      const [id, name, driver, scope, internal, created] = line.split('|');
+      if (!id) continue;
+      
+      let containers: string[] = [];
+      let used = false;
+      
+      try {
+        const inspectOutput = await execCommand(
+          `docker network inspect ${name} --format "{{range .Containers}}{{.Name}} {{end}}"`
+        );
+        containers = inspectOutput.trim().split(' ').filter(Boolean);
+        used = containers.length > 0;
+      } catch {
+        containers = [];
+        used = false;
+      }
+      
+      networks.push({ id, name, driver, scope, internal: internal === 'true', created, containers, used });
+    }
+    
+    return networks;
+  } catch {
+    return [];
+  }
+}
+
+export async function removeNetwork(networkName: string): Promise<{ success: boolean; output: string }> {
+  try {
+    await execCommand(`docker network rm ${networkName}`);
+    return { success: true, output: 'Réseau supprimé' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function pruneNetworks(): Promise<{ success: boolean; output: string }> {
+  try {
+    const output = await execCommand('docker network prune -f');
+    return { success: true, output: output || 'Réseaux inutilisés supprimés' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function listImages(): Promise<ImageInfo[]> {
+  try {
+    const output = await execCommand(
+      'docker images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"'
+    );
+    
+    if (!output) return [];
+    
+    const images: ImageInfo[] = [];
+    
+    for (const line of output.split('\n')) {
+      const [id, repository, tag, size, created] = line.split('|');
+      if (!id) continue;
+      
+      const img: ImageInfo = { id, repository, tag, size, created, used: false };
+      
+      try {
+        const usedOutput = await execCommand(
+          `docker ps -aq --filter "ancestor=${repository}:${tag}" | head -1`
+        );
+        img.used = usedOutput.trim().length > 0;
+      } catch {
+        img.used = false;
+      }
+      
+      images.push(img);
+    }
+    
+    return images;
+  } catch {
+    return [];
+  }
+}
+
+export async function removeImage(imageId: string, force = false): Promise<{ success: boolean; output: string }> {
+  try {
+    const flag = force ? '-f' : '';
+    await execCommand(`docker rmi ${flag} ${imageId}`);
+    return { success: true, output: 'Image supprimée' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function pruneImages(danglingOnly = true): Promise<{ success: boolean; output: string }> {
+  try {
+    const cmd = danglingOnly ? 'docker image prune -f' : 'docker image prune -a -f';
+    const output = await execCommand(cmd);
+    return { success: true, output: output || 'Images pruned successfully' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
 }

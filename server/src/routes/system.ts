@@ -1,7 +1,8 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { sessionQueries, settingQueries, projectQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate } from '../services/updater.js';
-import { listContainers, getSystemStats } from '../services/docker.js';
+import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage } from '../services/docker.js';
+import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
 const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
 
@@ -108,5 +109,102 @@ export async function systemRoutes(fastify: FastifyInstance) {
 
   fastify.get('/api/system/stats', async () => {
     return getSystemStats();
+  });
+
+  fastify.get('/api/system/volumes', async () => {
+    return listVolumes();
+  });
+
+  fastify.get('/api/system/networks', async () => {
+    return listNetworks();
+  });
+
+  fastify.get('/api/system/images', async () => {
+    return listImages();
+  });
+
+  fastify.post('/api/system/images/prune', async (request) => {
+    const { danglingOnly } = request.body as { danglingOnly?: boolean };
+    return pruneImages(danglingOnly ?? true);
+  });
+
+  fastify.get('/api/system/all-containers', async () => {
+    const containers = await listContainers();
+    
+    for (const container of containers) {
+      if (container.image) {
+        try {
+          const updateInfo = await checkImageUpdateWithPolicy(container.image, 'all');
+          (container as { hasUpdate?: boolean }).hasUpdate = updateInfo.hasUpdate;
+        } catch {
+          (container as { hasUpdate?: boolean }).hasUpdate = false;
+        }
+      }
+    }
+    
+    return containers;
+  });
+
+  fastify.delete('/api/containers/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const result = await removeContainer(id);
+      if (!result.success) {
+        return reply.status(500).send(result);
+      }
+      fastify.broadcast({ type: 'containers_updated' });
+      return result;
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      return reply.status(500).send({ success: false, output: err.message || 'Failed to remove container' });
+    }
+  });
+
+  fastify.post('/api/containers/:id/update-image', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const result = await updateContainerImage(id);
+      if (!result.success) {
+        return reply.status(500).send(result);
+      }
+      fastify.broadcast({ type: 'containers_updated' });
+      return result;
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      return reply.status(500).send({ success: false, output: err.message || 'Failed to update container image' });
+    }
+  });
+
+  fastify.delete('/api/system/networks/:name', async (request, reply) => {
+    const { name } = request.params as { name: string };
+    try {
+      const result = await removeNetwork(name);
+      if (!result.success) {
+        return reply.status(500).send(result);
+      }
+      return result;
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      return reply.status(500).send({ success: false, output: err.message || 'Failed to remove network' });
+    }
+  });
+
+  fastify.post('/api/system/networks/prune', async () => {
+    return pruneNetworks();
+  });
+
+  fastify.delete('/api/system/images/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { force } = request.query as { force?: string };
+    try {
+      const result = await removeImage(id, force === 'true');
+      if (!result.success) {
+        return reply.status(500).send(result);
+      }
+      return result;
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      return reply.status(500).send({ success: false, output: err.message || 'Failed to remove image' });
+    }
   });
 }
