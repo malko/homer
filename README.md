@@ -6,16 +6,22 @@ A web-based container management system for homelab environments. Deploy, monito
 
 - **Project Management**: Add Docker Compose projects via host file paths
 - **One-Click Updates**: Pull latest images and redeploy with a single button
-- **Container Controls**: Start, stop, and restart containers directly from the UI
-- **Real-Time Status**: WebSocket-powered live container status updates
+- **Auto-Update Policies**: Configure automatic updates with semver filtering (major/minor/patch)
+- **Image Update Checking**: Automatic background checks via OCI registry APIs
+- **Container Controls**: Start, stop, restart, and delete containers directly from the UI
+- **System Monitoring**: Real-time CPU and memory usage with historical charts
+- **System Resources**: Dedicated pages for Volumes, Networks, Images, and Containers
+- **Reverse Proxy**: Built-in Caddy integration for automatic HTTPS and subdomain routing
+- **Real-Time Updates**: WebSocket-powered live status updates
 - **Watch Mode**: Auto-redeploy projects when compose files change
+- **Terminal**: Embedded terminal access to containers from the browser
 - **Log Viewer**: View container logs directly in the browser
 - **Secure**: First-time setup with mandatory admin account creation
 
 ## Tech Stack
 
 - **Backend**: Node.js + TypeScript + Fastify
-- **Frontend**: React 19.2 + Vite
+- **Frontend**: React 19 + Vite
 - **Database**: SQLite (better-sqlite3)
 - **Communication**: REST API + WebSocket
 
@@ -61,41 +67,103 @@ volumes:
   - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
-### Traefik Integration
+### Caddy Reverse Proxy
 
-The included `docker-compose.yml` includes Traefik labels for automatic discovery. Remove or modify them if you use a different reverse proxy.
+The included `docker-compose.yml` includes Caddy for automatic HTTPS. Configure domain suffix in settings.
 
 ## Project Structure
 
 ```
 .
-├── server/           # Fastify backend
+├── server/               # Fastify backend
 │   └── src/
-│       ├── db/           # SQLite setup
-│       ├── routes/       # API endpoints
-│       ├── services/     # Docker CLI wrapper
+│       ├── db/           # SQLite setup and queries
+│       ├── routes/      # API endpoints
+│       ├── services/     # Docker CLI wrapper, registry checks
 │       └── websocket/    # Real-time events
-├── web/              # React frontend
+├── web/                 # React frontend
 │   └── src/
 │       ├── api/          # API client
-│       ├── hooks/         # React hooks
-│       └── pages/        # Page components
-├── Dockerfile        # Multi-stage build
-└── docker-compose.yml
+│       ├── components/   # Reusable UI components
+│       ├── hooks/        # Custom React hooks
+│       ├── pages/        # Page components
+│       └── styles/       # CSS files
+├── Dockerfile            # Multi-stage build
+└── docker-compose.yml    # Deployment configuration
 ```
+
+## Pages
+
+| Page | Description |
+|------|-------------|
+| **Home** | Dashboard with service tiles and quick actions |
+| **Projects** | Manage Docker Compose projects |
+| **Monitor** | System CPU/memory usage with historical charts |
+| **Containers** | All Docker containers with status and update info |
+| **Volumes** | Docker volumes including compose-declared volumes |
+| **Networks** | Docker networks with usage information |
+| **Images** | Docker images with usage status and cleanup options |
+| **Proxy** | Caddy reverse proxy configuration |
+| **Settings** | System configuration, auto-update settings |
 
 ## API Endpoints
 
+### Authentication
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/auth/setup` | Create admin account |
 | POST | `/api/auth/login` | Authenticate |
+| POST | `/api/auth/logout` | Logout |
+
+### Projects
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/api/projects` | List managed projects |
 | POST | `/api/projects` | Add a project |
+| PUT | `/api/projects/:id` | Update project |
+| DELETE | `/api/projects/:id` | Delete project |
 | POST | `/api/projects/:id/deploy` | Deploy project |
 | POST | `/api/projects/:id/update` | Update images |
+
+### Containers
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/api/containers` | List all containers |
-| POST | `/api/containers/:id/start\|stop\|restart` | Container actions |
+| POST | `/api/containers/:id/start` | Start container |
+| POST | `/api/containers/:id/stop` | Stop container |
+| POST | `/api/containers/:id/restart` | Restart container |
+| DELETE | `/api/containers/:id` | Remove container |
+| POST | `/api/containers/:id/update-image` | Update container image |
+
+### System Resources
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/system/containers` | Homer system containers |
+| GET | `/api/system/all-containers` | All Docker containers |
+| GET | `/api/system/volumes` | Docker volumes |
+| GET | `/api/system/networks` | Docker networks |
+| GET | `/api/system/images` | Docker images |
+| POST | `/api/system/images/prune` | Prune unused images |
+| DELETE | `/api/system/images/:id` | Remove image |
+| DELETE | `/api/system/networks/:name` | Remove network |
+| POST | `/api/system/networks/prune` | Prune unused networks |
+
+### Proxy
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/proxy/hosts` | List proxy hosts |
+| POST | `/api/proxy/hosts` | Create proxy host |
+| PUT | `/api/proxy/hosts/:id` | Update proxy host |
+| DELETE | `/api/proxy/hosts/:id` | Delete proxy host |
+| GET | `/api/proxy/config` | Get Caddy config |
+| PUT | `/api/proxy/config` | Push Caddy config |
+
+### Monitoring
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/system/stats` | System CPU/memory stats |
+| GET | `/api/system/updates` | Project update status |
+
 | WS | `/api/events` | Real-time updates |
 
 ## Security
@@ -104,11 +172,29 @@ The included `docker-compose.yml` includes Traefik labels for automatic discover
 - JWT-based session authentication
 - Password hashing with bcrypt
 
+## Auto-Update Configuration
+
+Configure automatic image updates in project settings:
+
+| Policy | Description |
+|--------|-------------|
+| `disabled` | No automatic updates |
+| `all` | Update to latest version |
+| `semver_minor` | Only minor updates (e.g., 1.0 → 1.1) |
+| `semver_patch` | Only patch updates (e.g., 1.0.0 → 1.0.1) |
+
 ## Dependencies
 
 Minimal dependencies to reduce security surface:
 
-- **Backend**: 8 runtime deps (fastify, better-sqlite3, bcryptjs, etc.)
-- **Frontend**: 3 runtime deps (react, react-dom, react-router-dom)
+- **Backend**: fastify, better-sqlite3, bcryptjs, ws
+- **Frontend**: react, react-dom, react-router-dom
 
-No ESLint/Prettier tooling — relies on TypeScript compiler for type checking.
+No ESLint/Prettier — relies on TypeScript compiler for type checking.
+
+## Testing
+
+```bash
+# Run server tests
+cd server && npm test
+```
