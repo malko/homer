@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
+import { SearchInput, FilterSelect, SortMenu } from '../components/FilterToolbar';
 import { api, Container } from '../api';
 import { 
-  SearchIcon, SortIcon, FolderIcon, ImageIcon, UpdateIcon,
+  FolderIcon, ImageIcon, UpdateIcon,
   PlayIcon, StopIcon, RestartIcon, TrashIcon, FileTextIcon, TerminalIcon,
-  MoreVerticalIcon, ArrowUpIcon, ArrowDownIcon
+  MoreVerticalIcon, RefreshIcon
 } from '../components/Icons';
 
-type SortOption = 'name' | 'project' | 'created';
-type SortDirection = 'asc' | 'desc';
 type StateFilter = 'all' | 'running' | 'exited';
 
 interface ContainerMenuProps {
@@ -84,76 +83,6 @@ function ContainerMenu({ container, onAction, actionInProgress }: ContainerMenuP
   );
 }
 
-function SortMenu({ 
-  currentSort, 
-  sortDirection,
-  onSortChange, 
-  onDirectionChange 
-}: { 
-  currentSort: SortOption; 
-  sortDirection: SortDirection;
-  onSortChange: (sort: SortOption) => void; 
-  onDirectionChange: (dir: SortDirection) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  const sortLabels: Record<SortOption, string> = {
-    name: 'Nom',
-    project: 'Projet',
-    created: 'Date de création',
-  };
-
-  return (
-    <div className="sort-menu-wrapper">
-      <button 
-        className={`btn btn-icon-only ${isOpen ? 'active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        title="Trier"
-      >
-        <SortIcon size={16} direction={sortDirection} />
-      </button>
-      {isOpen && (
-        <>
-          <div className="sort-menu-backdrop" onClick={() => setIsOpen(false)} />
-          <div className="sort-menu">
-            <div className="sort-menu-section">Trier par</div>
-            {(Object.keys(sortLabels) as SortOption[]).map((option) => (
-              <button
-                key={option}
-                className={`sort-menu-item ${currentSort === option ? 'active' : ''}`}
-                onClick={() => {
-                  if (currentSort === option && sortDirection === 'asc') {
-                    onDirectionChange('desc');
-                  } else if (currentSort === option && sortDirection === 'desc') {
-                    onDirectionChange('asc');
-                  } else {
-                    onSortChange(option);
-                    onDirectionChange('asc');
-                  }
-                  setIsOpen(false);
-                }}
-              >
-                {currentSort === option && sortDirection === 'asc' && (
-                  <ArrowUpIcon size={12} />
-                )}
-                {currentSort === option && sortDirection === 'desc' && (
-                  <ArrowDownIcon size={12} />
-                )}
-                {sortLabels[option]}
-                {currentSort === option && (
-                  <span className="sort-direction-hint">
-                    {sortDirection === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function StateFilterBadge({ 
   currentFilter, 
   onChange 
@@ -191,9 +120,9 @@ export function AllContainersPage() {
   
   const [search, setSearch] = useState('');
   const [showUpdatesOnly, setShowUpdatesOnly] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [selectedProject, setSelectedProject] = useState('all');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDirection, setSortDirection] = useState('asc');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
 
   useEffect(() => {
@@ -328,27 +257,20 @@ export function AllContainersPage() {
         )}
 
         <div className="containers-toolbar">
-          <div className="containers-search">
-            <SearchIcon size={16} className="search-icon" />
-            <input
-              type="text"
-              className="input search-input"
-              placeholder="Rechercher..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Rechercher..."
+            title="Rechercher dans les containers"
+          />
           
-          <select 
-            className="input project-select"
+          <FilterSelect
             value={selectedProject}
-            onChange={(e) => setSelectedProject(e.target.value)}
-          >
-            <option value="all">Tous les projets</option>
-            {allProjects.map(project => (
-              <option key={project} value={project}>{project}</option>
-            ))}
-          </select>
+            onChange={setSelectedProject}
+            options={allProjects.map(p => ({ value: p, label: p }))}
+            placeholder="Tous les projets"
+            title="Filtrer par projet"
+          />
 
           <StateFilterBadge currentFilter={stateFilter} onChange={setStateFilter} />
 
@@ -365,28 +287,34 @@ export function AllContainersPage() {
             </button>
           </div>
 
-          <div className="toolbar-right"><button 
-            className="btn btn-sm btn-secondary" 
-            onClick={async () => {
-              setLoadingUpdates(true);
-              try {
-                await api.system.checkAllUpdates();
-                await loadContainerUpdates();
-              } finally {
-                setLoadingUpdates(false);
-              }
-            }}
-            disabled={loadingUpdates}
-            title="Vérifier les mises à jour pour tous les containers"
-          >
-            <UpdateIcon size={14} />
-            {loadingUpdates ? 'Vérification...' : 'Vérifier'}
-          </button>
+          <div className="toolbar-right">
+            <button 
+              className="btn btn-secondary" 
+              onClick={async () => {
+                setLoadingUpdates(true);
+                try {
+                  await api.system.checkAllUpdates();
+                  await loadContainerUpdates();
+                } finally {
+                  setLoadingUpdates(false);
+                }
+              }}
+              disabled={loadingUpdates}
+              title="Vérifier les mises à jour pour tous les containers"
+            >
+              <UpdateIcon size={16} />
+            </button>
             <SortMenu 
               currentSort={sortBy} 
               sortDirection={sortDirection}
               onSortChange={setSortBy}
               onDirectionChange={setSortDirection}
+              options={[
+                { value: 'name', label: 'Nom' },
+                { value: 'project', label: 'Projet' },
+                { value: 'created', label: 'Date' },
+              ]}
+              showDirectionHint
             />
           </div>
         </div>

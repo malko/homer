@@ -301,6 +301,14 @@ export const api = {
       systemMemoryPercent: number;
     }>('/system/stats'),
     getVolumes: () => request<VolumeInfo[]>('/system/volumes'),
+    pruneVolumes: () =>
+      request<{ success: boolean; output: string }>('/system/volumes/prune', {
+        method: 'POST',
+      }),
+    removeVolume: (name: string) =>
+      request<{ success: boolean; output: string }>(`/system/volumes/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      }),
     getNetworks: () => request<NetworkInfo[]>('/system/networks'),
     getImages: () => request<ImageInfo[]>('/system/images'),
     pruneImages: (danglingOnly = true) =>
@@ -472,7 +480,12 @@ export interface VolumeInfo {
   scope: string;
   created: string;
   project?: string;
-  type?: 'docker' | 'compose';
+  service?: string;
+  type?: 'docker' | 'compose' | 'bind';
+  hostPath?: string;
+  containerPath?: string;
+  size?: string;
+  orphan?: boolean;
 }
 
 export interface NetworkInfo {

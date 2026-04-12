@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { sessionQueries, settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate } from '../services/updater.js';
-import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates } from '../services/docker.js';
+import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
 const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
@@ -143,6 +143,15 @@ export async function systemRoutes(fastify: FastifyInstance) {
   fastify.post('/api/system/images/prune', async (request) => {
     const { danglingOnly } = request.body as { danglingOnly?: boolean };
     return pruneImages(danglingOnly ?? true);
+  });
+
+  fastify.post('/api/system/volumes/prune', async () => {
+    return pruneVolumes();
+  });
+
+  fastify.delete('/api/system/volumes/:name', async (request) => {
+    const { name } = request.params as { name: string };
+    return removeVolume(name);
   });
 
   fastify.get('/api/system/all-containers', async (request) => {

@@ -7,6 +7,45 @@ import { checkImageUpdateWithPolicy } from './registry.js';
 
 const execAsync = promisify(exec);
 
+async function getProjectFromContainers(): Promise<Map<string, Set<string>>> {
+  const projectVolumes = new Map<string, Set<string>>();
+  
+  try {
+    const { stdout: containersOutput } = await execAsync(
+      'docker ps -a --format "{{.Names}}"'
+    );
+    
+    for (const containerName of containersOutput.split('\n').filter(Boolean)) {
+      try {
+        const { stdout: projectLabel } = await execAsync(
+          `docker inspect ${containerName} --format '{{index .Config.Labels "com.docker.compose.project"}}'`
+        );
+        const { stdout: serviceLabel } = await execAsync(
+          `docker inspect ${containerName} --format '{{index .Config.Labels "com.docker.compose.service"}}'`
+        );
+        
+        const project = projectLabel.trim();
+        
+        if (project) {
+          if (!projectVolumes.has(project)) {
+            projectVolumes.set(project, new Set());
+          }
+          
+          const { stdout: volumesOutput } = await execAsync(
+            `docker inspect ${containerName} --format '{{range .Mounts}}{{.Source}}|{{end}}'`
+          );
+          
+          for (const vol of volumesOutput.split('|').filter(Boolean)) {
+            projectVolumes.get(project)!.add(vol);
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  
+  return projectVolumes;
+}
+
 export interface Container {
   id: string;
   name: string;
@@ -48,7 +87,12 @@ export interface VolumeInfo {
   scope: string;
   created: string;
   project?: string;
-  type?: 'docker' | 'compose';
+  service?: string;
+  type?: 'docker' | 'compose' | 'bind';
+  hostPath?: string;
+  containerPath?: string;
+  size?: string;
+  orphan?: boolean;
 }
 
 export interface NetworkInfo {
@@ -524,23 +568,56 @@ export async function streamLogs(containerId: string, callback: (line: string) =
 export async function listVolumes(): Promise<VolumeInfo[]> {
   const volumes: VolumeInfo[] = [];
   const volumeNames = new Set<string>();
+  const dockerVolumeNames: string[] = [];
   
+  const containerVolumes = await getProjectFromContainers();
+  
+  // Get all Docker volumes
   try {
-    const output = await execCommand(
-      'docker volume ls --format "{{.Name}}|{{.Driver}}|{{.Mountpoint}}|{{.Scope}}|{{.CreatedAt}}"'
+    const { stdout } = await execAsync(
+      'docker volume ls --format "{{.Name}}|{{.Driver}}|{{.Mountpoint}}|{{.Scope}}"'
     );
     
-    if (output) {
-      for (const line of output.split('\n')) {
-        const [name, driver, mountpoint, scope, created] = line.split('|');
+    if (stdout) {
+      for (const line of stdout.split('\n').filter(l => l.trim())) {
+        const parts = line.split('|');
+        const name = parts[0]?.trim();
+        const driver = parts[1]?.trim() || 'local';
+        const mountpoint = parts[2]?.trim() || '';
+        const scope = parts[3]?.trim() || 'local';
+        
         if (!name) continue;
+        
         volumeNames.add(name);
-        volumes.push({ name, driver, mountpoint, scope, created, type: 'docker' });
+        dockerVolumeNames.push(name);
+        
+        let orphan = true;
+        for (const [, volSources] of containerVolumes) {
+          if (volSources.has(name) || volSources.has(`/var/lib/docker/volumes/${name}/_data`)) {
+            orphan = false;
+            break;
+          }
+        }
+        
+        volumes.push({ name, driver, mountpoint, scope, created: '', type: 'docker', orphan });
       }
     }
   } catch {}
 
+  // Get sizes for Docker volumes
+  for (const vol of volumes.filter(v => v.type === 'docker')) {
+    try {
+      const { stdout } = await execAsync(
+        `docker volume inspect "${vol.name}" --format "{{.UsageData.Size}}"`
+      );
+      if (stdout) {
+        vol.size = stdout.trim();
+      }
+    } catch {}
+  }
+
   const projects = projectQueries.getAll();
+  
   for (const project of projects) {
     try {
       const projectDir = path.dirname(project.path);
@@ -558,6 +635,12 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
           
           if (!volumeNames.has(fullName) && !volumeNames.has(volName)) {
             const driver = (volConfig as any)?.driver || 'local';
+            
+            const isUsed = containerVolumes.has(project.name) && 
+              Array.from(containerVolumes.get(project.name)!).some(v => 
+                v.includes(fullName) || v.includes(volName)
+              );
+            
             volumes.push({
               name: volName,
               driver,
@@ -565,15 +648,73 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
               scope: 'local',
               created: '',
               project: project.name,
-              type: 'compose'
+              type: 'compose',
+              orphan: !isUsed
             });
             volumeNames.add(volName);
           }
         }
       }
+
+      if (config.services) {
+        for (const [serviceName, serviceConfig] of Object.entries(config.services as Record<string, any>)) {
+          const serviceVolumes = (serviceConfig as any)?.volumes || [];
+          for (const vol of serviceVolumes) {
+            if (typeof vol === 'string' && !vol.includes(':')) continue;
+            
+            let hostPath = '';
+            let containerPath = '';
+            
+            if (typeof vol === 'string') {
+              const parts = vol.split(':');
+              hostPath = parts[0];
+              containerPath = parts[1] || parts[0];
+            } else if (typeof vol === 'object' && vol.type === 'bind') {
+              hostPath = vol.source || '';
+              containerPath = vol.target || '';
+            } else {
+              continue;
+            }
+
+            if (hostPath.startsWith('/') || hostPath.startsWith('.')) {
+              let resolvedHostPath = hostPath;
+              if (hostPath.startsWith('.')) {
+                resolvedHostPath = path.resolve(projectDir, hostPath);
+              }
+              
+              const volKey = `${project.name}:${serviceName}:${hostPath}`;
+              if (!volumeNames.has(volKey)) {
+                let size = '';
+                try {
+                  const { stdout } = await execAsync(
+                    `du -sh "${resolvedHostPath}" 2>/dev/null || echo ""`,
+                    { timeout: 5000 }
+                  );
+                  size = stdout.trim().split('\t')[0] || '';
+                } catch {}
+                
+                volumes.push({
+                  name: hostPath.split('/').pop() || hostPath,
+                  driver: 'bind',
+                  mountpoint: resolvedHostPath,
+                  scope: 'local',
+                  created: '',
+                  project: project.name,
+                  service: serviceName,
+                  type: 'bind',
+                  hostPath: resolvedHostPath,
+                  containerPath,
+                  size
+                });
+                volumeNames.add(volKey);
+              }
+            }
+          }
+        }
+      }
     } catch {}
   }
-
+  
   return volumes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -684,6 +825,26 @@ export async function pruneImages(danglingOnly = true): Promise<{ success: boole
     const cmd = danglingOnly ? 'docker image prune -f' : 'docker image prune -a -f';
     const output = await execCommand(cmd);
     return { success: true, output: output || 'Images pruned successfully' };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function removeVolume(volumeName: string): Promise<{ success: boolean; output: string }> {
+  try {
+    await execCommand(`docker volume rm "${volumeName}"`);
+    return { success: true, output: `Volume "${volumeName}" supprimé` };
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    return { success: false, output: err.stderr || err.message || 'Unknown error' };
+  }
+}
+
+export async function pruneVolumes(): Promise<{ success: boolean; output: string }> {
+  try {
+    const output = await execCommand('docker volume prune -f');
+    return { success: true, output: output || 'Volumes non utilisés supprimés' };
   } catch (error: unknown) {
     const err = error as { stderr?: string; message?: string };
     return { success: false, output: err.stderr || err.message || 'Unknown error' };
