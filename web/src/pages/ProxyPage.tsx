@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { api, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
+import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyHostForm } from '../components/ProxyHostForm';
 import { ProxyHostList } from '../components/ProxyHostList';
 import { JsonEditor } from '../components/JsonEditor';
@@ -69,6 +70,8 @@ function ProxyHostsTab() {
   const [certError, setCertError] = useState<string | null>(null);
   const [certDownloading, setCertDownloading] = useState(false);
 
+  const { ConfirmDialog, confirm } = useConfirm();
+
   const downloadCACert = async () => {
     setCertError(null);
     setCertDownloading(true);
@@ -116,7 +119,13 @@ function ProxyHostsTab() {
   };
 
   const handleDelete = async (host: ProxyHost) => {
-    if (confirm(`Supprimer le proxy pour ${host.domain} ?`)) {
+    const confirmed = await confirm({
+      title: 'Supprimer le proxy',
+      message: `Supprimer le proxy pour ${host.domain} ?`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (confirmed) {
       await deleteHost(host.id);
     }
   };
@@ -127,6 +136,7 @@ function ProxyHostsTab() {
 
   return (
     <div className="settings-section">
+      <ConfirmDialog />
       <div className="proxy-tab-header">
         <h2>Proxy Hosts</h2>
         {!showForm && (

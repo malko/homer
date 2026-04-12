@@ -3,6 +3,7 @@ import { AppHeader } from '../components/AppHeader';
 import { SearchInput, FilterSelect, SortMenu, InfoTooltip } from '../components/FilterToolbar';
 import { ProjectBadge, ServiceBadge, DriverBadge, ScopeBadge, OrphanBadge } from '../components/Badges';
 import { api, VolumeInfo } from '../api';
+import { useConfirm } from '../hooks/useConfirm.js';
 import { 
   HardDriveIcon, DatabaseIcon, BoxIcon, TrashIcon, RefreshIcon
 } from '../components/Icons';
@@ -19,6 +20,8 @@ export function VolumesPage() {
   const [sortBy, setSortBy] = useState('name');
   const [sortDirection, setSortDirection] = useState('asc');
   const [typeFilter, setTypeFilter] = useState('all');
+
+  const { ConfirmDialog, confirm } = useConfirm();
 
   useEffect(() => {
     loadVolumes();
@@ -40,9 +43,13 @@ export function VolumesPage() {
 
   const handlePrune = async () => {
     const unusedCount = volumes.filter(v => v.orphan && v.type === 'docker').length;
-    if (!confirm(`Voulez-vous supprimer les ${unusedCount} volumes Docker non utilisés ? Cette action est irréversible.`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Supprimer les volumes',
+      message: `Voulez-vous supprimer les ${unusedCount} volumes Docker non utilisés ? Cette action est irréversible.`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     setPruning(true);
     setMessage(null);
@@ -58,9 +65,13 @@ export function VolumesPage() {
   };
 
   const handleRemoveVolume = async (volume: VolumeInfo) => {
-    if (!confirm(`Voulez-vous supprimer le volume "${volume.name}" ? Cette action est irréversible.`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Supprimer le volume',
+      message: `Voulez-vous supprimer le volume "${volume.name}" ? Cette action est irréversible.`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     try {
       const result = await api.system.removeVolume(volume.name);
@@ -142,6 +153,7 @@ export function VolumesPage() {
   return (
     <div className="page-container">
       <AppHeader title="Volumes" />
+      <ConfirmDialog />
       <div className="page-content">
         <div className="section-header">
           <h2 className="section-title">Volumes</h2>

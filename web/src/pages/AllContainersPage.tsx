@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { SearchInput, FilterSelect, SortMenu } from '../components/FilterToolbar';
 import { api, Container } from '../api';
+import { useConfirm } from '../hooks/useConfirm.js';
 import { 
   FolderIcon, ImageIcon, UpdateIcon,
   PlayIcon, StopIcon, RestartIcon, TrashIcon, FileTextIcon, TerminalIcon,
@@ -125,6 +126,8 @@ export function AllContainersPage() {
   const [sortDirection, setSortDirection] = useState('asc');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
 
+  const { ConfirmDialog, confirm } = useConfirm();
+
   useEffect(() => {
     loadContainers();
   }, [search, selectedProject, showUpdatesOnly, stateFilter]);
@@ -191,7 +194,13 @@ export function AllContainersPage() {
         setMessage({ type: result.hasUpdate ? 'success' : 'success', text: result.hasUpdate ? 'Mise à jour disponible !' : 'Image à jour' });
         loadContainerUpdates();
       } else if (action === 'remove') {
-        if (!confirm('Voulez-vous vraiment supprimer ce container ? Cette action est irréversible.')) {
+        const confirmed = await confirm({
+          title: 'Supprimer le container',
+          message: 'Voulez-vous vraiment supprimer ce container ? Cette action est irréversible.',
+          confirmText: 'Supprimer',
+          type: 'danger',
+        });
+        if (!confirmed) {
           setActionInProgress(null);
           return;
         }
@@ -244,6 +253,7 @@ export function AllContainersPage() {
   return (
     <div className="page-container">
       <AppHeader title="Containers" />
+      <ConfirmDialog />
       <div className="page-content">
         <div className="section-header">
           <h2 className="section-title">Containers Docker</h2>

@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { api, NetworkInfo } from '../api';
+import { useConfirm } from '../hooks/useConfirm.js';
 
 export function NetworksPage() {
   const [networks, setNetworks] = useState<NetworkInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [pruning, setPruning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const { ConfirmDialog, confirm } = useConfirm();
 
   useEffect(() => {
     loadNetworks();
@@ -21,9 +24,13 @@ export function NetworksPage() {
   };
 
   const handlePrune = async () => {
-    if (!confirm(`Voulez-vous vraiment supprimer les ${unusedNetworks} réseaux inutilisés ? Cette action est irréversible.`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Supprimer les réseaux',
+      message: `Voulez-vous vraiment supprimer les ${unusedNetworks} réseaux inutilisés ? Cette action est irréversible.`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     setPruning(true);
     setMessage(null);
@@ -39,9 +46,13 @@ export function NetworksPage() {
   };
 
   const handleRemoveNetwork = async (name: string) => {
-    if (!confirm(`Voulez-vous vraiment supprimer le réseau "${name}" ?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Supprimer le réseau',
+      message: `Voulez-vous vraiment supprimer le réseau "${name}" ?`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     try {
       const result = await api.system.removeNetwork(name);
@@ -67,6 +78,7 @@ export function NetworksPage() {
   return (
     <div className="page-container">
       <AppHeader title="Réseaux" />
+      <ConfirmDialog />
       <div className="page-content">
         <div className="section-header">
           <h2 className="section-title">Réseaux Docker</h2>

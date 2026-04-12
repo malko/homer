@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { api, ImageInfo } from '../api';
+import { useConfirm } from '../hooks/useConfirm.js';
 
 export function ImagesPage() {
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [pruning, setPruning] = useState(false);
   const [pruneOutput, setPruneOutput] = useState<string | null>(null);
+
+  const { ConfirmDialog, confirm } = useConfirm();
 
   useEffect(() => {
     loadImages();
@@ -20,13 +23,17 @@ export function ImagesPage() {
   };
 
   const handlePrune = async (danglingOnly: boolean) => {
-    const confirmMsg = danglingOnly
+    const message = danglingOnly
       ? 'Voulez-vous vraiment supprimer les images dangling (non tagguées) ?'
       : `Voulez-vous vraiment supprimer les ${unusedImages} images inutilisées par des containers ? Cette action est irréversible.`;
     
-    if (!confirm(confirmMsg)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: danglingOnly ? 'Supprimer les images dangling' : 'Supprimer les images inutilisées',
+      message,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     setPruning(true);
     setPruneOutput(null);
@@ -45,9 +52,13 @@ export function ImagesPage() {
     const image = images.find(i => i.id === imageId);
     const imageName = image ? `${image.repository}:${image.tag}` : imageId;
     
-    if (!confirm(`Voulez-vous vraiment supprimer l'image "${imageName}" ?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Supprimer l'image",
+      message: `Voulez-vous vraiment supprimer l'image "${imageName}" ?`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     
     try {
       const result = await api.system.removeImage(imageId, force);
@@ -73,6 +84,7 @@ export function ImagesPage() {
   return (
     <div className="page-container">
       <AppHeader title="Images" />
+      <ConfirmDialog />
       <div className="page-content">
         <div className="section-header">
           <h2 className="section-title">Images Docker</h2>

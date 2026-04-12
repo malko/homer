@@ -5,6 +5,7 @@ import type { TerminalHandle } from './TerminalPanel';
 import { api, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
+import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyHostForm } from './ProxyHostForm';
 import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
@@ -1171,6 +1172,8 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
   const [showForm, setShowForm] = useState(false);
   const [domainSuffix, setDomainSuffix] = useState('');
 
+  const { ConfirmDialog, confirm } = useConfirm();
+
   useEffect(() => {
     api.system.getSettings().then(s => setDomainSuffix(s.domainSuffix || ''));
   }, []);
@@ -1191,7 +1194,13 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
   };
 
   const handleDelete = async (host: ProxyHost) => {
-    if (confirm(`Supprimer le proxy pour ${host.domain} ?`)) {
+    const confirmed = await confirm({
+      title: 'Supprimer le proxy',
+      message: `Supprimer le proxy pour ${host.domain} ?`,
+      confirmText: 'Supprimer',
+      type: 'danger',
+    });
+    if (confirmed) {
       await deleteHost(host.id);
     }
   };
@@ -1202,6 +1211,7 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
 
   return (
     <div style={{ padding: '0.5rem 0' }}>
+      <ConfirmDialog />
       <div className="proxy-tab-header">
         <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
           Proxy reverse configurés pour ce projet
