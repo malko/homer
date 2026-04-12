@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { SearchInput, FilterSelect, SortMenu, InfoTooltip } from '../components/FilterToolbar';
+import { ProjectBadge, ServiceBadge, DriverBadge, ScopeBadge, OrphanBadge } from '../components/Badges';
 import { api, VolumeInfo } from '../api';
 import { 
-  FolderIcon, HardDriveIcon, DatabaseIcon, BoxIcon, TrashIcon, RefreshIcon
+  HardDriveIcon, DatabaseIcon, BoxIcon, TrashIcon, RefreshIcon
 } from '../components/Icons';
 
 export function VolumesPage() {
@@ -248,13 +249,14 @@ export function VolumesPage() {
                           {volume.hostPath}
                         </div>
                         <div className="volume-meta">
-                          <span className="volume-badge project" onClick={() => setSelectedProject(volume.project || 'all')} style={{ cursor: 'pointer' }} title="Cliquer pour filtrer">
-                            <FolderIcon size={12} /> {volume.project}
-                          </span>
+                          {volume.project && (
+                            <ProjectBadge 
+                              project={volume.project} 
+                              onClick={() => setSelectedProject(volume.project || 'all')} 
+                            />
+                          )}
                           {volume.service && (
-                            <span className="volume-badge service">
-                              <BoxIcon size={12} /> {volume.service}
-                            </span>
+                            <ServiceBadge service={volume.service} />
                           )}
                         </div>
                       </div>
@@ -286,19 +288,15 @@ export function VolumesPage() {
                           {volume.name}
                         </div>
                         <div className="volume-meta">
-                          <span className="volume-badge project" onClick={() => setSelectedProject(volume.project || 'all')} style={{ cursor: 'pointer' }} title="Cliquer pour filtrer">
-                            <FolderIcon size={12} /> {volume.project}
-                          </span>
-                          <span className="volume-badge driver" title="Driver du volume">
-                            {volume.driver}
-                          </span>
+                          {volume.project && (
+                            <ProjectBadge 
+                              project={volume.project} 
+                              onClick={() => setSelectedProject(volume.project || 'all')} 
+                            />
+                          )}
+                          <DriverBadge driver={volume.driver} />
+                          {volume.orphan && <OrphanBadge label="non utilisé" />}
                         </div>
-                      </div>
-                    </div>
-                    <div className="volume-details">
-                      <div className="volume-path">
-                        <span className="detail-label">Projet:</span> {volume.project}
-                        {volume.orphan && <span className="volume-orphan" title="Volume déclaré mais non utilisé par un container"> (non utilisé)</span>}
                       </div>
                     </div>
                   </div>
@@ -321,17 +319,9 @@ export function VolumesPage() {
                           {volume.name}
                         </div>
                         <div className="volume-meta">
-                          <span className="volume-badge driver" title={`Driver: ${volume.driver}`}>
-                            {volume.driver}
-                          </span>
-                          <span className="volume-badge scope" title={`Scope: ${volume.scope}`}>
-                            {volume.scope}
-                          </span>
-                          {volume.orphan && (
-                            <span className="volume-badge orphan" title="Volume non utilisé par aucun container">
-                              non utilisé
-                            </span>
-                          )}
+                          <DriverBadge driver={volume.driver} />
+                          <ScopeBadge scope={volume.scope} />
+                          {volume.orphan && <OrphanBadge />}
                         </div>
                       </div>
                       <div className="volume-right">
