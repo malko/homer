@@ -391,6 +391,7 @@ export interface SystemSettings {
   domainSuffix: string;
   extraHostname: string;
   updateCheckInterval: number;
+  certLifetime: number;
 }
 
 export interface HomeTileOverride {

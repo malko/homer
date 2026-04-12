@@ -180,6 +180,25 @@ function GeneralSettings() {
           />
           <span className="form-help">Hostname public avec certificat Let's Encrypt</span>
         </div>
+
+        <div className="settings-field">
+          <label htmlFor="cert-lifetime">Durée de vie des certificats internes</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              id="cert-lifetime"
+              type="number"
+              className="input"
+              style={{ maxWidth: '100px' }}
+              min={60}
+              max={43200}
+              value={settings.certLifetime}
+              onChange={e => setSettings({ ...settings, certLifetime: parseInt(e.target.value) || 10080 })}
+              onBlur={() => saveSettings({ certLifetime: settings.certLifetime })}
+            />
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>minutes</span>
+          </div>
+          <span className="form-help">Durée de validité des certificats TLS générés par Caddy pour le réseau local (défaut: 7 jours). Recharge Caddy requise.</span>
+        </div>
       </div>
 
       <div className="settings-card">

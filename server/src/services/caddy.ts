@@ -109,10 +109,14 @@ export function buildCaddyConfig(): Record<string, unknown> {
   }
 
   const tlsPolicies: Array<Record<string, unknown>> = [];
+  const rawCertLifetime = settingQueries.get('caddy_cert_lifetime');
+  const certLifetimeMinutes = rawCertLifetime ? parseInt(rawCertLifetime, 10) : 10080;
+  const certLifetime = `${certLifetimeMinutes}m`;
+
   if (internalDomains.length > 0) {
     tlsPolicies.push({
       subjects: internalDomains,
-      issuers: [{ module: 'internal' }],
+      issuers: [{ module: 'internal', lifetime: certLifetime }],
     });
   }
   if (acmeDomains.length > 0) {
