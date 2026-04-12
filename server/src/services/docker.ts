@@ -7,8 +7,21 @@ import { checkImageUpdateWithPolicy } from './registry.js';
 
 const execAsync = promisify(exec);
 
-async function getProjectFromContainers(): Promise<Map<string, Set<string>>> {
+interface VolumeUsageInfo {
+  containers: string[];
+  projects: string[];
+}
+
+interface ContainerVolumesResult {
+  projectVolumes: Map<string, Set<string>>;
+  usedVolumePaths: Set<string>;
+  volumeUsage: Map<string, VolumeUsageInfo>;
+}
+
+async function getProjectFromContainers(): Promise<ContainerVolumesResult> {
   const projectVolumes = new Map<string, Set<string>>();
+  const usedVolumePaths = new Set<string>();
+  const volumeUsage = new Map<string, VolumeUsageInfo>();
   
   try {
     const { stdout: containersOutput } = await execAsync(
@@ -26,16 +39,45 @@ async function getProjectFromContainers(): Promise<Map<string, Set<string>>> {
         
         const project = projectLabel.trim();
         
+        const { stdout: volumesOutput } = await execAsync(
+          `docker inspect ${containerName} --format '{{range .Mounts}}{{.Source}}|{{end}}'`
+        );
+        
+        const containerVolumes = volumesOutput.split('|').filter(Boolean);
+        for (const vol of containerVolumes) {
+          usedVolumePaths.add(vol);
+          
+          const mountpointVol = vol.match(/^\/var\/lib\/docker\/volumes\/([^/]+)\/_data$/);
+          if (mountpointVol) {
+            usedVolumePaths.add(mountpointVol[1]);
+          }
+          
+          if (!volumeUsage.has(vol)) {
+            volumeUsage.set(vol, { containers: [], projects: [] });
+          }
+          volumeUsage.get(vol)!.containers.push(containerName);
+          if (project && !volumeUsage.get(vol)!.projects.includes(project)) {
+            volumeUsage.get(vol)!.projects.push(project);
+          }
+          
+          if (mountpointVol) {
+            const volName = mountpointVol[1];
+            if (!volumeUsage.has(volName)) {
+              volumeUsage.set(volName, { containers: [], projects: [] });
+            }
+            volumeUsage.get(volName)!.containers.push(containerName);
+            if (project && !volumeUsage.get(volName)!.projects.includes(project)) {
+              volumeUsage.get(volName)!.projects.push(project);
+            }
+          }
+        }
+        
         if (project) {
           if (!projectVolumes.has(project)) {
             projectVolumes.set(project, new Set());
           }
           
-          const { stdout: volumesOutput } = await execAsync(
-            `docker inspect ${containerName} --format '{{range .Mounts}}{{.Source}}|{{end}}'`
-          );
-          
-          for (const vol of volumesOutput.split('|').filter(Boolean)) {
+          for (const vol of containerVolumes) {
             projectVolumes.get(project)!.add(vol);
           }
         }
@@ -43,7 +85,7 @@ async function getProjectFromContainers(): Promise<Map<string, Set<string>>> {
     }
   } catch {}
   
-  return projectVolumes;
+  return { projectVolumes, usedVolumePaths, volumeUsage };
 }
 
 export interface Container {
@@ -93,6 +135,7 @@ export interface VolumeInfo {
   containerPath?: string;
   size?: string;
   orphan?: boolean;
+  usedBy?: { containers: string[]; projects: string[] };
 }
 
 export interface NetworkInfo {
@@ -570,7 +613,7 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
   const volumeNames = new Set<string>();
   const dockerVolumeNames: string[] = [];
   
-  const containerVolumes = await getProjectFromContainers();
+  const { projectVolumes, usedVolumePaths, volumeUsage } = await getProjectFromContainers();
   
   // Get all Docker volumes
   try {
@@ -591,29 +634,67 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
         volumeNames.add(name);
         dockerVolumeNames.push(name);
         
-        let orphan = true;
-        for (const [, volSources] of containerVolumes) {
-          if (volSources.has(name) || volSources.has(`/var/lib/docker/volumes/${name}/_data`)) {
-            orphan = false;
-            break;
-          }
+        let orphan = !usedVolumePaths.has(name) && !usedVolumePaths.has(`/var/lib/docker/volumes/${name}/_data`);
+        
+        const mountPath = `/var/lib/docker/volumes/${name}/_data`;
+        let usedBy: { containers: string[]; projects: string[] } | undefined;
+        if (usedVolumePaths.has(name) || usedVolumePaths.has(mountPath)) {
+          const volKey = usedVolumePaths.has(name) ? name : mountPath;
+          usedBy = volumeUsage.get(volKey);
         }
         
-        volumes.push({ name, driver, mountpoint, scope, created: '', type: 'docker', orphan });
+        volumes.push({ name, driver, mountpoint, scope, created: '', type: 'docker', orphan, usedBy });
       }
     }
   } catch {}
 
-  // Get sizes for Docker volumes
-  for (const vol of volumes.filter(v => v.type === 'docker')) {
+  // Get Docker volume sizes and creation dates via bulk inspect
+  if (dockerVolumeNames.length > 0) {
     try {
       const { stdout } = await execAsync(
-        `docker volume inspect "${vol.name}" --format "{{.UsageData.Size}}"`
+        `docker volume inspect ${dockerVolumeNames.map(n => `"${n}"`).join(' ')}`,
+        { timeout: 15000 }
       );
       if (stdout) {
-        vol.size = stdout.trim();
+        const inspected = JSON.parse(stdout);
+        for (const v of Array.isArray(inspected) ? inspected : [inspected]) {
+          const vol = volumes.find(vol => vol.name === v.Name && vol.type === 'docker');
+          if (vol) {
+            if (v.CreatedAt) vol.created = v.CreatedAt;
+            if (v.UsageData?.Size !== undefined && v.UsageData?.Size !== null && v.UsageData.Size > 0) {
+              const bytes = v.UsageData.Size;
+              if (bytes >= 1073741824) vol.size = `${(bytes / 1073741824).toFixed(1)}GB`;
+              else if (bytes >= 1048576) vol.size = `${(bytes / 1048576).toFixed(1)}MB`;
+              else if (bytes >= 1024) vol.size = `${(bytes / 1024).toFixed(1)}KB`;
+              else vol.size = `${bytes}B`;
+            }
+          }
+        }
       }
     } catch {}
+
+    // Fallback: get sizes from docker system df
+    const volsWithoutSize = volumes.filter(v => v.type === 'docker' && !v.size);
+    if (volsWithoutSize.length > 0) {
+      try {
+        const { stdout } = await execAsync('docker system df -v --format json', { timeout: 30000 });
+        if (stdout) {
+          for (const line of stdout.split('\n').filter(l => l.trim())) {
+            try {
+              const obj = JSON.parse(line);
+              if (obj.Volumes) {
+                for (const v of obj.Volumes) {
+                  if (v.Name && v.Size) {
+                    const vol = volsWithoutSize.find(vol => vol.name === v.Name);
+                    if (vol) vol.size = v.Size;
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
   }
 
   const projects = projectQueries.getAll();
@@ -636,10 +717,24 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
           if (!volumeNames.has(fullName) && !volumeNames.has(volName)) {
             const driver = (volConfig as any)?.driver || 'local';
             
-            const isUsed = containerVolumes.has(project.name) && 
-              Array.from(containerVolumes.get(project.name)!).some(v => 
-                v.includes(fullName) || v.includes(volName)
-              );
+            const projectVols = projectVolumes.get(project.name);
+            const isUsed = projectVols && Array.from(projectVols).some(v => 
+              v.includes(fullName) || v.includes(volName)
+            );
+            
+            let usedBy: { containers: string[]; projects: string[] } | undefined;
+            if (isUsed) {
+              const containers: string[] = [];
+              for (const [, usage] of volumeUsage) {
+                if (usage.projects.includes(project.name)) {
+                  containers.push(...usage.containers);
+                }
+              }
+              usedBy = { 
+                containers: [...new Set(containers)], 
+                projects: [project.name] 
+              };
+            }
             
             volumes.push({
               name: volName,
@@ -649,7 +744,8 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
               created: '',
               project: project.name,
               type: 'compose',
-              orphan: !isUsed
+              orphan: !isUsed,
+              usedBy
             });
             volumeNames.add(volName);
           }
@@ -684,11 +780,22 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
               
               const volKey = `${project.name}:${serviceName}:${hostPath}`;
               if (!volumeNames.has(volKey)) {
+                let usedContainers: string[] = [];
+                let usedProjects: string[] = [];
+                for (const [volPath, usage] of volumeUsage) {
+                  if (volPath === resolvedHostPath) {
+                    usedContainers.push(...usage.containers);
+                    usedProjects.push(...usage.projects);
+                  }
+                }
+                usedProjects = [...new Set(usedProjects)];
+                usedContainers = [...new Set(usedContainers)];
+                
                 let size = '';
                 try {
                   const { stdout } = await execAsync(
                     `du -sh "${resolvedHostPath}" 2>/dev/null || echo ""`,
-                    { timeout: 5000 }
+                    { timeout: 15000 }
                   );
                   size = stdout.trim().split('\t')[0] || '';
                 } catch {}
@@ -704,7 +811,8 @@ export async function listVolumes(): Promise<VolumeInfo[]> {
                   type: 'bind',
                   hostPath: resolvedHostPath,
                   containerPath,
-                  size
+                  size,
+                  usedBy: usedContainers.length > 0 ? { containers: usedContainers, projects: usedProjects } : undefined
                 });
                 volumeNames.add(volKey);
               }

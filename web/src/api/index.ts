@@ -486,6 +486,7 @@ export interface VolumeInfo {
   containerPath?: string;
   size?: string;
   orphan?: boolean;
+  usedBy?: { containers: string[]; projects: string[] };
 }
 
 export interface NetworkInfo {

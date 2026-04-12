@@ -85,3 +85,16 @@ export function OrphanBadge({ label = 'non utilisé' }: OrphanBadgeProps) {
     </Badge>
   );
 }
+
+interface ContainerBadgeProps {
+  container: string;
+}
+
+export function ContainerBadge({ container }: ContainerBadgeProps) {
+  return (
+    <Badge className="badge-container" title={`Container: ${container}`}>
+      <BoxIcon size={12} />
+      {container}
+    </Badge>
+  );
+}

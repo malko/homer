@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { SearchInput, FilterSelect, SortMenu, InfoTooltip } from '../components/FilterToolbar';
-import { ProjectBadge, ServiceBadge, DriverBadge, ScopeBadge, OrphanBadge } from '../components/Badges';
+import { ProjectBadge, ServiceBadge, DriverBadge, ScopeBadge, OrphanBadge, ContainerBadge } from '../components/Badges';
 import { api, VolumeInfo } from '../api';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { 
-  HardDriveIcon, DatabaseIcon, BoxIcon, TrashIcon, RefreshIcon
+  DatabaseIcon, TrashIcon, RefreshIcon
 } from '../components/Icons';
 
 export function VolumesPage() {
@@ -257,7 +257,7 @@ export function VolumesPage() {
                     <div className="volume-header">
                       <div className="volume-main">
                         <div className="resource-name" title={volume.hostPath}>
-                          <HardDriveIcon size={14} className="inline-icon" />
+                          <DatabaseIcon size={14} className="inline-icon" />
                           {volume.hostPath}
                         </div>
                         <div className="volume-meta">
@@ -272,12 +272,58 @@ export function VolumesPage() {
                           )}
                         </div>
                       </div>
-                      <div className="volume-size">{volume.size || '-'}</div>
+                      <div className="volume-right">
+                        {volume.size ? (
+                          <div className="volume-size">{volume.size}</div>
+                        ) : (
+                          <InfoTooltip>
+                            <p>Impossible de calculer la taille du dossier.</p>
+                            <p className="form-help">Le serveur n'a pas accès à ce chemin ou le calcul a expiré.</p>
+                          </InfoTooltip>
+                        )}
+                      </div>
                     </div>
                     <div className="volume-details">
                       <div className="volume-path">
                         <span className="detail-label">Conteneur:</span>
                         <code>{volume.containerPath}</code>
+                      </div>
+                      {volume.created && (
+                        <div className="volume-path">
+                          <span className="detail-label">Créé:</span>
+                          <span>{volume.created}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {composeVolumes.length > 0 && (
+              <div className="volume-section">
+                <h3 className="section-title">
+                  <span className="volume-type-badge compose">Compose</span>
+                  Volumes nommés
+                </h3>
+                {composeVolumes.map(volume => (
+                  <div key={`${volume.project}-${volume.name}`} className="resource-item volume-item">
+                    <div className="volume-header">
+                      <div className="volume-main">
+                        <div className="resource-name">
+                          <DatabaseIcon size={14} className="inline-icon" />
+                          {volume.name}
+                        </div>
+                        <div className="volume-meta">
+                          {volume.project && (
+                            <ProjectBadge 
+                              project={volume.project} 
+                              onClick={() => setSelectedProject(volume.project || 'all')} 
+                            />
+                          )}
+<DriverBadge driver={volume.driver} />
+                          {volume.orphan && <OrphanBadge label="non utilisé" />}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -310,7 +356,44 @@ export function VolumesPage() {
                           {volume.orphan && <OrphanBadge label="non utilisé" />}
                         </div>
                       </div>
+                      <div className="volume-right">
+                        {volume.orphan && volume.type === 'compose' && (
+                          <button 
+                            className="btn btn-sm btn-danger-outline"
+                            onClick={() => handleRemoveVolume(volume)}
+                            title="Supprimer ce volume"
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
+                    {(volume.created || volume.usedBy) && (
+                      <div className="volume-details">
+                        {volume.usedBy && volume.usedBy.projects.length > 0 && (
+                          <div className="volume-path">
+                            <span className="detail-label">Utilisé par:</span>
+                            {volume.usedBy.projects.map(p => (
+                              <ProjectBadge key={p} project={p} />
+                            ))}
+                          </div>
+                        )}
+                        {volume.usedBy && volume.usedBy.containers.length > 0 && (
+                          <div className="volume-path">
+                            <span className="detail-label">Containers:</span>
+                            {volume.usedBy.containers.map(c => (
+                              <ContainerBadge key={c} container={c} />
+                            ))}
+                          </div>
+                        )}
+                        {volume.created && (
+                          <div className="volume-path">
+                            <span className="detail-label">Créé:</span>
+                            <span>{volume.created}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -327,7 +410,7 @@ export function VolumesPage() {
                     <div className="volume-header">
                       <div className="volume-main">
                         <div className="resource-name">
-                          <BoxIcon size={14} className="inline-icon" />
+                          <DatabaseIcon size={14} className="inline-icon" />
                           {volume.name}
                         </div>
                         <div className="volume-meta">
@@ -337,8 +420,8 @@ export function VolumesPage() {
                         </div>
                       </div>
                       <div className="volume-right">
-                        <div className="volume-size">{volume.size || '-'}</div>
-                        {!volume.orphan && (
+                        {volume.size && <div className="volume-size">{volume.size}</div>}
+                        {volume.orphan && volume.type === 'docker' && (
                           <button 
                             className="btn btn-sm btn-danger-outline"
                             onClick={() => handleRemoveVolume(volume)}
@@ -349,12 +432,36 @@ export function VolumesPage() {
                         )}
                       </div>
                     </div>
-                    {volume.mountpoint && (
+                    {(volume.mountpoint || volume.usedBy) && (
                       <div className="volume-details">
-                        <div className="volume-path">
-                          <span className="detail-label">Mountpoint:</span>
-                          <code>{volume.mountpoint}</code>
-                        </div>
+                        {volume.usedBy && volume.usedBy.projects.length > 0 && (
+                          <div className="volume-path">
+                            <span className="detail-label">Utilisé par:</span>
+                            {volume.usedBy.projects.map(p => (
+                              <ProjectBadge key={p} project={p} />
+                            ))}
+                          </div>
+                        )}
+                        {volume.usedBy && volume.usedBy.containers.length > 0 && (
+                          <div className="volume-path">
+                            <span className="detail-label">Containers:</span>
+                            {volume.usedBy.containers.map(c => (
+                              <ContainerBadge key={c} container={c} />
+                            ))}
+                          </div>
+                        )}
+                        {volume.mountpoint && (
+                          <div className="volume-path">
+                            <span className="detail-label">Mountpoint:</span>
+                            <code>{volume.mountpoint}</code>
+                          </div>
+                        )}
+                        {volume.created && (
+                          <div className="volume-path">
+                            <span className="detail-label">Créé:</span>
+                            <span>{volume.created}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
