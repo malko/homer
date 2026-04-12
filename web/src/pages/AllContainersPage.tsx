@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { api, Container } from '../api';
 import { 
-  SearchIcon, RefreshIcon, SortIcon, FolderIcon, ImageIcon, UpdateIcon,
+  SearchIcon, SortIcon, FolderIcon, ImageIcon, UpdateIcon,
   PlayIcon, StopIcon, RestartIcon, TrashIcon, FileTextIcon, TerminalIcon,
   MoreVerticalIcon, ArrowUpIcon, ArrowDownIcon
 } from '../components/Icons';
@@ -365,7 +365,7 @@ export function AllContainersPage() {
             </button>
           </div>
 
-          <button 
+          <div className="toolbar-right"><button 
             className="btn btn-sm btn-secondary" 
             onClick={async () => {
               setLoadingUpdates(true);
@@ -380,18 +380,8 @@ export function AllContainersPage() {
             title="Vérifier les mises à jour pour tous les containers"
           >
             <UpdateIcon size={14} />
-            Vérifier
+            {loadingUpdates ? 'Vérification...' : 'Vérifier'}
           </button>
-
-          <div className="toolbar-right">
-            <button 
-              className="btn btn-icon-only" 
-              onClick={loadContainers}
-              disabled={loading}
-              title="Actualiser"
-            >
-              <RefreshIcon size={16} />
-            </button>
             <SortMenu 
               currentSort={sortBy} 
               sortDirection={sortDirection}
