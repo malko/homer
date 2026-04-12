@@ -2,6 +2,8 @@
 
 A web-based container management system for homelab environments. Deploy, monitor, and update your Docker Compose projects through an intuitive interface.
 
+> **Note**: This project was built to meet my own homelab needs. It may be useful for others wanting to set up a simple self-hosted environment, but it's not designed for production use. If you're looking for a more mature solution, consider projects like Dokploy, Coolify, or CasaOS.
+
 ## Features
 
 - **Project Management**: Add Docker Compose projects via host file paths
