@@ -23,7 +23,8 @@ import { watcher } from './services/watcher.js';
 import { waitForDb, settingQueries, projectQueries } from './db/index.js';
 import { startAutoUpdateChecker, performUpdate } from './services/updater.js';
 import { initCaddyConfig } from './services/caddy.js';
-import { checkProjectImageUpdates, updateProjectImages } from './services/docker.js';
+import { checkProjectImageUpdates, updateProjectImages, listContainers, checkContainerUpdate } from './services/docker.js';
+import { containerUpdateQueries } from './db/index.js';
 
 const fastify = Fastify({
   logger: true,
@@ -108,11 +109,26 @@ const start = async () => {
     // Periodic image update checker
     const checkAllProjectUpdates = async () => {
       try {
+        // Check project containers and populate container_updates table
+        const containers = await listContainers();
+        const projectContainerIds = new Set<string>();
+        
+        for (const container of containers) {
+          if (container.project && container.id && container.image) {
+            projectContainerIds.add(container.id);
+            const updateResult = await checkContainerUpdate(container.id, container.image);
+            containerUpdateQueries.set(container.id, container.image, updateResult.hasUpdate);
+          }
+        }
+
+        // Broadcast update availability to all project containers
+        const projectIdsWithUpdates = new Set<number>();
         const projects = projectQueries.getAll();
         for (const project of projects) {
           const result = await checkProjectImageUpdates(project.id);
           settingQueries.set(`image_updates_${project.id}`, JSON.stringify({ ...result, checkedAt: Date.now() }));
           if (result.hasUpdates) {
+            projectIdsWithUpdates.add(project.id);
             fastify.broadcast({ type: 'project_update_available', projectId: project.id, hasUpdates: true });
             // Auto-apply if the project has auto_update enabled and policy is not disabled
             if (project.auto_update && project.auto_update_policy !== 'disabled') {

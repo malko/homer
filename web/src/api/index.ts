@@ -220,6 +220,8 @@ export const api = {
       request<{ success: boolean; output: string }>(`/containers/${id}`, { method: 'DELETE' }),
     updateImage: (id: string) =>
       request<{ success: boolean; output: string }>(`/containers/${id}/update-image`, { method: 'POST' }),
+    checkUpdate: (id: string) =>
+      request<{ success: boolean; hasUpdate: boolean }>(`/containers/${id}/check-update`, { method: 'POST' }),
   },
 
   home: {
@@ -273,8 +275,19 @@ export const api = {
     update: () =>
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
     getContainers: () => request<Container[]>('/system/containers'),
-    getAllContainers: () => request<Container[]>('/system/all-containers'),
+    getAllContainers: (options?: { search?: string; project?: string; hasUpdate?: boolean; includeUpdates?: boolean; state?: string }) => {
+      const params = new URLSearchParams();
+      if (options?.search) params.set('search', options.search);
+      if (options?.project) params.set('project', options.project);
+      if (options?.hasUpdate) params.set('hasUpdate', 'true');
+      if (options?.includeUpdates) params.set('includeUpdates', 'true');
+      if (options?.state) params.set('state', options.state);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return request<Container[]>(`/system/all-containers${qs}`);
+    },
     getUpdates: () => request<{ hasUpdates: boolean; projects: Array<{ id: number; name: string; services: string[] }> }>('/system/updates'),
+    getContainerUpdates: () => request<Record<string, { hasUpdate: boolean; checkedAt: number | null }>>('/system/container-updates'),
+    checkAllUpdates: () => request<{ success: boolean; checked: number }>('/system/check-all-updates', { method: 'POST' }),
     getStats: () => request<{
       totalContainers: number;
       runningContainers: number;

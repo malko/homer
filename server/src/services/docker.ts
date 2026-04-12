@@ -17,6 +17,7 @@ export interface Container {
   service?: string;
   created: string;
   ports?: string[];
+  hasUpdate?: boolean;
 }
 
 export interface ContainerStats {
@@ -399,6 +400,33 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
   }));
 
   return { hasUpdates: servicesWithUpdates.length > 0, services: servicesWithUpdates };
+}
+
+export async function checkContainerUpdate(containerId: string, image: string): Promise<{ hasUpdate: boolean }> {
+  if (!image) return { hasUpdate: false };
+  try {
+    const result = await checkImageUpdateWithPolicy(image, 'all');
+    return { hasUpdate: result.hasUpdate };
+  } catch {
+    return { hasUpdate: false };
+  }
+}
+
+export async function checkAllContainerUpdates(): Promise<Record<string, { hasUpdate: boolean; image: string }>> {
+  const containers = await listContainers();
+  const results: Record<string, { hasUpdate: boolean; image: string }> = {};
+
+  await Promise.all(containers.map(async (container) => {
+    if (!container.image || !container.id) return;
+    try {
+      const result = await checkImageUpdateWithPolicy(container.image, 'all');
+      results[container.id] = { hasUpdate: result.hasUpdate, image: container.image };
+    } catch {
+      results[container.id] = { hasUpdate: false, image: container.image };
+    }
+  }));
+
+  return results;
 }
 
 export async function validateComposeFile(filePath: string): Promise<{ valid: boolean; error?: string }> {

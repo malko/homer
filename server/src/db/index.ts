@@ -124,6 +124,13 @@ async function initDb() {
     sort_order INTEGER
   )`); } catch {}
 
+  try { db.run(`CREATE TABLE IF NOT EXISTS container_updates (
+    container_id TEXT PRIMARY KEY,
+    image TEXT NOT NULL,
+    has_update INTEGER DEFAULT 0,
+    checked_at INTEGER
+  )`); } catch {}
+
   saveDb();
 }
 
@@ -505,6 +512,50 @@ export const sessionQueries = {
   },
   cleanExpired: () => {
     db.run("DELETE FROM sessions WHERE expires_at <= datetime('now')");
+    saveDb();
+  },
+};
+
+export interface ContainerUpdate {
+  container_id: string;
+  image: string;
+  has_update: number;
+  checked_at: number | null;
+}
+
+export const containerUpdateQueries = {
+  get: (containerId: string): ContainerUpdate | undefined => {
+    const stmt = db.prepare('SELECT * FROM container_updates WHERE container_id = ?');
+    stmt.bind([containerId]);
+    if (stmt.step()) {
+      const columns = stmt.getColumnNames();
+      const row = stmt.get();
+      stmt.free();
+      return rowToObj<ContainerUpdate>(columns, row);
+    }
+    stmt.free();
+    return undefined;
+  },
+  getAll: (): Record<string, ContainerUpdate> => {
+    const result = db.exec('SELECT * FROM container_updates');
+    if (result.length === 0) return {};
+    const columns = result[0].columns;
+    const updates: Record<string, ContainerUpdate> = {};
+    for (const row of result[0].values) {
+      const obj = rowToObj<ContainerUpdate>(columns, row);
+      updates[obj.container_id] = obj;
+    }
+    return updates;
+  },
+  set: (containerId: string, image: string, hasUpdate: boolean) => {
+    db.run(
+      'INSERT INTO container_updates (container_id, image, has_update, checked_at) VALUES (?, ?, ?, ?) ON CONFLICT(container_id) DO UPDATE SET image = excluded.image, has_update = excluded.has_update, checked_at = excluded.checked_at',
+      [containerId, image, hasUpdate ? 1 : 0, Date.now()]
+    );
+    saveDb();
+  },
+  delete: (containerId: string) => {
+    db.run('DELETE FROM container_updates WHERE container_id = ?', [containerId]);
     saveDb();
   },
 };

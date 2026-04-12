@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { sessionQueries, settingQueries, projectQueries } from '../db/index.js';
+import { sessionQueries, settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate } from '../services/updater.js';
-import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage } from '../services/docker.js';
+import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
 const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
@@ -107,6 +107,23 @@ export async function systemRoutes(fastify: FastifyInstance) {
     };
   });
 
+  fastify.get('/api/system/container-updates', async () => {
+    const updates = containerUpdateQueries.getAll();
+    const result: Record<string, { hasUpdate: boolean; checkedAt: number | null }> = {};
+    for (const [containerId, update] of Object.entries(updates)) {
+      result[containerId] = { hasUpdate: update.has_update === 1, checkedAt: update.checked_at };
+    }
+    return result;
+  });
+
+  fastify.post('/api/system/check-all-updates', async () => {
+    const results = await checkAllContainerUpdates();
+    for (const [containerId, data] of Object.entries(results)) {
+      containerUpdateQueries.set(containerId, data.image, data.hasUpdate);
+    }
+    return { success: true, checked: Object.keys(results).length };
+  });
+
   fastify.get('/api/system/stats', async () => {
     return getSystemStats();
   });
@@ -128,20 +145,55 @@ export async function systemRoutes(fastify: FastifyInstance) {
     return pruneImages(danglingOnly ?? true);
   });
 
-  fastify.get('/api/system/all-containers', async () => {
-    const containers = await listContainers();
-    
-    for (const container of containers) {
-      if (container.image) {
-        try {
-          const updateInfo = await checkImageUpdateWithPolicy(container.image, 'all');
-          (container as { hasUpdate?: boolean }).hasUpdate = updateInfo.hasUpdate;
-        } catch {
-          (container as { hasUpdate?: boolean }).hasUpdate = false;
-        }
-      }
+  fastify.get('/api/system/all-containers', async (request) => {
+    const { search, project, hasUpdate, includeUpdates, state } = request.query as {
+      search?: string;
+      project?: string;
+      hasUpdate?: string;
+      includeUpdates?: string;
+      state?: string;
+    };
+
+    const allContainers = await listContainers();
+    let containers = allContainers;
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      containers = containers.filter(c => 
+        c.name.toLowerCase().includes(searchLower) ||
+        c.image.toLowerCase().includes(searchLower)
+      );
     }
-    
+
+    if (project && project !== 'all') {
+      containers = containers.filter(c => c.project === project);
+    }
+
+    if (state && state !== 'all') {
+      containers = containers.filter(c => c.state === state);
+    }
+
+    if (includeUpdates === 'true') {
+      const checkPromises = containers.map(async (container) => {
+        if (container.image) {
+          try {
+            const updateInfo = await checkImageUpdateWithPolicy(container.image, 'all');
+            (container as { hasUpdate?: boolean }).hasUpdate = updateInfo.hasUpdate;
+          } catch {
+            (container as { hasUpdate?: boolean }).hasUpdate = false;
+          }
+        }
+      });
+      await Promise.all(checkPromises);
+
+      if (hasUpdate === 'true') {
+        const ids = containers.filter(c => c.hasUpdate === true).map(c => c.id);
+        return { containerIds: ids };
+      }
+    } else if (hasUpdate === 'true') {
+      return { containerIds: [] };
+    }
+
     return containers;
   });
 
