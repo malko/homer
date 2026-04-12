@@ -29,6 +29,7 @@
     - [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
     - [x] Déplacer l'entrée de menu paramètres vers le bas du menu
     - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
+    - [ ] internationnalisation
 - [ ] Accès distant
     - Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
 - [ ] PAAS

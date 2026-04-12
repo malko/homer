@@ -5,6 +5,7 @@ import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpd
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
+import { LogsPage } from './pages/LogsPage';
 import { HomePage } from './pages/HomePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MonitorPage } from './pages/MonitorPage';
@@ -206,6 +207,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute noLayout>
             <TerminalPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/logs"
+        element={
+          <ProtectedRoute noLayout>
+            <LogsPage />
           </ProtectedRoute>
         }
       />
