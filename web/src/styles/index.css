@@ -2775,23 +2775,28 @@ body {
 .info-tooltip-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 100;
 }
 
 .info-tooltip {
-  position: absolute;
-  right: 0;
-  top: 100%;
-  margin-top: 0.25rem;
-  width: 320px;
-  max-width: 90vw;
+  position: fixed;
+  width: auto;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   padding: 1rem;
-  z-index: 20;
+  z-index: 101;
   animation: fadeIn 0.15s ease-out;
+}
+
+@media (max-width: 500px) {
+  .info-tooltip {
+    max-width: calc(100vw - 16px);
+  }
 }
 
 .info-tooltip h3 {
@@ -2804,11 +2809,11 @@ body {
 .info-tooltip p {
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
 }
 
 .info-tooltip p + p {
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .info-tooltip-close {
@@ -3213,6 +3218,26 @@ body {
 }
 
 .badge-orphan {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+}
+
+.badge-internal-yes {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+}
+
+.badge-internal-no {
+  background: rgba(100, 116, 139, 0.1);
+  color: var(--color-text-muted);
+}
+
+.badge-used {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+}
+
+.badge-unused {
   background: rgba(239, 68, 68, 0.15);
   color: var(--color-danger);
 }

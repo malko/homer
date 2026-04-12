@@ -1,4 +1,4 @@
-import { useState, ReactNode } from 'react';
+import { useState, useRef, useEffect, ReactNode } from 'react';
 import { SearchIcon, SortIcon, ArrowUpIcon, ArrowDownIcon, XIcon, InfoIcon } from './Icons';
 
 interface SearchInputProps {
@@ -151,10 +151,72 @@ interface InfoTooltipProps {
 
 export function InfoTooltip({ children }: InfoTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, transform: '' });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen || !buttonRef.current || !tooltipRef.current) return;
+
+    const button = buttonRef.current;
+    const tooltip = tooltipRef.current;
+    const buttonRect = button.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+
+    const padding = 8;
+    const maxWidth = 480;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let top: number;
+    let left: number;
+    let transform = '';
+
+    const tooltipWidth = Math.min(maxWidth, viewportWidth - padding * 2);
+    const tooltipHeight = tooltipRect.height;
+
+    if (buttonRect.left < viewportWidth / 2) {
+      left = Math.max(padding, buttonRect.left);
+      if (left + tooltipWidth > viewportWidth - padding) {
+        left = viewportWidth - padding - tooltipWidth;
+      }
+    } else {
+      left = Math.max(padding, buttonRect.right - tooltipWidth);
+      if (left < padding) {
+        left = padding;
+      }
+    }
+
+    const spaceBelow = viewportHeight - buttonRect.bottom - padding;
+    const spaceAbove = buttonRect.top - padding;
+
+    if (spaceBelow >= tooltipHeight + padding || spaceBelow >= spaceAbove) {
+      top = buttonRect.bottom + padding;
+      transform = 'none';
+    } else {
+      top = Math.max(padding, buttonRect.top - tooltipHeight - padding);
+      transform = 'none';
+    }
+
+    top = Math.min(top, viewportHeight - tooltipHeight - padding);
+    top = Math.max(padding, top);
+
+    setPosition({ top, left, transform });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
 
   return (
     <div className="info-tooltip-wrapper">
       <button
+        ref={buttonRef}
         className={`btn btn-icon-only ${isOpen ? 'active' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
         title="En savoir plus"
@@ -164,7 +226,15 @@ export function InfoTooltip({ children }: InfoTooltipProps) {
       {isOpen && (
         <>
           <div className="info-tooltip-backdrop" onClick={() => setIsOpen(false)} />
-          <div className="info-tooltip">
+          <div
+            ref={tooltipRef}
+            className="info-tooltip"
+            style={{
+              top: position.top,
+              left: position.left,
+              transform: position.transform,
+            }}
+          >
             <button className="info-tooltip-close" onClick={() => setIsOpen(false)}>
               <XIcon size={14} />
             </button>

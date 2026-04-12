@@ -98,3 +98,27 @@ export function ContainerBadge({ container }: ContainerBadgeProps) {
     </Badge>
   );
 }
+
+interface InternalBadgeProps {
+  internal: boolean;
+}
+
+export function InternalBadge({ internal }: InternalBadgeProps) {
+  return (
+    <Badge className={internal ? 'badge-internal-yes' : 'badge-internal-no'} title={internal ? 'Réseau interne' : 'Réseau externe'}>
+      {internal ? 'interne' : 'externe'}
+    </Badge>
+  );
+}
+
+interface UsedBadgeProps {
+  used: boolean;
+}
+
+export function UsedBadge({ used }: UsedBadgeProps) {
+  return (
+    <Badge className={used ? 'badge-used' : 'badge-unused'} title={used ? 'Réseau utilisé' : 'Réseau inutilisé'}>
+      {used ? 'utilisé' : 'inutilisé'}
+    </Badge>
+  );
+}
