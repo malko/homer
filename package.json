@@ -1,6 +1,6 @@
 {
   "name": "homer",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "workspaces": [
     "server",
@@ -14,7 +14,8 @@
     "build": "npm run build --workspace=server && npm run build --workspace=web",
     "start": "npm run start --workspace=server",
     "docker:build": "docker build --build-arg BUILD_VERSION=$(node -p \"require('./package.json').version\") -t homer:$(node -p \"require('./package.json').version\") -t homer:latest .",
-    "docker:up": "docker compose up --build -d"
+    "docker:up": "docker compose up --build -d",
+    "release": "bash release.sh"
   },
   "devDependencies": {
     "@types/sql.js": "^1.4.10",
