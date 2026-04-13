@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro
     networks:
       - homelab-network
     restart: unless-stopped
