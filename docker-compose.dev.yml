@@ -14,7 +14,10 @@ services:
     restart: unless-stopped
 
   homelab-manager:
-    image: ghcr.io/malko/homer:${HOMER_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: homer:dev
     container_name: homelab-manager
     environment:
       - NODE_ENV=production
@@ -23,7 +26,7 @@ services:
       - CADDY_ADMIN_URL=http://caddy:2019
       - HOMER_DOMAIN=desk.local
       - HOMER_GITHUB_REPO=malko/homer
-      - HOMER_IMAGE=ghcr.io/malko/homer:${HOMER_VERSION:-latest}
+      - HOMER_IMAGE=ghcr.io/malko/homer:dev
       - HOMER_COMPOSE_FILE=/host/path/to/docker-compose.yml
     volumes:
       - ./data:/app/data
