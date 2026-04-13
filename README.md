@@ -29,13 +29,21 @@ A web-based container management system for homelab environments. Deploy, monito
 
 ## Quick Start
 
-### Docker (Recommended)
+### Production (Recommended)
 
 ```bash
 docker compose up -d
 ```
 
-Access at http://localhost:4000 (or configure your reverse proxy).
+Uses the pre-built image from GHCR (`ghcr.io/malko/homer:latest`).
+
+### Development
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+Builds the image locally for development.
 
 ### Development
 
@@ -199,4 +207,29 @@ No ESLint/Prettier — relies on TypeScript compiler for type checking.
 ```bash
 # Run server tests
 cd server && npm test
+```
+
+## Publishing a New Release
+
+New versions are automatically published to GHCR when a tag is pushed to main:
+
+```bash
+npm run release patch   # 1.0.0 → 1.0.1
+npm run release minor  # 1.0.0 → 1.1.0
+npm run release major  # 1.0.0 → 2.0.0
+
+git push && git push --tags
+```
+
+## Git Configuration
+
+If you encounter SSH authentication errors when pushing:
+
+```bash
+# Use HTTPS instead of SSH
+git remote set-url origin https://github.com/malko/homer.git
+
+# Or configure SSH key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+# Add the public key to GitHub → Settings → SSH and GPG keys
 ```
