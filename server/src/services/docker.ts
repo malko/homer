@@ -590,6 +590,45 @@ export function deployProjectStream(
   };
 }
 
+export function downProjectStream(
+  projectId: number,
+  onLine: (line: string) => void,
+  onDone: (success: boolean) => void,
+): () => void {
+  const project = projectQueries.getById(projectId);
+  if (!project) {
+    onLine('Error: Project not found');
+    onDone(false);
+    return () => {};
+  }
+
+  const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
+
+  const child = spawn('docker', ['compose', '-f', project.path, '-p', projectName, 'down'], {
+    cwd: projectDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const handleData = (data: Buffer) => {
+    const lines = String(data).split('\n');
+    for (const line of lines) {
+      if (line.length > 0) onLine(line);
+    }
+  };
+
+  child.stdout?.on('data', handleData);
+  child.stderr?.on('data', handleData);
+
+  child.on('close', (code) => {
+    onDone(code === 0);
+  });
+
+  return () => {
+    try { child.kill('SIGTERM'); } catch {}
+  };
+}
+
 export async function streamLogs(containerId: string, callback: (line: string) => void): Promise<() => void> {
   const proc = spawn('docker', ['logs', '-f', '--tail', '100', containerId], {
     stdio: ['ignore', 'pipe', 'pipe'],

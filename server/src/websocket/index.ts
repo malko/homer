@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { createRequire } from 'module';
 import { sessionQueries } from '../db/index.js';
-import { streamLogs, deployProjectStream } from '../services/docker.js';
+import { streamLogs, deployProjectStream, downProjectStream } from '../services/docker.js';
 
 // Minimal typing for node-pty (native module, installed separately)
 interface IPty {
@@ -29,6 +29,7 @@ interface BroadcastEvent {
 const logStreamers = new Map<string, () => void>();
 const terminalSessions = new Map<string, IPty>();
 const deployStreamers = new Map<string, () => void>();
+const downStreamers = new Map<string, () => void>();
 
 export function setupWebSocket(fastify: FastifyInstance) {
   fastify.register(async (instance) => {
@@ -171,6 +172,38 @@ export function setupWebSocket(fastify: FastifyInstance) {
             const stop = deployStreamers.get(key);
             if (stop) { stop(); deployStreamers.delete(key); }
           }
+
+          if (message.type === 'subscribe_down' && message.projectId) {
+            const projectId = Number(message.projectId);
+            const key = `${clientId}:down:${projectId}`;
+            const existing = downStreamers.get(key);
+            if (existing) { existing(); downStreamers.delete(key); }
+
+            const stop = downProjectStream(
+              projectId,
+              (line) => {
+                try {
+                  socket.send(JSON.stringify({ type: 'down_output', projectId, line }));
+                } catch {}
+              },
+              (success) => {
+                downStreamers.delete(key);
+                try {
+                  socket.send(JSON.stringify({ type: 'down_done', projectId, success }));
+                } catch {}
+                if (success) {
+                  instance.broadcast({ type: 'containers_updated' });
+                }
+              },
+            );
+            downStreamers.set(key, stop);
+          }
+
+          if (message.type === 'abort_down' && message.projectId) {
+            const key = `${clientId}:down:${Number(message.projectId)}`;
+            const stop = downStreamers.get(key);
+            if (stop) { stop(); downStreamers.delete(key); }
+          }
         } catch {}
       });
 
@@ -180,6 +213,9 @@ export function setupWebSocket(fastify: FastifyInstance) {
         });
         deployStreamers.forEach((stop, key) => {
           if (key.startsWith(clientId)) { stop(); deployStreamers.delete(key); }
+        });
+        downStreamers.forEach((stop, key) => {
+          if (key.startsWith(clientId)) { stop(); downStreamers.delete(key); }
         });
         const termKeysToDelete: string[] = [];
         terminalSessions.forEach((proc, key) => {

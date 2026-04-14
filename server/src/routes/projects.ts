@@ -326,14 +326,22 @@ export async function projectRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Project not found' });
     }
     
+    const projectDir = path.dirname(project.path);
+    let envPath = project.env_path;
+    
     try {
       await fs.writeFile(project.path, body.composeContent, 'utf-8');
       
-      if (body.envContent !== undefined && project.env_path) {
+      if (body.envContent !== undefined) {
         if (body.envContent.trim()) {
-          await fs.writeFile(project.env_path, body.envContent, 'utf-8');
-        } else {
-          await fs.unlink(project.env_path).catch(() => {});
+          if (!envPath) {
+            envPath = path.join(projectDir, '.env');
+            projectQueries.update(project.name, project.path, envPath, project.url, project.icon, project.auto_update, project.auto_update_policy ?? 'all', project.watch_enabled, id);
+          }
+          await fs.writeFile(envPath, body.envContent, 'utf-8');
+        } else if (envPath) {
+          await fs.unlink(envPath).catch(() => {});
+          projectQueries.update(project.name, project.path, null, project.url, project.icon, project.auto_update, project.auto_update_policy ?? 'all', project.watch_enabled, id);
         }
       }
       

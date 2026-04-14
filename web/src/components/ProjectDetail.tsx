@@ -265,6 +265,13 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const deployWsRef = useRef<WebSocket | null>(null);
   const deployScrollRef = useRef<HTMLDivElement | null>(null);
 
+  // Down panel state
+  const [downPanelOpen, setDownPanelOpen] = useState(false);
+  const [downLines, setDownLines] = useState<string[]>([]);
+  const [downRunning, setDownRunning] = useState(false);
+  const downWsRef = useRef<WebSocket | null>(null);
+  const downScrollRef = useRef<HTMLDivElement | null>(null);
+
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteOpts, setDeleteOpts] = useState({ composeDown: false, removeVolumes: false, deleteFiles: false });
@@ -615,6 +622,73 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     setDeployLines([]);
   };
 
+  const handleDown = () => {
+    setDownLines([]);
+    setDownRunning(true);
+    setDownPanelOpen(true);
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/events?token=${token}`);
+    downWsRef.current = ws;
+
+    ws.onopen = () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe_down', projectId: project.id }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'down_output' && msg.projectId === project.id) {
+          setDownLines(prev => [...prev, msg.line as string]);
+        } else if (msg.type === 'down_done' && msg.projectId === project.id) {
+          setDownRunning(false);
+          ws.close();
+          downWsRef.current = null;
+          if (msg.success) {
+            addToast('success', `${project.name} stopped`);
+            onRefresh();
+          } else {
+            addToast('error', 'Stop failed — see output for details');
+          }
+        }
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      setDownRunning(false);
+      downWsRef.current = null;
+    };
+  };
+
+  const handleAbortDown = () => {
+    if (downWsRef.current) {
+      try {
+        downWsRef.current.send(JSON.stringify({ type: 'abort_down', projectId: project.id }));
+      } catch {}
+      downWsRef.current.close();
+      downWsRef.current = null;
+    }
+    setDownRunning(false);
+  };
+
+  const handleCloseDownPanel = () => {
+    handleAbortDown();
+    setDownPanelOpen(false);
+    setDownLines([]);
+  };
+
+  const handleToggle = async () => {
+    if (runningCount > 0) {
+      await handleDown();
+    } else {
+      await handleDeploy();
+    }
+  };
+
   const handleUpdate = async () => {
     setUpdating(true);
     try {
@@ -760,8 +834,8 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-          <button className="btn btn-sm btn-primary" onClick={handleDeploy} disabled={deployRunning}>
-            {deployRunning ? 'Deploying...' : 'Deploy'}
+          <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning}>
+            {deployRunning || downRunning ? (runningCount > 0 ? 'Stopping...' : 'Starting...') : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
           <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating}>
             {updating ? 'Updating...' : 'Update Images'}
@@ -769,8 +843,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           <button className="btn btn-sm btn-secondary" onClick={handleCheckUpdates} disabled={checkingUpdates} title="Vérifier les mises à jour d'images">
             {checkingUpdates ? '...' : 'Check Updates'}
           </button>
-          <button className="btn btn-sm btn-secondary" onClick={handleStartAll}>Start All</button>
-          <button className="btn btn-sm btn-secondary" onClick={handleStopAll}>Stop All</button>
           <button className="btn btn-sm btn-danger" onClick={handleDeleteClick}>Remove</button>
         </div>
       </div>
@@ -1087,6 +1159,38 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
             )}
             {deployLines.map((line, i) => (
+              <div key={i} className="deploy-panel-line">{line}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {downPanelOpen && (
+        <div className="deploy-panel">
+          <div className="deploy-panel-header">
+            <span className="deploy-panel-title">
+              {downRunning ? (
+                <><span className="deploy-panel-spinner" /> Stopping {project.name}…</>
+              ) : (
+                `Stop output — ${project.name}`
+              )}
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {downRunning && (
+                <button className="btn btn-sm btn-danger" onClick={handleAbortDown}>
+                  Abort
+                </button>
+              )}
+              <button className="btn btn-sm btn-secondary" onClick={handleCloseDownPanel}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="deploy-panel-body" ref={downScrollRef}>
+            {downLines.length === 0 && downRunning && (
+              <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
+            )}
+            {downLines.map((line, i) => (
               <div key={i} className="deploy-panel-line">{line}</div>
             ))}
           </div>
