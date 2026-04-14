@@ -1,88 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { SearchInput, FilterSelect, SortMenu } from '../components/FilterToolbar';
+import { ContainerRow } from '../components/ContainerRow';
 import { api, Container } from '../api';
 import { useConfirm } from '../hooks/useConfirm.js';
-import { 
-  FolderIcon, ImageIcon, UpdateIcon,
-  PlayIcon, StopIcon, RestartIcon, TrashIcon, FileTextIcon, TerminalIcon,
-  MoreVerticalIcon, RefreshIcon
-} from '../components/Icons';
+import { UpdateIcon } from '../components/Icons';
 
 type StateFilter = 'all' | 'running' | 'exited';
-
-interface ContainerMenuProps {
-  container: Container;
-  onAction: (action: 'start' | 'stop' | 'restart' | 'remove' | 'checkUpdate', containerId: string) => void;
-  actionInProgress: string | null;
-}
-
-function ContainerMenu({ container, onAction, actionInProgress }: ContainerMenuProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const isRunning = container.state === 'running';
-  const hasUpdate = container.hasUpdate;
-  const isActionRunning = actionInProgress !== null;
-
-  const openInNewWindow = (url: string) => {
-    window.open(url, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
-  };
-
-  const openLogs = () => {
-    openInNewWindow(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`);
-  };
-
-  const openTerminal = () => {
-    openInNewWindow(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`);
-  };
-
-  return (
-    <div className="container-menu-wrapper">
-      <button 
-        className="btn btn-sm btn-icon" 
-        onClick={() => setIsOpen(!isOpen)}
-        title="Plus d'options"
-      >
-        <MoreVerticalIcon size={16} />
-      </button>
-      {isOpen && (
-        <>
-          <div className="container-menu-backdrop" onClick={() => setIsOpen(false)} />
-          <div className="container-menu">
-            <button className="container-menu-item" onClick={openLogs}>
-              <FileTextIcon size={14} />
-              Voir les logs
-            </button>
-            <button className="container-menu-item" onClick={openTerminal} disabled={!isRunning} title={!isRunning ? 'Container arrêté' : ''}>
-              <TerminalIcon size={14} />
-              Ouvrir le terminal
-              {!isRunning && <span className="menu-hint"> (arrêté)</span>}
-            </button>
-            <div className="container-menu-divider" />
-            <button 
-              className="container-menu-item" 
-              onClick={() => onAction('checkUpdate', container.id)}
-              disabled={isActionRunning}
-              title="Vérifier si une mise à jour est disponible"
-            >
-              <UpdateIcon size={14} />
-              Vérifier les mises à jour
-            </button>
-            <button 
-              className="container-menu-item" 
-              onClick={() => onAction('remove', container.id)}
-              disabled={isRunning || isActionRunning}
-              title={isRunning ? 'Arrêter d\'abord le container' : ''}
-            >
-              <TrashIcon size={14} />
-              Supprimer le container
-              {isRunning && <span className="menu-hint"> (en cours)</span>}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 function StateFilterBadge({ 
   currentFilter, 
@@ -336,78 +260,17 @@ export function AllContainersPage() {
         ) : (
           <div className="resource-list">
             {sortedContainers.map(container => (
-              <div key={container.id} className="resource-item">
-                <div className="resource-info">
-                  <div className="resource-name">{container.name}</div>
-                  <div className="resource-details">
-                    <span className={`status-badge ${container.state === 'running' ? 'status-running' : container.state === 'exited' ? 'status-stopped' : 'status-other'}`}>
-                      <span className="status-dot" />
-                      {container.state}
-                    </span>
-                    {container.project && (
-                      <button 
-                        className="detail-item project-link"
-                        onClick={() => setSelectedProject(container.project!)}
-                        title="Filtrer par ce projet"
-                      >
-                        <FolderIcon size={12} />
-                        {container.project}
-                      </button>
-                    )}
-                    <span className="detail-item image-item">
-                      <ImageIcon size={12} />
-                      {container.image}
-                    </span>
-                    <span className="detail-item date-item">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                        <line x1="16" y1="2" x2="16" y2="6" />
-                        <line x1="8" y1="2" x2="8" y2="6" />
-                        <line x1="3" y1="10" x2="21" y2="10" />
-                      </svg>
-                      {new Date(container.created).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </span>
-                    {container.hasUpdate && (
-                      <span className="detail-item update-badge">
-                        <UpdateIcon size={12} />
-                        Mise à jour
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="resource-actions">
-                  {container.state === 'running' ? (
-                    <>
-                      <button 
-                        className="btn btn-sm btn-secondary" 
-                        onClick={() => handleAction('restart', container.id)}
-                        disabled={!!actionInProgress}
-                        title="Redémarrer"
-                      >
-                        <RestartIcon size={12} />
-                      </button>
-                      <button 
-                        className="btn btn-sm btn-danger" 
-                        onClick={() => handleAction('stop', container.id)}
-                        disabled={!!actionInProgress}
-                        title="Arrêter"
-                      >
-                        <StopIcon size={12} />
-                      </button>
-                    </>
-                  ) : (
-                    <button 
-                      className="btn btn-sm btn-success" 
-                      onClick={() => handleAction('start', container.id)}
-                      disabled={!!actionInProgress}
-                      title="Démarrer"
-                    >
-                      <PlayIcon size={12} />
-                    </button>
-                  )}
-                  <ContainerMenu container={container} onAction={handleAction} actionInProgress={actionInProgress} />
-                </div>
-              </div>
+              <ContainerRow
+                key={container.id}
+                container={container}
+                onAction={handleAction}
+                actionInProgress={actionInProgress}
+                showProject
+                showCreated
+                showMenu
+                showUpdateInfo
+                onProjectClick={setSelectedProject}
+              />
             ))}
           </div>
         )}

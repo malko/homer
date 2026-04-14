@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
+import { ContainerRow } from './ContainerRow';
 import { api, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
@@ -121,74 +122,7 @@ interface ProjectDetailProps {
   onTabChange?: (tab: TabType) => void;
 }
 
-function ContainerRow({ container, onRefresh, showUpdateInfo }: { container: Container; onRefresh?: () => void; showUpdateInfo?: boolean }) {
-  const [loading, setLoading] = useState<string | null>(null);
-  const isRunning = container.state === 'running';
 
-  const handleAction = async (action: 'start' | 'stop' | 'restart') => {
-    setLoading(action);
-    try {
-      await api.containers[action](container.id);
-      onRefresh?.();
-    } catch {} finally {
-      setLoading(null);
-    }
-  };
-
-  const imageParts = container.image.split(':');
-  const imageName = imageParts[0];
-  const imageTag = imageParts[1] || 'latest';
-  const imageId = container.id.slice(0, 12);
-
-  return (
-    <div className="container-item">
-      <div className="container-info">
-        <span className={`status-badge ${isRunning ? 'status-running' : 'status-stopped'}`}>
-          <span className="status-dot" />
-          {container.state}
-        </span>
-        <div style={{ flex: 1 }}>
-          <div className="container-name" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>
-              {container.name}
-              {showUpdateInfo && <span className="update-dot" title="Mise à jour disponible" style={{ marginLeft: '0.5rem' }} />}
-            </span>
-            {container.ports && container.ports.length > 0 && (
-              <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                {container.ports.map(port => (
-                  <span key={port} style={{ backgroundColor: 'var(--color-bg)', padding: '0.1rem 0.4rem', borderRadius: '3px', marginLeft: '0.25rem' }}>
-                    {port}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-          <div className="container-image">
-            <span style={{ fontWeight: 500 }}>{imageName}</span>
-            <span style={{ color: 'var(--color-primary)' }}>:{imageTag}</span>
-            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem', marginLeft: '0.5rem' }}>ID: {imageId}</span>
-          </div>
-        </div>
-      </div>
-      <div className="container-actions">
-        {isRunning ? (
-          <>
-            <button className="btn btn-sm btn-secondary" onClick={() => handleAction('restart')} disabled={loading === 'restart'}>
-              {loading === 'restart' ? '...' : 'Restart'}
-            </button>
-            <button className="btn btn-sm btn-danger" onClick={() => handleAction('stop')} disabled={loading === 'stop'}>
-              {loading === 'stop' ? '...' : 'Stop'}
-            </button>
-          </>
-        ) : (
-          <button className="btn btn-sm btn-success" onClick={() => handleAction('start')} disabled={loading === 'start'}>
-            {loading === 'start' ? '...' : 'Start'}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function SettingToggle({ label, description, value, onChange }: {
   label: string;
@@ -246,6 +180,7 @@ function SettingSelect({ label, description, value, options, onChange }: {
 }
 
 export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialTab, onTabChange }: ProjectDetailProps) {
+  const { ConfirmDialog, confirm } = useConfirm();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'overview');
 
   const handleTabChange = (tab: TabType) => {
@@ -795,6 +730,39 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   };
 
+  const [containerActionInProgress, setContainerActionInProgress] = useState<string | null>(null);
+
+  const handleContainerAction = async (action: 'start' | 'stop' | 'restart' | 'remove' | 'checkUpdate', containerId: string) => {
+    setContainerActionInProgress(`${action}-${containerId}`);
+    try {
+      if (action === 'checkUpdate') {
+        const result = await api.containers.checkUpdate(containerId);
+        addToast(result.hasUpdate ? 'warning' : 'success', result.hasUpdate ? 'Mise à jour disponible !' : 'Image à jour');
+      } else if (action === 'remove') {
+        const confirmed = await confirm({
+          title: 'Supprimer le container',
+          message: 'Voulez-vous vraiment supprimer ce container ? Cette action est irréversible.',
+          confirmText: 'Supprimer',
+          type: 'danger',
+        });
+        if (!confirmed) {
+          setContainerActionInProgress(null);
+          return;
+        }
+        const result = await api.containers.remove(containerId);
+        addToast(result.success ? 'success' : 'error', result.output);
+      } else {
+        await api.containers[action](containerId);
+        addToast('success', `Container ${action === 'restart' ? 'redémarré' : action === 'stop' ? 'arrêté' : 'démarré'} avec succès`);
+      }
+      onRefresh();
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setContainerActionInProgress(null);
+    }
+  };
+
   const runningCount = project.containers.filter(c => c.state === 'running').length;
   const totalCount = project.containers.length;
   const allPorts = project.containers
@@ -812,6 +780,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+      <ConfirmDialog />
       {/* Header */}
       <div className="detail-header">
         <div style={{ minWidth: 0 }}>
@@ -872,8 +841,18 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                 No containers yet. Deploy to start.
               </p>
             ) : (
-              <div className="container-list">
-                {project.containers.map(c => <ContainerRow key={c.id} container={c} onRefresh={onRefresh} showUpdateInfo={project.update_available} />)}
+              <div className="resource-list">
+                {project.containers.map(c => (
+                  <ContainerRow
+                    key={c.id}
+                    container={c}
+                    onAction={handleContainerAction}
+                    actionInProgress={containerActionInProgress}
+                    showPorts
+                    showMenu
+                    showUpdateInfo
+                  />
+                ))}
               </div>
             )}
 
