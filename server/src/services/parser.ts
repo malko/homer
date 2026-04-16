@@ -112,8 +112,26 @@ function tokenize(input: string): string[] {
   return tokens;
 }
 
+function joinContinuations(input: string): string {
+  const lines = input.split('\n');
+  const result: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trimEnd();
+    if (line.endsWith('\\')) {
+      line = line.slice(0, -1).trimEnd();
+      result.push(line);
+    } else {
+      result.push(line);
+    }
+  }
+  
+  return result.join(' ');
+}
+
 export function parseDockerRun(command: string): { service: ParsedService; warnings: ParseWarnings } | { error: string } {
-  const trimmed = command.trim();
+  const joined = joinContinuations(command);
+  const trimmed = joined.trim();
 
   if (!trimmed.startsWith('docker run')) {
     return { error: 'Command must start with "docker run"' };

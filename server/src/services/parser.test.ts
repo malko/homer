@@ -65,6 +65,40 @@ describe('parseDockerRun', () => {
     }
     expect(result.service.privileged).toBe(true);
   });
+
+  it('should handle line continuation backslashes', () => {
+    const result = parseDockerRun('docker run \\\n--name mycontainer \\\n-v /data:/app \\\nnginx:latest');
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+    expect(result.service.name).toBe('mycontainer');
+    expect(result.service.volumes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ host: '/data', container: '/app' })
+    ]));
+  });
+
+  it('should handle line continuation with multiple flags', () => {
+    const result = parseDockerRun(`docker run \\
+-e VAR1=value1 \\
+-e VAR2=value2 \\
+-p 8080:80 \\
+nginx:latest`);
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+    expect(result.service.environment.VAR1).toBe('value1');
+    expect(result.service.environment.VAR2).toBe('value2');
+    expect(result.service.ports).toContainEqual({ host: '8080', container: '80' });
+  });
+
+  it('should handle mixed line continuations', () => {
+    const result = parseDockerRun('docker run --name test \\\n-v /host:/cont nginx:latest');
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+    expect(result.service.name).toBe('test');
+    expect(result.service.image).toBe('nginx:latest');
+  });
 });
 
 describe('serviceToCompose', () => {
