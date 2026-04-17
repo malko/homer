@@ -45,6 +45,23 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 Builds the image locally for development.
 
+### Standalone Deployment
+
+If you just want to deploy Homer without cloning the repository:
+
+```bash
+curl -O https://raw.githubusercontent.com/malko/homer/main/docker-compose.yml
+mkdir -p data
+docker compose up -d
+```
+
+Access the UI at `http://<hostname>` (or `http://localhost` if on the same machine) and create your admin account.
+
+By default, Caddy captures all HTTP traffic and routes it to Homer. To use a specific domain:
+```bash
+HOMER_DOMAIN=mondomaine.local docker compose up -d
+```
+
 ### Development
 
 ```bash

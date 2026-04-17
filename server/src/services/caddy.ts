@@ -87,6 +87,15 @@ export function buildCaddyConfig(): Record<string, unknown> {
       }],
       terminal: true,
     });
+  } else {
+    routes.push({
+      match: [{ host: ['*'] }],
+      handle: [{
+        handler: 'reverse_proxy',
+        upstreams: [{ dial: `homelab-manager:${HOMER_PORT}` }],
+      }],
+      terminal: true,
+    });
   }
 
   // Routes for proxy hosts
