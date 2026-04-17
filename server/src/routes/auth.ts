@@ -1,7 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { userQueries, sessionQueries } from '../db/index.js';
+import { userQueries, sessionQueries, settingQueries } from '../db/index.js';
+
+const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -24,7 +26,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const userCount = count['count(*)'];
     
     if (userCount === 0) {
-      return reply.send({ needsSetup: true, mustChangePassword: false, authenticated: false });
+      return reply.send({ needsSetup: true, mustChangePassword: false, authenticated: false, homerDomain: HOMER_DOMAIN || undefined });
     }
     
     const token = request.headers.authorization?.replace('Bearer ', '');
@@ -57,7 +59,16 @@ export async function authRoutes(fastify: FastifyInstance) {
     const passwordHash = await bcrypt.hash(body.password, 10);
     
     userQueries.create(body.username, passwordHash);
-    
+
+    if (HOMER_DOMAIN) {
+      const parts = HOMER_DOMAIN.split('.');
+      if (parts.length >= 2) {
+        const domainSuffix = '.' + parts.slice(-2).join('.');
+        settingQueries.set('caddy_domain_suffix', domainSuffix);
+      }
+      settingQueries.set('caddy_extra_hostname', HOMER_DOMAIN);
+    }
+
     const token = crypto.randomUUID();
     sessionQueries.create(token, body.username);
     

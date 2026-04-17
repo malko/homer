@@ -52,6 +52,7 @@ export interface AuthStatus {
   mustChangePassword: boolean;
   authenticated?: boolean;
   username?: string;
+  homerDomain?: string;
 }
 
 export interface LoginResponse {

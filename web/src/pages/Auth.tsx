@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import bannerImage from '@assets/HOMER-banner.png';
 
 export function SetupPage() {
-  const { setup, error: globalError } = useAuth();
+  const { setup, error: globalError, status } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

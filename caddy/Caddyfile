@@ -1,5 +1,0 @@
-{
-	admin 0.0.0.0:2019 {
-		origins http://caddy:2019
-	}
-}

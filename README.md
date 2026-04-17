@@ -62,6 +62,8 @@ By default, Caddy captures all HTTP traffic and routes it to Homer. To use a spe
 HOMER_DOMAIN=mondomaine.local docker compose up -d
 ```
 
+> **Important**: If `HOMER_DOMAIN` is set, access the setup page via `http://<HOMER_DOMAIN>` or `http://localhost`. Accessing via another hostname may not work on port 80.
+
 ### Development
 
 ```bash

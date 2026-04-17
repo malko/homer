@@ -135,6 +135,46 @@ export function buildCaddyConfig(): Record<string, unknown> {
     });
   }
 
+  const hasTls = tlsPolicies.length > 0;
+
+  const servers: Record<string, unknown> = {};
+
+  if (hasTls) {
+    // HTTPS server on :443 - all domains allowed
+    // HTTP server on :80 - restricted to HOMER_DOMAIN + localhost only
+    const httpsRoutes: CaddyRoute[] = [...routes];
+    const httpRoutes: CaddyRoute[] = routes.filter(r => {
+      const hosts = (r.match?.[0]?.host as string[]) || [];
+      return hosts.length === 0 || (HOMER_DOMAIN && hosts.includes(HOMER_DOMAIN));
+    });
+    httpRoutes.unshift({
+      match: [{ host: ['localhost', '127.0.0.1'] }],
+      handle: [{
+        handler: 'reverse_proxy',
+        upstreams: [{ dial: `homelab-manager:${HOMER_PORT}` }],
+      }],
+      terminal: true,
+    });
+
+    servers.srv_https = {
+      listen: [':443'],
+      routes: httpsRoutes,
+      automatic_https: { disable: true },
+    };
+    servers.srv_http = {
+      listen: [':80'],
+      routes: httpRoutes,
+      automatic_https: { disable: true },
+    };
+  } else {
+    // No TLS - HTTP only on :80
+    servers.srv0 = {
+      listen: [':80'],
+      routes,
+      automatic_https: { disable: true },
+    };
+  }
+
   const config: Record<string, unknown> = {
     admin: {
       listen: '0.0.0.0:2019',
@@ -142,14 +182,9 @@ export function buildCaddyConfig(): Record<string, unknown> {
     },
     apps: {
       http: {
-        servers: {
-          srv0: {
-            listen: [':443', ':80'],
-            routes,
-          },
-        },
+        servers,
       },
-      ...(tlsPolicies.length > 0 ? {
+      ...(hasTls ? {
         tls: {
           automation: {
             policies: tlsPolicies,
@@ -164,7 +199,8 @@ export function buildCaddyConfig(): Record<string, unknown> {
 
 export async function pushConfig(config?: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
   const payload = config || buildCaddyConfig();
-  const maxRetries = 3;
+  const maxRetries = 10;
+  const retryDelay = 3000;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -175,7 +211,8 @@ export async function pushConfig(config?: Record<string, unknown>): Promise<{ su
       return { success: false, error: `Caddy returned ${res.status}: ${res.body}` };
     } catch (err) {
       if (i < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, 2000));
+        console.log(`[Caddy] Waiting for Caddy to be ready... (${i + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, retryDelay));
         continue;
       }
       return { success: false, error: `Cannot reach Caddy at ${CADDY_ADMIN_URL}: ${err}` };

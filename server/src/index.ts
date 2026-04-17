@@ -88,7 +88,7 @@ const start = async () => {
     watcher.initialize();
 
     // Push Caddy config on startup (non-blocking if Caddy is unavailable)
-    initCaddyConfig().catch(() => {});
+    initCaddyConfig().catch((err) => console.error('[Caddy] Failed to push config:', err));
 
     const port = parseInt(process.env.PORT || '4000');
     const host = process.env.HOST || '0.0.0.0';

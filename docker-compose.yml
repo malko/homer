@@ -2,6 +2,18 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: homer-caddy
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'EOF'
+        {
+          admin 0.0.0.0:2019 {
+            origins http://caddy:2019
+          }
+        }
+        EOF
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     ports:
       - "80:80"
       - "443:443"
@@ -11,6 +23,12 @@ services:
     networks:
       - homelab-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x caddy || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   homelab-manager:
     image: ghcr.io/malko/homer:${HOMER_VERSION:-latest}
@@ -26,9 +44,11 @@ services:
       - HOMER_COMPOSE_FILE=/host/path/to/docker-compose.yml
     volumes:
       - ./data:/app/data
+      - ./data/caddy/data:/app/caddy-data:ro
       - /var/run/docker.sock:/var/run/docker.sock:rw
     depends_on:
-      - caddy
+      caddy:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - homelab-network
