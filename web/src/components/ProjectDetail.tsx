@@ -194,14 +194,14 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [checkingUpdates, setCheckingUpdates] = useState(false);
 
   // Deploy panel state
-  const [deployPanelOpen, setDeployPanelOpen] = useState(false);
+  const [composePanelOpen, setComposePanelOpen] = useState(false);
+  const [composePanelType, setComposePanelType] = useState<'deploy' | 'down'>('deploy');
   const [deployLines, setDeployLines] = useState<string[]>([]);
   const [deployRunning, setDeployRunning] = useState(false);
   const deployWsRef = useRef<WebSocket | null>(null);
   const deployScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // Down panel state
-  const [downPanelOpen, setDownPanelOpen] = useState(false);
+  // Down panel state (merged into compose panel)
   const [downLines, setDownLines] = useState<string[]>([]);
   const [downRunning, setDownRunning] = useState(false);
   const downWsRef = useRef<WebSocket | null>(null);
@@ -499,9 +499,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   }, [deployLines]);
 
   const handleDeploy = () => {
-    setDeployLines([]);
+    setComposePanelType('deploy');
+    setComposePanelOpen(true);
     setDeployRunning(true);
-    setDeployPanelOpen(true);
 
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -552,15 +552,20 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   };
 
   const handleCloseDeployPanel = () => {
-    handleAbortDeploy();
-    setDeployPanelOpen(false);
-    setDeployLines([]);
+    if (deployRunning) handleAbortDeploy();
+    if (downRunning) handleAbortDown();
+    setComposePanelOpen(false);
+  };
+
+  const handleCloseDownPanel = () => {
+    handleAbortDown();
+    setComposePanelOpen(false);
   };
 
   const handleDown = () => {
-    setDownLines([]);
+    setComposePanelType('down');
+    setComposePanelOpen(true);
     setDownRunning(true);
-    setDownPanelOpen(true);
 
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -608,12 +613,6 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       downWsRef.current = null;
     }
     setDownRunning(false);
-  };
-
-  const handleCloseDownPanel = () => {
-    handleAbortDown();
-    setDownPanelOpen(false);
-    setDownLines([]);
   };
 
   const handleToggle = async () => {
@@ -803,16 +802,26 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-          <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning}>
+          <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning} title={runningCount > 0 ? 'docker compose down' : 'docker compose up -d'}>
             {deployRunning || downRunning ? (runningCount > 0 ? 'Stopping...' : 'Starting...') : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
-          <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating}>
+          <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating} title="docker compose pull && docker compose up -d">
             {updating ? 'Updating...' : 'Update Images'}
           </button>
           <button className="btn btn-sm btn-secondary" onClick={handleCheckUpdates} disabled={checkingUpdates} title="Vérifier les mises à jour d'images">
             {checkingUpdates ? '...' : 'Check Updates'}
           </button>
-          <button className="btn btn-sm btn-danger" onClick={handleDeleteClick}>Remove</button>
+          <button className="btn btn-sm btn-danger" onClick={handleDeleteClick} title="Supprime le projet d'HOMER (avec option docker compose down)">Remove</button>
+          {!composePanelOpen && deployLines.length > 0 && (
+            <button className="btn btn-sm btn-secondary" onClick={() => { setComposePanelType('deploy'); setComposePanelOpen(true); }} title="Voir les logs de déploiement">
+              Logs
+            </button>
+          )}
+          {!composePanelOpen && downLines.length > 0 && (
+            <button className="btn btn-sm btn-secondary" onClick={() => { setComposePanelType('down'); setComposePanelOpen(true); }} title="Voir les logs d'arrêt">
+              Logs
+            </button>
+          )}
         </div>
       </div>
 
@@ -1112,19 +1121,19 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
         )}
       </div>
 
-      {deployPanelOpen && (
+      {composePanelOpen && (
         <div className="deploy-panel">
           <div className="deploy-panel-header">
             <span className="deploy-panel-title">
-              {deployRunning ? (
-                <><span className="deploy-panel-spinner" /> Deploying {project.name}…</>
+              {(deployRunning || downRunning) ? (
+                <><span className="deploy-panel-spinner" /> {deployRunning ? 'Deploying' : 'Stopping'} {project.name}…</>
               ) : (
-                `Deploy output — ${project.name}`
+                `${composePanelType === 'deploy' ? 'Deploy' : 'Stop'} output — ${project.name}`
               )}
             </span>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {deployRunning && (
-                <button className="btn btn-sm btn-danger" onClick={handleAbortDeploy}>
+              {(deployRunning || downRunning) && (
+                <button className="btn btn-sm btn-danger" onClick={deployRunning ? handleAbortDeploy : handleAbortDown}>
                   Abort
                 </button>
               )}
@@ -1133,45 +1142,26 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               </button>
             </div>
           </div>
-          <div className="deploy-panel-body" ref={deployScrollRef}>
-            {deployLines.length === 0 && deployRunning && (
-              <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
+          <div className="deploy-panel-body" ref={composePanelType === 'deploy' ? deployScrollRef : downScrollRef}>
+            {composePanelType === 'deploy' ? (
+              <>
+                {deployLines.length === 0 && deployRunning && (
+                  <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
+                )}
+                {deployLines.map((line, i) => (
+                  <div key={i} className="deploy-panel-line">{line}</div>
+                ))}
+              </>
+            ) : (
+              <>
+                {downLines.length === 0 && downRunning && (
+                  <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
+                )}
+                {downLines.map((line, i) => (
+                  <div key={i} className="deploy-panel-line">{line}</div>
+                ))}
+              </>
             )}
-            {deployLines.map((line, i) => (
-              <div key={i} className="deploy-panel-line">{line}</div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {downPanelOpen && (
-        <div className="deploy-panel">
-          <div className="deploy-panel-header">
-            <span className="deploy-panel-title">
-              {downRunning ? (
-                <><span className="deploy-panel-spinner" /> Stopping {project.name}…</>
-              ) : (
-                `Stop output — ${project.name}`
-              )}
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {downRunning && (
-                <button className="btn btn-sm btn-danger" onClick={handleAbortDown}>
-                  Abort
-                </button>
-              )}
-              <button className="btn btn-sm btn-secondary" onClick={handleCloseDownPanel}>
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="deploy-panel-body" ref={downScrollRef}>
-            {downLines.length === 0 && downRunning && (
-              <span style={{ color: 'var(--color-text-muted)' }}>Waiting for output…</span>
-            )}
-            {downLines.map((line, i) => (
-              <div key={i} className="deploy-panel-line">{line}</div>
-            ))}
           </div>
         </div>
       )}

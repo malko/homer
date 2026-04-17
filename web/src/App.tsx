@@ -155,6 +155,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/settings/system-containers"
+        element={
+          <ProtectedRoute>
+            <SettingsPage initialTab="containers" />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/monitor"
         element={
           <ProtectedRoute>
