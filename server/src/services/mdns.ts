@@ -1,11 +1,15 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs/promises';
+import path from 'path';
 
 const execAsync = promisify(exec);
 
 const AVAHI_ENABLED = process.env.AVAHI_ENABLED || 'auto';
-const DBUS_SOCKET = '/var/run/dbus/system_bus_socket';
 const MDNS_IMAGE = process.env.MDNS_IMAGE || '';
+const MDNS_CONTAINER = 'homer-mdns';
+const DATA_DIR = process.env.DATA_DIR || './data';
+const CONFIG_PATH = path.join(DATA_DIR, 'mdns.json');
 
 interface MdnsStatus {
   available: boolean;
@@ -15,6 +19,37 @@ interface MdnsStatus {
 
 let cachedImage: string | null = null;
 let cachedHostIp: string | null = null;
+let cachedHostDataDir: string | null = null;
+
+async function getOwnContainerName(): Promise<string> {
+  return process.env.HOSTNAME || process.env.CONTAINER_NAME || 'homelab-manager';
+}
+
+async function getHostDataDir(): Promise<string> {
+  if (cachedHostDataDir) return cachedHostDataDir;
+  if (process.env.HOST_DATA_DIR) {
+    cachedHostDataDir = process.env.HOST_DATA_DIR;
+    return cachedHostDataDir;
+  }
+  try {
+    const container = await getOwnContainerName();
+    const { stdout } = await execAsync(
+      `docker inspect --format='{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' ${container}`,
+      { timeout: 5000 }
+    );
+    const source = stdout.trim();
+    if (source) {
+      cachedHostDataDir = source;
+      return cachedHostDataDir;
+    }
+  } catch (err) {
+    console.error('[mDNS] Failed to detect host data dir:', err);
+  }
+  const dataDir = path.resolve(DATA_DIR);
+  console.warn(`[mDNS] Could not detect host data dir, falling back to ${dataDir}. Set HOST_DATA_DIR if mDNS doesn't work.`);
+  cachedHostDataDir = dataDir;
+  return cachedHostDataDir;
+}
 
 async function getImage(): Promise<string> {
   if (cachedImage) return cachedImage;
@@ -23,20 +58,14 @@ async function getImage(): Promise<string> {
     return cachedImage;
   }
   try {
-    const hostname = process.env.HOSTNAME || process.env.CONTAINER_NAME || '';
-    if (hostname) {
-      const { stdout } = await execAsync(`docker inspect --format='{{.Config.Image}}' ${hostname}`, { timeout: 5000 });
-      cachedImage = stdout.trim();
-    }
+    const container = await getOwnContainerName();
+    const { stdout } = await execAsync(`docker inspect --format='{{.Config.Image}}' ${container}`, { timeout: 5000 });
+    cachedImage = stdout.trim();
   } catch {}
   if (!cachedImage) {
     cachedImage = 'alpine';
   }
   return cachedImage;
-}
-
-function containerName(domain: string): string {
-  return `mdns-${domain.replace(/\./g, '-')}`;
 }
 
 async function detectHostIp(): Promise<string> {
@@ -69,6 +98,67 @@ async function detectHostIp(): Promise<string> {
   return cachedHostIp;
 }
 
+async function writeConfig(domains: Array<{ domain: string; ip: string }>): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(CONFIG_PATH, JSON.stringify({ domains }, null, 2), 'utf-8');
+}
+
+async function readConfig(): Promise<Array<{ domain: string; ip: string }>> {
+  try {
+    const raw = await fs.readFile(CONFIG_PATH, 'utf-8');
+    return JSON.parse(raw).domains || [];
+  } catch {
+    return [];
+  }
+}
+
+async function ensureContainerRunning(): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(`docker inspect --format='{{.State.Running}}' ${MDNS_CONTAINER}`, { timeout: 5000 });
+    if (stdout.trim() === 'true') {
+      return true;
+    }
+  } catch {}
+
+  const image = await getImage();
+  try {
+    await execAsync(`docker rm -f ${MDNS_CONTAINER} 2>/dev/null || true`, { timeout: 5000 });
+  } catch {}
+
+  const hostDataDir = await getHostDataDir();
+
+  const cmd = `docker run -d --name ${MDNS_CONTAINER} ` +
+    `--network host --security-opt apparmor=unconfined ` +
+    `-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket ` +
+    `-v ${hostDataDir}:/data ` +
+    `--entrypoint /bin/sh ` +
+    `${image} /app/server/mdns-supervisor.sh`;
+
+  try {
+    await execAsync(cmd, { timeout: 15000 });
+    console.log('[mDNS] Supervisor container started');
+    return true;
+  } catch (err) {
+    console.error('[mDNS] Failed to start supervisor container:', err);
+    return false;
+  }
+}
+
+async function isContainerRunning(): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(`docker inspect --format='{{.State.Running}}' ${MDNS_CONTAINER}`, { timeout: 5000 });
+    return stdout.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+async function reloadContainer(): Promise<void> {
+  try {
+    await execAsync(`docker kill -s HUP ${MDNS_CONTAINER}`, { timeout: 5000 });
+  } catch {}
+}
+
 async function checkAvailable(): Promise<boolean> {
   try {
     const image = await getImage();
@@ -77,36 +167,6 @@ async function checkAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function startPublishProcess(domain: string, ip: string): Promise<boolean> {
-  const name = containerName(domain);
-  try {
-    await execAsync(`docker rm -f ${name} 2>/dev/null || true`);
-  } catch {}
-
-  const image = await getImage();
-
-  const cmd = `docker run --rm -d --network host --security-opt apparmor=unconfined ` +
-    `-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket ` +
-    `-e DBUS_SYSTEM_BUS_ADDRESS=unix:path=${DBUS_SOCKET} ` +
-    `--name ${name} ${image} avahi-publish -a -R ${domain} ${ip}`;
-
-  try {
-    await execAsync(cmd, { timeout: 10000 });
-    return true;
-  } catch (err) {
-    console.error(`[mDNS] Failed to publish ${domain}:`, err);
-    return false;
-  }
-}
-
-async function stopPublishProcess(domain: string): Promise<boolean> {
-  const name = containerName(domain);
-  try {
-    await execAsync(`docker rm -f ${name} 2>/dev/null || true`);
-  } catch {}
-  return true;
 }
 
 export async function getMdnsStatus(): Promise<MdnsStatus> {
@@ -127,44 +187,69 @@ export async function getMdnsStatus(): Promise<MdnsStatus> {
 
 export async function publishIfEnabled(domain: string): Promise<boolean> {
   const status = await getMdnsStatus();
-
-  if (!status.available || !status.enabled) {
-    return false;
-  }
+  if (!status.available || !status.enabled) return false;
 
   const ip = await detectHostIp();
-  return startPublishProcess(domain, ip);
+  const domains = await readConfig();
+  const existing = domains.find(d => d.domain === domain);
+  if (existing) {
+    existing.ip = ip;
+  } else {
+    domains.push({ domain, ip });
+  }
+  await writeConfig(domains);
+
+  if (!await ensureContainerRunning()) return false;
+  await reloadContainer();
+  return true;
 }
 
 export async function unpublishIfEnabled(domain: string): Promise<boolean> {
-  return stopPublishProcess(domain);
+  const domains = await readConfig();
+  const filtered = domains.filter(d => d.domain !== domain);
+  await writeConfig(filtered);
+
+  if (await isContainerRunning()) {
+    if (filtered.length === 0) {
+      try {
+        await execAsync(`docker rm -f ${MDNS_CONTAINER}`, { timeout: 5000 });
+      } catch {}
+    } else {
+      await reloadContainer();
+    }
+  }
+  return true;
 }
 
 export async function republishAllMdnsHosts(): Promise<void> {
   const status = await getMdnsStatus();
-
-  if (!status.available || !status.enabled) {
-    return;
-  }
+  if (!status.available || !status.enabled) return;
 
   const { proxyHostQueries } = await import('../db/index.js');
   const hosts = proxyHostQueries.getAll();
   const ip = await detectHostIp();
 
+  const domains: Array<{ domain: string; ip: string }> = [];
   for (const host of hosts) {
     if (host.enabled && host.mdns_enabled) {
-      await startPublishProcess(host.domain, ip);
+      domains.push({ domain: host.domain, ip });
     }
   }
+  await writeConfig(domains);
+
+  if (domains.length === 0) {
+    try {
+      await execAsync(`docker rm -f ${MDNS_CONTAINER} 2>/dev/null || true`, { timeout: 5000 });
+    } catch {}
+    return;
+  }
+
+  if (!await ensureContainerRunning()) return;
+  await reloadContainer();
 }
 
 export async function cleanupMdns(): Promise<void> {
-  const { proxyHostQueries } = await import('../db/index.js');
-  const hosts = proxyHostQueries.getAll();
-
-  for (const host of hosts) {
-    if (host.mdns_enabled) {
-      await stopPublishProcess(host.domain);
-    }
-  }
+  try {
+    await execAsync(`docker rm -f ${MDNS_CONTAINER} 2>/dev/null || true`, { timeout: 5000 });
+  } catch {}
 }

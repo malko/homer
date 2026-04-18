@@ -32,6 +32,7 @@ WORKDIR /app
 COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY --from=web-build /app/web/dist ./web/dist
+COPY server/src/services/mdns-supervisor.sh ./server/mdns-supervisor.sh
 
 COPY server/package.json ./server/package.json
 COPY package.json ./
