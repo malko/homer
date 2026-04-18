@@ -37,13 +37,16 @@ docker compose up -d
 
 Uses the pre-built image from GHCR (`ghcr.io/malko/homer:latest`).
 
-### Development
+### Development (hot reload)
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+npm run docker:hotreload
 ```
 
-Builds the image locally for development.
+Lance Caddy (port 8080), le serveur backend (`tsx watch`) et Vite (HMR) dans des containers Docker avec les sources montées en volume. Le premier démarrage est plus long (compilation des dépendances natives).
+
+- UI : http://localhost:5174
+- Caddy (proxy hosts) : http://localhost:8080 (configurable via `HOMER_DEV_PORT`)
 
 ### Standalone Deployment
 
@@ -63,19 +66,6 @@ HOMER_DOMAIN=mondomaine.local docker compose up -d
 ```
 
 > **Important**: If `HOMER_DOMAIN` is set, access the setup page via `http://<HOMER_DOMAIN>` or `http://localhost`. Accessing via another hostname may not work on port 80.
-
-### Development
-
-```bash
-# Install dependencies
-npm install
-
-# Run both server and frontend
-npm run dev
-```
-
-- Frontend: http://localhost:5174
-- Backend API: http://localhost:4000
 
 ## Configuration
 

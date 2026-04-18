@@ -65,19 +65,20 @@ fastify.get('/api/proxy/root-ca', async (_, reply) => {
   }
 });
 
-fastify.register(staticFiles, {
-  root: '/app/web/dist',
-  prefix: '/',
-  wildcard: false,
-  index: 'index.html',
-});
-
-fastify.get('/*', async (request, reply) => {
-  if (request.url.startsWith('/api/')) {
-    return reply.status(404).send({ error: 'Not found' });
-  }
-  return reply.sendFile('index.html');
-});
+if (process.env.NODE_ENV === 'production') {
+  await fastify.register(staticFiles, {
+    root: '/app/web/dist',
+    prefix: '/',
+    wildcard: false,
+    index: 'index.html',
+  });
+  fastify.get('/*', async (request, reply) => {
+    if (request.url.startsWith('/api/')) {
+      return reply.status(404).send({ error: 'Not found' });
+    }
+    return reply.sendFile('index.html');
+  });
+}
 
 const start = async () => {
   try {

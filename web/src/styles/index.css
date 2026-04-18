@@ -1299,13 +1299,15 @@ body {
   overflow: hidden;
 }
 
-.edit-project-footer {
+.edit-project-toolbar {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
+  margin-top: 0;
+  padding-top: 0;
+  margin-bottom: .75rem;
+  padding-bottom: .75rem;  
 }
 
 .yaml-editor-wrapper {

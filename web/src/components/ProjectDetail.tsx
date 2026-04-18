@@ -926,17 +926,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             <div className="loading"><div className="spinner" />Loading files...</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div style={{ flex: 1 }}>
-                <YamlEditor
-                  value={composeContent}
-                  onChange={setComposeContent}
-                  onValidate={(_, errors) => setComposeErrors(errors)}
-                  minHeight="500px"
-                />
-              </div>
-<div className="edit-project-footer" style={{ marginTop: '0.75rem' }}>
+              <div className="edit-project-toolbar">
                 <span className="project-path">{project.path}</span>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexGrow:1, justifyContent:'flex-end' }}>
                   {composeErrors.length > 0 && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-danger)' }}>
                       {composeErrors.length} error{composeErrors.length !== 1 ? 's' : ''}
@@ -965,6 +957,14 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   </button>
                 </div>
               </div>
+              <div style={{ flex: 1 }}>
+                <YamlEditor
+                  value={composeContent}
+                  onChange={setComposeContent}
+                  onValidate={(_, errors) => setComposeErrors(errors)}
+                  minHeight="500px"
+                />
+              </div>
             </div>
           )
         )}
@@ -985,19 +985,27 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <div className="edit-project-toolbar">
+                <span className="project-path">{project.path}/.env</span>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexGrow:1, justifyContent:'flex-end' }}>
+                  <button className="btn btn-sm btn-danger" onClick={async () => {
+                    const confirmed = await confirm({
+                      title: 'Supprimer le fichier .env',
+                      message: `Voulez-vous vraiment supprimer le fichier .env de ${project.name} ? Cette action est irréversible.`,
+                      confirmText: 'Supprimer',
+                      type: 'danger',
+                    });
+                    if (confirmed) { setHasEnvFile(false); setEnvContent(''); }
+                  }}>
+                    Remove .env file
+                  </button>
+                  <button className="btn btn-sm btn-primary" onClick={handleSaveFiles} disabled={fileSaving}>
+                    {fileSaving ? 'Saving...' : 'Save (Ctrl+S)'}
+                  </button>
+                </div>
+              </div>
               <div style={{ flex: 1 }}>
                 <YamlEditor value={envContent} onChange={setEnvContent} minHeight="300px" />
-              </div>
-              <div className="edit-project-footer" style={{ marginTop: '0.75rem' }}>
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={() => { setHasEnvFile(false); setEnvContent(''); }}
-                >
-                  Remove .env file
-                </button>
-                <button className="btn btn-sm btn-primary" onClick={handleSaveFiles} disabled={fileSaving}>
-                  {fileSaving ? 'Saving...' : 'Save (Ctrl+S)'}
-                </button>
               </div>
             </div>
           )

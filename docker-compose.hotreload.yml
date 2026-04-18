@@ -1,0 +1,80 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'EOF'
+        {
+          admin 0.0.0.0:2019 {
+            origins http://caddy:2019
+          }
+        }
+        EOF
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    ports:
+      - "${HOMER_DEV_PORT:-8080}:80"
+    volumes:
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x caddy || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - homer-dev
+
+  homer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server-deps
+    working_dir: /app/server
+    command: npx tsx watch src/index.ts
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - HOST=0.0.0.0
+      - CADDY_ADMIN_URL=http://caddy:2019
+      - DATA_DIR=/app/data
+      - AVAHI_ENABLED=false
+    volumes:
+      - ./server:/app/server
+      - /app/server/node_modules
+      - ./data:/app/data
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    depends_on:
+      caddy:
+        condition: service_healthy
+    networks:
+      - homer-dev
+      - homer-services
+
+  homer-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-deps
+    working_dir: /app/web
+    command: npx vite --host 0.0.0.0
+    environment:
+      - VITE_API_PROXY_TARGET=http://homer:4000
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./web:/app/web
+      - /app/web/node_modules
+      - ./tsconfig.json:/app/tsconfig.json:ro
+    networks:
+      - homer-dev
+
+networks:
+  homer-dev:
+    driver: bridge
+  homer-services:
+    external: false
+    name: homer-services
