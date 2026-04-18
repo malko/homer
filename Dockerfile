@@ -1,5 +1,5 @@
 FROM node:22-alpine AS base
-RUN corepack enable && apk add --no-cache docker-cli docker-cli-compose bash
+RUN corepack enable && apk add --no-cache docker-cli docker-cli-compose bash avahi-tools
 
 FROM base AS server-deps
 WORKDIR /app/server

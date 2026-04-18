@@ -120,8 +120,15 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
   const [enabled, setEnabled] = useState(proxyHost?.enabled !== false);
   const [showOnOverview, setShowOnOverview] = useState(proxyHost?.show_on_overview !== false);
   const [showOnHome, setShowOnHome] = useState(proxyHost?.show_on_home || false);
+  const [mdnsEnabled, setMdnsEnabled] = useState(proxyHost?.mdns_enabled ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (domain.endsWith('.local') && !proxyHost) {
+      setMdnsEnabled(true);
+    }
+  }, [domain, proxyHost]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,6 +147,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
         enabled,
         show_on_overview: showOnOverview,
         show_on_home: showOnHome,
+        mdns_enabled: mdnsEnabled,
       };
 
       if (basicAuthEnabled && basicAuthUser.trim()) {
@@ -303,6 +311,24 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
           </button>
         </div>
       </div>
+
+      {domain.endsWith('.local') && (
+        <div className="form-group">
+          <div className="toggle-row">
+            <label className="toggle-label">
+              <span>mDNS (résolution .local)</span>
+              <span className="form-help">Publié sur le réseau local via Avahi</span>
+            </label>
+            <button
+              type="button"
+              className={`toggle ${mdnsEnabled ? 'toggle-active' : ''}`}
+              onClick={() => setMdnsEnabled(!mdnsEnabled)}
+            >
+              <span className="toggle-handle" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="proxy-form-actions">
         <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>

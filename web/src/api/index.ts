@@ -205,6 +205,10 @@ export const api = {
       }),
     checkUpdates: (id: number, force = false) =>
       request<{ hasUpdates: boolean; services: string[] }>(`/projects/${id}/update-check${force ? '?force=1' : ''}`),
+    addToNetwork: (id: number) =>
+      request<{ success: boolean; message: string }>(`/projects/${id}/add-to-network`, {
+        method: 'POST',
+      }),
   },
 
   containers: {
@@ -404,6 +408,7 @@ export interface ProxyHost {
   tls_mode: 'internal' | 'acme';
   show_on_overview: boolean;
   show_on_home: boolean;
+  mdns_enabled: boolean;
   created_at: string;
 }
 
@@ -418,6 +423,7 @@ export interface ProxyHostInput {
   tls_mode?: 'internal' | 'acme';
   show_on_overview?: boolean;
   show_on_home?: boolean;
+  mdns_enabled?: boolean;
 }
 
 export interface CaddySyncResult {

@@ -90,6 +90,11 @@ const start = async () => {
     // Push Caddy config on startup (non-blocking if Caddy is unavailable)
     initCaddyConfig().catch((err) => console.error('[Caddy] Failed to push config:', err));
 
+    // Publish mDNS records for all enabled hosts (non-blocking if Avahi unavailable)
+    import('./services/mdns.js').then(({ republishAllMdnsHosts }) => 
+      republishAllMdnsHosts().catch((err) => console.error('[mDNS] Failed to publish:', err))
+    );
+
     const port = parseInt(process.env.PORT || '4000');
     const host = process.env.HOST || '0.0.0.0';
 
@@ -156,14 +161,16 @@ const start = async () => {
   }
 };
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   watcher.close();
+  await import('./services/mdns.js').then(({ cleanupMdns }) => cleanupMdns().catch(() => {}));
   fastify.close();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   watcher.close();
+  await import('./services/mdns.js').then(({ cleanupMdns }) => cleanupMdns().catch(() => {}));
   fastify.close();
   process.exit(0);
 });

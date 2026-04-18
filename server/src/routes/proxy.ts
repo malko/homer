@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sessionQueries, proxyHostQueries } from '../db/index.js';
 import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig } from '../services/caddy.js';
+import { publishIfEnabled, unpublishIfEnabled, getMdnsStatus } from '../services/mdns.js';
 
 const coerceBool = z.union([z.boolean(), z.number()]).transform(v => !!v);
 
@@ -16,6 +17,7 @@ const proxyHostSchema = z.object({
   tls_mode: z.enum(['internal', 'acme']).optional(),
   show_on_overview: coerceBool.optional(),
   show_on_home: coerceBool.optional(),
+  mdns_enabled: coerceBool.optional(),
 });
 
 export async function proxyRoutes(fastify: FastifyInstance) {
@@ -63,6 +65,13 @@ export async function proxyRoutes(fastify: FastifyInstance) {
       passwordHash = await hashBasicAuthPassword(data.basic_auth_password);
     }
 
+    let mdnsEnabled = 0;
+    if (data.mdns_enabled !== undefined) {
+      mdnsEnabled = data.mdns_enabled ? 1 : 0;
+    } else if (data.domain?.endsWith('.local')) {
+      mdnsEnabled = 1;
+    }
+
     try {
       const result = proxyHostQueries.create(
         data.domain,
@@ -75,7 +84,12 @@ export async function proxyRoutes(fastify: FastifyInstance) {
         data.tls_mode || 'internal',
         data.show_on_overview !== false ? 1 : 0,
         data.show_on_home ? 1 : 0,
+        mdnsEnabled,
       );
+
+      if (mdnsEnabled && data.enabled !== false) {
+        await publishIfEnabled(data.domain);
+      }
 
       const syncResult = await syncConfig();
       const host = proxyHostQueries.getById(result.id);
@@ -109,10 +123,19 @@ export async function proxyRoutes(fastify: FastifyInstance) {
       passwordHash = data.basic_auth_password ? await hashBasicAuthPassword(data.basic_auth_password) : null;
     }
 
+    const newDomain = data.domain ?? existing.domain;
+    const wasMdnsEnabled = existing.mdns_enabled === 1;
+    let newMdnsEnabled = existing.mdns_enabled;
+    if (data.mdns_enabled !== undefined) {
+      newMdnsEnabled = data.mdns_enabled ? 1 : 0;
+    } else if (newDomain !== existing.domain) {
+      newMdnsEnabled = newDomain.endsWith('.local') ? 1 : 0;
+    }
+
     try {
       proxyHostQueries.update(
         hostId,
-        data.domain ?? existing.domain,
+        newDomain,
         data.upstream ?? existing.upstream,
         data.project_id !== undefined ? data.project_id ?? null : existing.project_id,
         data.basic_auth_user !== undefined ? data.basic_auth_user ?? null : existing.basic_auth_user,
@@ -122,7 +145,19 @@ export async function proxyRoutes(fastify: FastifyInstance) {
         data.tls_mode ?? existing.tls_mode,
         data.show_on_overview !== undefined ? (data.show_on_overview ? 1 : 0) : existing.show_on_overview,
         data.show_on_home !== undefined ? (data.show_on_home ? 1 : 0) : existing.show_on_home,
+        newMdnsEnabled,
       );
+
+      const isEnabled = data.enabled !== undefined ? data.enabled : existing.enabled;
+      const domainChanged = newDomain !== existing.domain;
+      if (newMdnsEnabled && isEnabled) {
+        if (domainChanged && wasMdnsEnabled) {
+          await unpublishIfEnabled(existing.domain);
+        }
+        await publishIfEnabled(newDomain);
+      } else if (!newMdnsEnabled && wasMdnsEnabled) {
+        await unpublishIfEnabled(existing.domain);
+      }
 
       const syncResult = await syncConfig();
       const host = proxyHostQueries.getById(hostId);
@@ -143,6 +178,10 @@ export async function proxyRoutes(fastify: FastifyInstance) {
     const existing = proxyHostQueries.getById(hostId);
     if (!existing) {
       return reply.status(404).send({ success: false, output: 'Proxy host not found' });
+    }
+
+    if (existing.mdns_enabled) {
+      await unpublishIfEnabled(existing.domain);
     }
 
     proxyHostQueries.delete(hostId);
@@ -184,5 +223,10 @@ export async function proxyRoutes(fastify: FastifyInstance) {
     const { settingQueries: sq } = await import('../db/index.js');
     sq.set('caddy_config_override', '');
     return syncConfig();
+  });
+
+  // MDNS status
+  fastify.get('/api/proxy/mdns', async () => {
+    return getMdnsStatus();
   });
 }

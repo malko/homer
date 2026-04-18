@@ -9,6 +9,7 @@ import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyHostForm } from './ProxyHostForm';
 import { ProxyHostList } from './ProxyHostList';
+import { InfoTooltip } from './FilterToolbar';
 import '../styles/proxy.css';
 
 export type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
@@ -1020,6 +1021,32 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   </button>
                   <button className="btn btn-sm btn-primary" onClick={handleSaveFiles} disabled={fileSaving || composeErrors.length > 0}>
                     {fileSaving ? 'Saving...' : 'Save (Ctrl+S)'}
+                  </button>
+                  <InfoTooltip>
+                      <p style={{ margin: 0, padding: '0.5rem 0' }}>
+                        <strong>Pourquoi ajouter les services au réseau homelab-network ?</strong>
+                      </p>
+                      <ul style={{ margin: '0.25rem 0', paddingLeft: '1rem' }}>
+                        <li>Permet à Caddy de proxyfier les services par nom de domaine</li>
+                        <li>Permet la résolution mDNS pour les domaines .local</li>
+                        <li>Les containers communiqueront via le réseau Docker plutôt que via le host</li>
+                      </ul>
+                      <p style={{ margin: '0.5rem 0 0 0', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                       Les containers devront être redémarrés pour prendre effet (docker compose down & up).
+                      </p>
+                    </InfoTooltip>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={async () => {
+                      const result = await api.projects.addToNetwork(project.id);
+                      if (result.success) {
+                        addToast('success', 'Services added to homelab-network. Restart containers to apply.');
+                      } else {
+                        addToast('error', result.message);
+                      }
+                    }}
+                  >
+                    + Network
                   </button>
                 </div>
               </div>

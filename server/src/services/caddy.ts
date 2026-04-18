@@ -159,7 +159,6 @@ export function buildCaddyConfig(): Record<string, unknown> {
     servers.srv_https = {
       listen: [':443'],
       routes: httpsRoutes,
-      automatic_https: { disable: true },
     };
     servers.srv_http = {
       listen: [':80'],
