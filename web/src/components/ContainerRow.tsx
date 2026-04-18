@@ -3,7 +3,8 @@ import { api, Container } from '../api';
 import { ContainerMenu } from './ContainerMenu';
 import {
   FolderIcon, ImageIcon, UpdateIcon,
-  PlayIcon, StopIcon, RestartIcon
+  PlayIcon, StopIcon, RestartIcon,
+  FileTextIcon, TerminalIcon
 } from './Icons';
 
 interface ContainerRowProps {
@@ -110,35 +111,50 @@ export function ContainerRow({
         </div>
       </div>
       <div className="resource-actions">
-        {isRunning ? (
-          <>
-            <button
-              className="btn btn-sm btn-secondary"
-              onClick={() => handleAction('restart')}
-              disabled={isActionDisabled}
-              title="Redémarrer"
-            >
-              <RestartIcon size={12} />
-            </button>
-            <button
-              className="btn btn-sm btn-danger"
-              onClick={() => handleAction('stop')}
-              disabled={isActionDisabled}
-              title="Arrêter"
-            >
-              <StopIcon size={12} />
-            </button>
-          </>
-        ) : (
           <button
-            className="btn btn-sm btn-success"
-            onClick={() => handleAction('start')}
-            disabled={isActionDisabled}
-            title="Démarrer"
+            className="btn btn-sm btn-secondary large-display-only"
+            onClick={() => window.open(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes')}
+            title="Voir les logs"
           >
-            <PlayIcon size={12} />
+            <FileTextIcon size={12} />
           </button>
-        )}
+          <button
+            className="btn btn-sm btn-secondary large-display-only"
+            onClick={() => window.open(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes')}
+            disabled={!isRunning}
+            title={isRunning ? 'Ouvrir le terminal' : 'Container arrêté'}
+          >
+            <TerminalIcon size={12} />
+          </button>
+          {isRunning ? (
+            <>
+              <button
+                className="btn btn-sm btn-secondary large-display-only"
+                onClick={() => handleAction('restart')}
+                disabled={isActionDisabled}
+                title="Redémarrer"
+              >
+                <RestartIcon size={12} />
+              </button>
+              <button
+                className="btn btn-sm btn-danger"
+                onClick={() => handleAction('stop')}
+                disabled={isActionDisabled}
+                title="Arrêter"
+              >
+                <StopIcon size={12} />
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn btn-sm btn-success"
+              onClick={() => handleAction('start')}
+              disabled={isActionDisabled}
+              title="Démarrer"
+            >
+              <PlayIcon size={12} />
+            </button>
+          )}
         {showMenu && onAction && (
           <ContainerMenu
             container={container}

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Container } from '../api';
 import {
-  FileTextIcon, TerminalIcon, UpdateIcon, TrashIcon, MoreVerticalIcon
+  FileTextIcon, TerminalIcon, UpdateIcon, TrashIcon,
+  MoreVerticalIcon, PlayIcon, RestartIcon
 } from './Icons';
 
 interface ContainerMenuProps {
@@ -14,6 +15,7 @@ export function ContainerMenu({ container, onAction, actionInProgress }: Contain
   const [isOpen, setIsOpen] = useState(false);
   const isRunning = container.state === 'running';
   const isActionRunning = actionInProgress !== null;
+  const isActionDisabled = !!actionInProgress;
 
   const openInNewWindow = (url: string) => {
     window.open(url, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
@@ -40,16 +42,30 @@ export function ContainerMenu({ container, onAction, actionInProgress }: Contain
         <>
           <div className="container-menu-backdrop" onClick={() => setIsOpen(false)} />
           <div className="container-menu">
-            <button className="container-menu-item" onClick={openLogs}>
+            <button className="container-menu-item small-display-only" onClick={() => onAction('restart', container.id)} disabled={isActionDisabled || !isRunning}>
+              <RestartIcon size={14} />
+              Redémarrer
+            </button>
+            <button className="container-menu-item small-display-only" onClick={openLogs}>
               <FileTextIcon size={14} />
               Voir les logs
             </button>
-            <button className="container-menu-item" onClick={openTerminal} disabled={!isRunning} title={!isRunning ? 'Container arrêté' : ''}>
+            <button className="container-menu-item small-display-only" onClick={openTerminal} disabled={!isRunning} title={!isRunning ? 'Container arrêté' : ''}>
               <TerminalIcon size={14} />
               Ouvrir le terminal
               {!isRunning && <span className="menu-hint"> (arrêté)</span>}
             </button>
-            <div className="container-menu-divider" />
+            <div className="container-menu-divider small-display-only" />
+            <button className="container-menu-item small-display-only" onClick={openLogs}>
+              <FileTextIcon size={14} />
+              Voir les logs
+            </button>
+            <button className="container-menu-item small-display-only" onClick={openTerminal} disabled={!isRunning} title={!isRunning ? 'Container arrêté' : ''}>
+              <TerminalIcon size={14} />
+              Ouvrir le terminal
+              {!isRunning && <span className="menu-hint"> (arrêté)</span>}
+            </button>
+            <div className="container-menu-divider small-display-only" />
             <button
               className="container-menu-item"
               onClick={() => onAction('checkUpdate', container.id)}

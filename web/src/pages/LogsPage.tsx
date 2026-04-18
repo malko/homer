@@ -2,35 +2,25 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../hooks/useAuth';
+import { parseAnsiSegments } from '../utils/ansi';
 
-interface AnsiLineProps {
-  line: string;
-  index: number;
-}
-
-function AnsiLine({ line }: AnsiLineProps) {
-  const [html, setHtml] = useState('');
-  const colors: Record<string, string> = {
-    '30': '#0f172a', '31': '#dc2626', '32': '#16a34a', '33': '#d97706',
-    '34': '#2563eb', '35': '#9333ea', '36': '#0891b2', '37': '#f8fafc',
-    '90': '#64748b', '91': '#ef4444', '92': '#22c55e', '93': '#f59e0b',
-    '94': '#3b82f6', '95': '#a855f7', '96': '#06b6d4', '97': '#f1f5f9',
-  };
-
-  useEffect(() => {
-    const processed = line
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\x1b\[(\d+)m/g, (_, code) => {
-        if (code === '0') return '</span>';
-        if (colors[code]) return `<span style="color:${colors[code]}">`;
-        return '';
-      });
-    setHtml(processed || line);
-  }, [line]);
-
-  return <span dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
+function AnsiLine({ line, index }: { line: string; index: number }) {
+  const segments = parseAnsiSegments(line);
+  return (
+    <span key={index}>
+      {segments.map((seg, i) => {
+        const css: React.CSSProperties = {};
+        if (seg.style.fg) css.color = seg.style.fg;
+        if (seg.style.bg) css.backgroundColor = seg.style.bg;
+        if (seg.style.bold) css.fontWeight = 'bold';
+        if (seg.style.dim) css.opacity = 0.5;
+        if (seg.style.italic) css.fontStyle = 'italic';
+        if (seg.style.underline) css.textDecoration = 'underline';
+        const hasStyle = Object.keys(css).length > 0;
+        return hasStyle ? <span key={i} style={css}>{seg.text}</span> : seg.text;
+      })}
+    </span>
+  );
 }
 
 export function LogsPage() {
