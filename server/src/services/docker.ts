@@ -156,6 +156,7 @@ export interface ImageInfo {
   size: string;
   created: string;
   used?: boolean;
+  projects?: string[];
 }
 
 async function execCommand(cmd: string): Promise<string> {
@@ -924,33 +925,60 @@ export async function pruneNetworks(): Promise<{ success: boolean; output: strin
 
 export async function listImages(): Promise<ImageInfo[]> {
   try {
-    const output = await execCommand(
-      'docker images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"'
-    );
-    
-    if (!output) return [];
-    
-    const images: ImageInfo[] = [];
-    
-    for (const line of output.split('\n')) {
-      const [id, repository, tag, size, created] = line.split('|');
-      if (!id) continue;
-      
-      const img: ImageInfo = { id, repository, tag, size, created, used: false };
-      
-      try {
-        const usedOutput = await execCommand(
-          `docker ps -aq --filter "ancestor=${repository}:${tag}" | head -1`
-        );
-        img.used = usedOutput.trim().length > 0;
-      } catch {
-        img.used = false;
+    const [imagesOutput, containersOutput] = await Promise.all([
+      execCommand('docker images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"'),
+      execCommand('docker ps -a --format "{{.Image}}|{{.Labels}}"'),
+    ]);
+
+    if (!imagesOutput) return [];
+
+    // Map imageRef (repo:tag) ou shortId (sha256 containers) → projets compose
+    const usedByName = new Map<string, Set<string>>();  // "repo:tag" → projects
+    const usedByShortId = new Map<string, Set<string>>(); // 12-char id → projects (pour les containers référençant sha256:...)
+
+    if (containersOutput) {
+      for (const line of containersOutput.split('\n')) {
+        const pipeIdx = line.indexOf('|');
+        if (pipeIdx === -1) continue;
+        const rawImage = line.slice(0, pipeIdx).trim();
+        const labels = line.slice(pipeIdx + 1);
+        if (!rawImage) continue;
+
+        const project = labels.match(/com\.docker\.compose\.project=([^,]+)/)?.[1];
+
+        if (rawImage.startsWith('sha256:')) {
+          // Container référencé par digest — on match par les 12 premiers chars de l'ID
+          const shortId = rawImage.slice(7, 19);
+          if (!usedByShortId.has(shortId)) usedByShortId.set(shortId, new Set());
+          if (project) usedByShortId.get(shortId)!.add(project);
+        } else {
+          // Normalise "nginx" → "nginx:latest"
+          const normalized = rawImage.includes(':') ? rawImage : `${rawImage}:latest`;
+          if (!usedByName.has(normalized)) usedByName.set(normalized, new Set());
+          if (project) usedByName.get(normalized)!.add(project);
+        }
       }
-      
-      images.push(img);
     }
-    
-    return images;
+
+    return imagesOutput.split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const [id, repository, tag, size, created] = line.split('|');
+        if (!id) return null;
+        const imageRef = `${repository}:${tag}`;
+        const projectsByName = usedByName.get(imageRef);
+        const projectsById = usedByShortId.get(id);
+        const allProjects = new Set([
+          ...(projectsByName ?? []),
+          ...(projectsById ?? []),
+        ]);
+        return {
+          id, repository, tag, size, created,
+          used: projectsByName !== undefined || projectsById !== undefined,
+          projects: allProjects.size ? Array.from(allProjects) : undefined,
+        };
+      })
+      .filter((img): img is NonNullable<typeof img> => img !== null) as ImageInfo[];
   } catch {
     return [];
   }

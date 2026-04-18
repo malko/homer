@@ -254,18 +254,9 @@ export async function systemRoutes(fastify: FastifyInstance) {
     return pruneNetworks();
   });
 
-  fastify.delete('/api/system/images/:id', async (request, reply) => {
+  fastify.delete('/api/system/images/:id', async (request) => {
     const { id } = request.params as { id: string };
     const { force } = request.query as { force?: string };
-    try {
-      const result = await removeImage(id, force === 'true');
-      if (!result.success) {
-        return reply.status(500).send(result);
-      }
-      return result;
-    } catch (error: unknown) {
-      const err = error as { message?: string };
-      return reply.status(500).send({ success: false, output: err.message || 'Failed to remove image' });
-    }
+    return removeImage(id, force === 'true');
   });
 }

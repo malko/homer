@@ -517,6 +517,7 @@ export interface ImageInfo {
   size: string;
   created: string;
   used?: boolean;
+  projects?: string[];
 }
 
 export { ApiError };
