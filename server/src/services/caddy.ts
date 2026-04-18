@@ -83,7 +83,7 @@ export function buildCaddyConfig(): Record<string, unknown> {
       match: [{ host: [HOMER_DOMAIN] }],
       handle: [{
         handler: 'reverse_proxy',
-        upstreams: [{ dial: `homelab-manager:${HOMER_PORT}` }],
+        upstreams: [{ dial: `homer:${HOMER_PORT}` }],
       }],
       terminal: true,
     });
@@ -92,7 +92,7 @@ export function buildCaddyConfig(): Record<string, unknown> {
       match: [{ host: ['*'] }],
       handle: [{
         handler: 'reverse_proxy',
-        upstreams: [{ dial: `homelab-manager:${HOMER_PORT}` }],
+        upstreams: [{ dial: `homer:${HOMER_PORT}` }],
       }],
       terminal: true,
     });
@@ -151,7 +151,7 @@ export function buildCaddyConfig(): Record<string, unknown> {
       match: [{ host: ['localhost', '127.0.0.1'] }],
       handle: [{
         handler: 'reverse_proxy',
-        upstreams: [{ dial: `homelab-manager:${HOMER_PORT}` }],
+        upstreams: [{ dial: `homer:${HOMER_PORT}` }],
       }],
       terminal: true,
     });

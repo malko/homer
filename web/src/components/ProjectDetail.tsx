@@ -9,7 +9,6 @@ import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyHostForm } from './ProxyHostForm';
 import { ProxyHostList } from './ProxyHostList';
-import { InfoTooltip } from './FilterToolbar';
 import '../styles/proxy.css';
 
 export type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
@@ -222,6 +221,12 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [fileSaving, setFileSaving] = useState(false);
   const [fileValidating, setFileValidating] = useState(false);
   const [composeErrors, setComposeErrors] = useState<string[]>([]);
+
+  // Network modal state
+  const [showNetworkModal, setShowNetworkModal] = useState(false);
+  const [projectServices, setProjectServices] = useState<{ name: string; hasNetworkMode: boolean }[]>([]);
+  const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
+  const [networkModalLoading, setNetworkModalLoading] = useState(false);
 
   // Logs state (lazy: loaded on first logs tab visit)
   const [logs, setLogs] = useState<Record<string, string[]>>({});
@@ -1008,7 +1013,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   minHeight="500px"
                 />
               </div>
-              <div className="edit-project-footer" style={{ marginTop: '0.75rem' }}>
+<div className="edit-project-footer" style={{ marginTop: '0.75rem' }}>
                 <span className="project-path">{project.path}</span>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                   {composeErrors.length > 0 && (
@@ -1016,37 +1021,26 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                       {composeErrors.length} error{composeErrors.length !== 1 ? 's' : ''}
                     </span>
                   )}
-                  <button className="btn btn-sm btn-info" onClick={handleValidate} disabled={fileValidating || composeErrors.length > 0}>
+                  <button className="btn btn-sm btn-secondary" title="Ajouter les services au réseau homer-services" onClick={async () => {
+                    setNetworkModalLoading(true);
+                    try {
+                      const services = await api.projects.getServices(project.id);
+                      setProjectServices(services);
+                      setSelectedServices(new Set(services.filter(s => !s.hasNetworkMode).map(s => s.name)));
+                    } catch {
+                      addToast('error', 'Failed to load services');
+                    } finally {
+                      setNetworkModalLoading(false);
+                    }
+                    setShowNetworkModal(true);
+                  }}>
+                    + Network
+                  </button>
+                  <button className="btn btn-sm btn-info" onClick={handleValidate} disabled={fileValidating || composeErrors.length > 0} title="Valider le fichier compose">
                     {fileValidating ? 'Validating...' : 'Validate'}
                   </button>
-                  <button className="btn btn-sm btn-primary" onClick={handleSaveFiles} disabled={fileSaving || composeErrors.length > 0}>
+                  <button className="btn btn-sm btn-primary" onClick={handleSaveFiles} disabled={fileSaving || composeErrors.length > 0} title="Sauvegarder les fichiers (Ctrl+S)">
                     {fileSaving ? 'Saving...' : 'Save (Ctrl+S)'}
-                  </button>
-                  <InfoTooltip>
-                      <p style={{ margin: 0, padding: '0.5rem 0' }}>
-                        <strong>Pourquoi ajouter les services au réseau homelab-network ?</strong>
-                      </p>
-                      <ul style={{ margin: '0.25rem 0', paddingLeft: '1rem' }}>
-                        <li>Permet à Caddy de proxyfier les services par nom de domaine</li>
-                        <li>Permet la résolution mDNS pour les domaines .local</li>
-                        <li>Les containers communiqueront via le réseau Docker plutôt que via le host</li>
-                      </ul>
-                      <p style={{ margin: '0.5rem 0 0 0', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
-                       Les containers devront être redémarrés pour prendre effet (docker compose down & up).
-                      </p>
-                    </InfoTooltip>
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={async () => {
-                      const result = await api.projects.addToNetwork(project.id);
-                      if (result.success) {
-                        addToast('success', 'Services added to homelab-network. Restart containers to apply.');
-                      } else {
-                        addToast('error', result.message);
-                      }
-                    }}
-                  >
-                    + Network
                   </button>
                 </div>
               </div>
@@ -1245,6 +1239,112 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               </button>
               <button className="btn btn-danger" onClick={handleDeleteConfirm} disabled={deleting}>
                 {deleting ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showNetworkModal && (
+        <div className="modal-overlay" onClick={() => setShowNetworkModal(false)}>
+          <div className="modal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Ajouter au réseau homer-services</h2>
+              <button className="modal-close" onClick={() => setShowNetworkModal(false)}>&times;</button>
+            </div>
+            <div style={{ padding: '1rem' }}>
+              <p style={{ marginBottom: '1rem', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                Le réseau <strong>homer-services</strong> permet à Caddy de proxifier les services par nom de domaine 
+                et active la résolution mDNS pour les domaines <code>.local</code>.
+              </p>
+              <p style={{ marginBottom: '1rem', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                Les containers devront être redémarrés pour appliquer les changements (<code>docker compose down & up</code>).
+              </p>
+              
+              {projectServices.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                  {networkModalLoading ? <div className="spinner" /> : 'Aucun service trouvé'}
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+                    <button 
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setSelectedServices(new Set(projectServices.filter(s => !s.hasNetworkMode).map(s => s.name)))}
+                    >
+                      Tous
+                    </button>
+                    <button 
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setSelectedServices(new Set())}
+                    >
+                      Aucun
+                    </button>
+                  </div>
+                  <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: '0.25rem' }}>
+                    {projectServices.map(service => (
+                      <label
+                        key={service.name}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          padding: '0.5rem',
+                          borderBottom: '1px solid var(--color-border)',
+                          cursor: service.hasNetworkMode ? 'not-allowed' : 'pointer',
+                          opacity: service.hasNetworkMode ? 0.5 : 1,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedServices.has(service.name)}
+                          disabled={service.hasNetworkMode}
+                          onChange={(e) => {
+                            if (service.hasNetworkMode) return;
+                            const newSet = new Set(selectedServices);
+                            if (e.target.checked) {
+                              newSet.add(service.name);
+                            } else {
+                              newSet.delete(service.name);
+                            }
+                            setSelectedServices(newSet);
+                          }}
+                        />
+                        <span>{service.name}</span>
+                        {service.hasNetworkMode && (
+                          <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                            (mode réseau incompatible)
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowNetworkModal(false)}>
+                Annuler
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={selectedServices.size === 0 || networkModalLoading}
+                onClick={async () => {
+                  setNetworkModalLoading(true);
+                  const result = await api.projects.addToNetwork(project.id, Array.from(selectedServices));
+                  setNetworkModalLoading(false);
+                  if (result.success) {
+                    addToast('success', 'Services ajoutés à homer-services. Redémarrez les containers pour appliquer.');
+                    setShowNetworkModal(false);
+                    const files = await api.projects.readFiles(project.id);
+                    setComposeContent(files.composeContent);
+                    onRefresh();
+                  } else {
+                    addToast('error', result.message);
+                  }
+                }}
+              >
+                {networkModalLoading ? 'Ajout...' : `Ajouter (${selectedServices.size})`}
               </button>
             </div>
           </div>

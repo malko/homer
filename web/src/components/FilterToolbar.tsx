@@ -96,7 +96,7 @@ export function SortMenu({
 
   return (
     <div className="sort-menu-wrapper">
-      <button 
+      <button
         className={`btn btn-icon-only ${isOpen ? 'active' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
         title="Trier"
@@ -147,13 +147,15 @@ export function SortMenu({
 
 interface InfoTooltipProps {
   children: ReactNode;
+  title?: string;
 }
 
-export function InfoTooltip({ children }: InfoTooltipProps) {
+export function InfoTooltip({ children, title }: InfoTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, transform: '' });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const [buttonId] = useState(() => `tooltip-btn-${Math.random().toString(36).slice(2, 9)}`);
 
   useEffect(() => {
     if (!isOpen || !buttonRef.current || !tooltipRef.current) return;

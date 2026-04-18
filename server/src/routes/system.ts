@@ -4,7 +4,7 @@ import { checkForUpdate, performUpdate } from '../services/updater.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
-const HOMER_CONTAINERS = ['homer-caddy', 'homelab-manager'];
+const HOMER_CONTAINERS = ['homer-caddy', 'homer'];
 
 export async function systemRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', async (request: FastifyRequest) => {

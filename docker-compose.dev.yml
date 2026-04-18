@@ -21,7 +21,8 @@ services:
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
     networks:
-      - homelab-network
+      - homer-internal
+      - homer-services
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pgrep -x caddy || exit 1"]
@@ -30,12 +31,12 @@ services:
       retries: 5
       start_period: 10s
 
-  homelab-manager:
+  homer:
     build:
       context: .
       dockerfile: Dockerfile
     image: homer:dev
-    container_name: homelab-manager
+    container_name: homer
     environment:
       - NODE_ENV=production
       - PORT=4000
@@ -57,9 +58,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - homelab-network
+      - homer-internal
+      - homer-services
 
 networks:
-  homelab-network:
+  homer-internal:
     external: false
-    name: homelab-network
+    name: homer-internal
+  homer-services:
+    external: false
+    name: homer-services

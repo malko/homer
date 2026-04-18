@@ -22,7 +22,7 @@ let cachedHostIp: string | null = null;
 let cachedHostDataDir: string | null = null;
 
 async function getOwnContainerName(): Promise<string> {
-  return process.env.HOSTNAME || process.env.CONTAINER_NAME || 'homelab-manager';
+  return process.env.HOSTNAME || process.env.CONTAINER_NAME || 'homer';
 }
 
 async function getHostDataDir(): Promise<string> {

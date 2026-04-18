@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { projectQueries, sessionQueries, settingQueries, DB_CONFIG } from '../db/index.js';
 import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates } from '../services/docker.js';
-import { addProjectToHomerNetwork, ensureHomerNetworkExists } from '../services/compose.js';
+import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { FileWatcher } from '../services/watcher.js';
@@ -415,6 +415,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
   fastify.post('/api/projects/:id/add-to-network', async (request, reply) => {
     const id = parseInt((request.params as { id: string }).id);
+    const { services } = request.body as { services?: string[] };
     const project = projectQueries.getById(id);
     
     if (!project) {
@@ -423,15 +424,27 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     const networkExists = await ensureHomerNetworkExists();
     if (!networkExists) {
-      return reply.status(500).send({ error: 'Failed to create homelab-network' });
+      return reply.status(500).send({ error: 'Failed to create homer-services network' });
     }
 
-    const result = await addProjectToHomerNetwork(project.path);
+    const result = await addProjectToHomerNetwork(project.path, services);
     
     if (result.success) {
       fastify.broadcast({ type: 'containers_updated' });
     }
     
     return result;
+  });
+
+  fastify.get('/api/projects/:id/services', async (request, reply) => {
+    const id = parseInt((request.params as { id: string }).id);
+    const project = projectQueries.getById(id);
+    
+    if (!project) {
+      return reply.status(404).send({ error: 'Project not found' });
+    }
+
+    const services = await getProjectServices(project.path);
+    return services;
   });
 }

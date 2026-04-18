@@ -205,10 +205,13 @@ export const api = {
       }),
     checkUpdates: (id: number, force = false) =>
       request<{ hasUpdates: boolean; services: string[] }>(`/projects/${id}/update-check${force ? '?force=1' : ''}`),
-    addToNetwork: (id: number) =>
+    addToNetwork: (id: number, services: string[]) =>
       request<{ success: boolean; message: string }>(`/projects/${id}/add-to-network`, {
         method: 'POST',
+        body: JSON.stringify({ services }),
       }),
+    getServices: (id: number) =>
+      request<{ name: string; hasNetworkMode: boolean }[]>(`/projects/${id}/services`),
   },
 
   containers: {
