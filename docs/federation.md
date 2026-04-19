@@ -17,7 +17,7 @@ If you are installing a new HOMER instance and an existing homelab is already ru
 3. Check **"Use remote instance's certificate authority"** to share the same CA — browsers that already trust the existing instance will trust the new one without security warnings.
 4. Click **"Join Federation"** — the page reloads automatically and the instance selector appears in the navigation bar.
 
-> **Note**: For the CA change to take effect, Caddy must regenerate its TLS certificates. HOMER automatically clears the old CA certificate cache on import, so Caddy will issue new certificates immediately.
+> **Note**: When a CA is adopted, HOMER replaces the root CA files on disk and removes the old intermediate certificate, so Caddy regenerates the entire chain (root → intermediate → site certificates) on the next config reload. The page reloads automatically after setup. **If you see a certificate error in your browser afterwards, close and reopen the browser** — browsers cache TLS sessions and may not pick up the new certificate until restarted.
 
 ## Case 2 — Manual pairing between two existing instances
 
@@ -42,7 +42,7 @@ From the **Federation** page on instance A:
 
 Once B has approved, instance A detects it automatically and shows a success screen.
 
-**If the two instances use different CAs**: an option is shown to adopt the remote CA. Clicking **"Adopter la CA distante"** imports B's root certificate onto A, and Caddy regenerates certificates using the shared CA.
+**If the two instances use different CAs**: an option is shown to adopt the remote CA. Clicking **"Adopter la CA distante"** imports B's root certificate onto A, and Caddy regenerates certificates using the shared CA. The page reloads automatically. **If you see a certificate error, close and reopen your browser** to clear the cached TLS session.
 
 Clicking **"Fermer"** reloads the page — the instance selector appears in the navigation bar.
 

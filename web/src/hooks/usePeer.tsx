@@ -21,7 +21,7 @@ export function PeerProvider({ children }: { children: ReactNode }) {
   const [activePeer, setActivePeerState] = useState<PeerInstance | null>(null);
 
   const reloadPeers = () => {
-    api.instances.list()
+    return api.instances.list()
       .then(r => {
         setPeers(r.peers);
         setActivePeerState(prev => {

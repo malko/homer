@@ -40,6 +40,24 @@ export function InstancesPage() {
   const [caAdoptResult, setCaAdoptResult] = useState<'adopted' | 'skipped' | null>(null);
   const [caAdoptError, setCaAdoptError] = useState<string | null>(null);
 
+  // Auto-adopt CA after pairing (checkbox in form)
+  const [adoptCaAfterPairing, setAdoptCaAfterPairing] = useState(false);
+
+  // CA adoption for existing peers
+  const [peerCaAdopting, setPeerCaAdopting] = useState<string | null>(null);
+  const [peerCaAdoptSuccess, setPeerCaAdoptSuccess] = useState<string | null>(null);
+  const [peerCaAdoptError, setPeerCaAdoptError] = useState<{ uuid: string; message: string } | null>(null);
+
+  // CA file import
+  const [caImporting, setCaImporting] = useState(false);
+  const [caImportError, setCaImportError] = useState<string | null>(null);
+  const [caImportSuccess, setCaImportSuccess] = useState(false);
+  const certInputRef = useRef<HTMLInputElement>(null);
+  const keyInputRef = useRef<HTMLInputElement>(null);
+
+  // CA full export (cert + key)
+  const [caExportError, setCaExportError] = useState<string | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = async () => {
@@ -70,19 +88,29 @@ export function InstancesPage() {
       return;
     }
     const { request_id, peer_name, peer_uuid, peer_url: waitingPeerUrl } = pairingStep;
+    const shouldAdoptCa = adoptCaAfterPairing;
     const poll = async () => {
       try {
         const result = await api.instances.pairingStatus(request_id);
         if (result.status === 'approved') {
           clearInterval(pollRef.current!);
           pollRef.current = null;
+          const donePeerUuid = result.peer_uuid ?? peer_uuid;
           setPairingStep({
             type: 'done',
             peer_name: result.peer_name ?? peer_name,
-            peer_uuid: result.peer_uuid ?? peer_uuid,
+            peer_uuid: donePeerUuid,
             peer_url: waitingPeerUrl,
             ca_same: result.ca_same ?? true,
           });
+          if (shouldAdoptCa && donePeerUuid) {
+            setCaAdopting(true);
+            setCaAdoptError(null);
+            api.instances.adoptPeerCa(donePeerUuid)
+              .then(() => setCaAdoptResult('adopted'))
+              .catch(err => setCaAdoptError(err instanceof ApiError ? err.message : 'Adoption de CA échouée'))
+              .finally(() => setCaAdopting(false));
+          }
           await loadData();
         } else if (result.status === 'expired') {
           clearInterval(pollRef.current!);
@@ -152,15 +180,80 @@ export function InstancesPage() {
     }
   };
 
-  const handleAdoptPeerCa = async (peerUuid: string) => {
+  const handleAdoptExistingPeerCa = async (peerUuid: string) => {
+    setPeerCaAdopting(peerUuid);
+    setPeerCaAdoptError(null);
+    setPeerCaAdoptSuccess(null);
+    try {
+      await api.instances.adoptPeerCa(peerUuid);
+      // Full page reload needed: CA adoption changes the local TLS certificate,
+      // and the browser must re-establish the TLS session to trust the new one.
+      window.location.reload();
+    } catch (err) {
+      setPeerCaAdoptError({ uuid: peerUuid, message: err instanceof ApiError ? err.message : 'Adoption de CA échouée' });
+      setPeerCaAdopting(null);
+    }
+  };
+
+  const handleExportCa = async () => {
+    setCaExportError(null);
+    try {
+      const ca = await api.proxy.exportCa();
+      const triggerDownload = (content: string, filename: string) => {
+        const blob = new Blob([content], { type: 'application/x-pem-file' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+      triggerDownload(ca.cert, 'homer-ca.crt');
+      triggerDownload(ca.key, 'homer-ca.key');
+    } catch (err) {
+      setCaExportError(err instanceof ApiError ? err.message : 'Export de CA échoué');
+    }
+  };
+
+  const handleImportCaFile = async () => {
+    const certFile = certInputRef.current?.files?.[0];
+    const keyFile = keyInputRef.current?.files?.[0];
+    if (!certFile || !keyFile) {
+      setCaImportError('Veuillez sélectionner le certificat et la clé privée.');
+      return;
+    }
+    setCaImporting(true);
+    setCaImportError(null);
+    setCaImportSuccess(false);
+    try {
+      const readText = (f: File) => new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target!.result as string);
+        r.onerror = () => rej(new Error('Erreur de lecture'));
+        r.readAsText(f);
+      });
+      const [cert, key] = await Promise.all([readText(certFile), readText(keyFile)]);
+      await api.proxy.importCa(cert, key);
+      setCaImportSuccess(true);
+      if (certInputRef.current) certInputRef.current.value = '';
+      if (keyInputRef.current) keyInputRef.current.value = '';
+    } catch (err) {
+      setCaImportError(err instanceof ApiError ? err.message : 'Import de CA échoué');
+    } finally {
+      setCaImporting(false);
+    }
+  };
+
+const handleAdoptPeerCa = async (peerUuid: string) => {
     setCaAdopting(true);
     setCaAdoptError(null);
     try {
       await api.instances.adoptPeerCa(peerUuid);
-      setCaAdoptResult('adopted');
+      // Full page reload needed: CA adoption changes the local TLS certificate,
+      // and the browser must re-establish the TLS session to trust the new one.
+      window.location.reload();
     } catch (err) {
       setCaAdoptError(err instanceof ApiError ? err.message : 'Adoption de CA échouée');
-    } finally {
       setCaAdopting(false);
     }
   };
@@ -225,6 +318,14 @@ export function InstancesPage() {
                         {peer.status}
                       </span>
                       <button
+                        className="btn btn-sm"
+                        disabled={peerCaAdopting === peer.uuid}
+                        onClick={() => handleAdoptExistingPeerCa(peer.uuid)}
+                        title="Adopter la CA de ce pair pour partager la même autorité dans tout le homelab"
+                      >
+                        {peerCaAdopting === peer.uuid ? 'Adoption…' : 'Adopter la CA'}
+                      </button>
+                      <button
                         className="btn btn-danger btn-sm"
                         onClick={() => handleUnpair(peer.uuid, peer.name)}
                       >
@@ -236,6 +337,16 @@ export function InstancesPage() {
                     <span className="instances-label">URL</span>
                     <span className="instances-value">{peer.url || '—'}</span>
                   </div>
+                  {peerCaAdoptSuccess === peer.uuid && (
+                    <div className="message message--success" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                      ✓ CA adoptée. Relancez le navigateur si vous rencontrez des erreurs de certificat.
+                    </div>
+                  )}
+                  {peerCaAdoptError?.uuid === peer.uuid && (
+                    <div className="message message--error" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                      {peerCaAdoptError.message}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -303,6 +414,54 @@ export function InstancesPage() {
           </section>
         )}
 
+        {/* Gestion du CA */}
+        <section className="instances-section">
+          <h2>Autorité de certification</h2>
+          <div className="instances-card">
+
+            {/* Export */}
+            <p className="instances-label" style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Exporter</p>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <a className="btn btn-sm" href="/api/proxy/root-ca" download="homer-root-ca.crt">
+                Télécharger le certificat (.crt)
+              </a>
+              <button className="btn btn-sm" onClick={handleExportCa}>
+                Exporter cert + clé (.crt + .key)
+              </button>
+            </div>
+            {caExportError && <div className="message message--error" style={{ marginBottom: '0.75rem', fontSize: '0.8rem' }}>{caExportError}</div>}
+            <p className="instances-label" style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
+              Le certificat seul sert à installer la CA dans le navigateur. L'export cert + clé permet de migrer ce CA sur un autre nœud manuellement (attention : la clé privée est sensible).
+            </p>
+
+            {/* Import */}
+            <p className="instances-label" style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Importer un CA personnalisé</p>
+            <p className="instances-label" style={{ marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+              Remplace le CA Caddy par votre propre autorité. Tous les certificats seront régénérés.
+            </p>
+            {caImportError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{caImportError}</div>}
+            {caImportSuccess && <div className="message message--success" style={{ marginBottom: '0.5rem' }}>✓ CA importé — les certificats sont en cours de régénération.</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label className="instances-label">
+                Certificat (.crt / .pem) :
+                <input ref={certInputRef} type="file" accept=".crt,.pem,.cer" style={{ marginLeft: '0.5rem' }} />
+              </label>
+              <label className="instances-label">
+                Clé privée (.key / .pem) :
+                <input ref={keyInputRef} type="file" accept=".key,.pem" style={{ marginLeft: '0.5rem' }} />
+              </label>
+              <button
+                className="btn btn-primary"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={handleImportCaFile}
+                disabled={caImporting}
+              >
+                {caImporting ? 'Import en cours…' : 'Importer le CA'}
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* Initier un appairage */}
         <section className="instances-section">
           <div className="instances-section-header">
@@ -345,6 +504,10 @@ export function InstancesPage() {
                   Annuler
                 </button>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.75rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={adoptCaAfterPairing} onChange={e => setAdoptCaAfterPairing(e.target.checked)} />
+                Adopter le CA de l'instance distante après l'appairage
+              </label>
             </div>
           )}
 
@@ -401,7 +564,7 @@ export function InstancesPage() {
               )}
               {!pairingStep.ca_same && caAdoptResult === 'adopted' && (
                 <div className="message message--success" style={{ marginTop: '0.75rem' }}>
-                  ✓ CA adoptée — les certificats seront régénérés automatiquement.
+                  ✓ CA adoptée. Relancez le navigateur si vous rencontrez des erreurs de certificat.
                 </div>
               )}
               <button

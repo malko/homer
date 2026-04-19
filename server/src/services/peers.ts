@@ -15,7 +15,6 @@ const CADDY_RO = process.env.NODE_ENV === 'production'
   : join(__dirname, '../../../data/caddy/data');
 
 const CA_PATHS = [
-  join(CADDY_RO, 'custom-ca/root.crt'),
   join(CADDY_RO, 'caddy/pki/authorities/local/root.crt'),
 ];
 
@@ -186,11 +185,16 @@ export async function peerFetch<T = unknown>(
         const text = Buffer.concat(chunks).toString('utf-8');
         let data: T | null = null;
         if (text) {
-          try {
-            data = JSON.parse(text) as T;
-          } catch {
-            resolve({ ok: false, status: res.statusCode ?? 0, data: null, error: 'Invalid JSON response' });
-            return;
+          const contentType = res.headers['content-type'] ?? '';
+          if (!contentType || contentType.startsWith('application/json')) {
+            try {
+              data = JSON.parse(text) as T;
+            } catch {
+              resolve({ ok: false, status: res.statusCode ?? 0, data: null, error: 'Invalid JSON response' });
+              return;
+            }
+          } else {
+            data = text as unknown as T;
           }
         }
         const status = res.statusCode ?? 0;

@@ -46,11 +46,12 @@ export function SetupPage() {
     setLoading(true);
     try {
       await setupFederation(fedPeerUrl.trim(), fedUsername.trim(), fedPassword, fedAdoptCa);
-      reloadPeers();
-      navigate('/');
+      await reloadPeers();
+      // Full page reload needed: CA adoption changes the TLS certificate,
+      // and the browser must re-establish the TLS session to trust the new one.
+      window.location.href = '/';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not join federation');
-    } finally {
       setLoading(false);
     }
   };

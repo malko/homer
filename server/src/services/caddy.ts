@@ -19,29 +19,15 @@ const DATA_DIR = process.env.DATA_DIR ?? (process.env.NODE_ENV === 'production' 
 // Homer's writable path into Caddy's data directory (via ./data volume mount)
 const CADDY_DATA_WRITE = join(DATA_DIR, 'caddy/data');
 
-// Caddy's own view of its data directory (used inside the JSON config Caddy reads)
-const CADDY_DATA_CADDY = process.env.CADDY_DATA_CADDY || '/data';
-
-// Paths for the custom (imported) CA — Homer writes, Caddy reads
-const CUSTOM_CA_CERT_WRITE = join(CADDY_DATA_WRITE, 'custom-ca/root.crt');
-const CUSTOM_CA_KEY_WRITE  = join(CADDY_DATA_WRITE, 'custom-ca/root.key');
-const CUSTOM_CA_CERT_CADDY = `${CADDY_DATA_CADDY}/custom-ca/root.crt`;
-const CUSTOM_CA_KEY_CADDY  = `${CADDY_DATA_CADDY}/custom-ca/root.key`;
-
 // Read-only view from Homer (the :ro mount)
 const CADDY_RO = process.env.NODE_ENV === 'production' ? '/app/caddy-data' : CADDY_DATA_WRITE;
-const DEFAULT_CA_CERT_RO  = join(CADDY_RO, 'caddy/pki/authorities/local/root.crt');
-const DEFAULT_CA_KEY_WRITE = join(CADDY_DATA_WRITE, 'caddy/pki/authorities/local/root.key');
-
-export function hasCustomCa(): boolean {
-  return existsSync(CUSTOM_CA_CERT_WRITE) && existsSync(CUSTOM_CA_KEY_WRITE);
-}
+const PKI_LOCAL_DIR  = join(CADDY_DATA_WRITE, 'caddy/pki/authorities/local');
+const CA_CERT_PATH    = join(CADDY_RO, 'caddy/pki/authorities/local/root.crt');
+const CA_KEY_PATH     = join(CADDY_DATA_WRITE, 'caddy/pki/authorities/local/root.key');
 
 export async function exportLocalCa(): Promise<{ cert: string; key: string } | null> {
-  const certPath = hasCustomCa() ? CUSTOM_CA_CERT_WRITE : DEFAULT_CA_CERT_RO;
-  const keyPath  = hasCustomCa() ? CUSTOM_CA_KEY_WRITE  : DEFAULT_CA_KEY_WRITE;
   try {
-    const [cert, key] = await Promise.all([readFile(certPath, 'utf-8'), readFile(keyPath, 'utf-8')]);
+    const [cert, key] = await Promise.all([readFile(CA_CERT_PATH, 'utf-8'), readFile(CA_KEY_PATH, 'utf-8')]);
     return { cert, key };
   } catch {
     return null;
@@ -53,20 +39,31 @@ export async function importCa(cert: string, key: string): Promise<{ success: bo
     return { success: false, error: 'Invalid PEM format' };
   }
   try {
-    const dir = join(CADDY_DATA_WRITE, 'custom-ca');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(CUSTOM_CA_CERT_WRITE, cert);
-    writeFileSync(CUSTOM_CA_KEY_WRITE, key);
-    // Clear cached certificates issued by the old internal CA so Caddy re-issues them with the new CA
+    // Write the adopted CA directly to Caddy's default PKI path.
+    // Caddy will regenerate its intermediate certificate using the new root,
+    // ensuring the entire chain (site cert → intermediate → root) is consistent.
+    if (!existsSync(PKI_LOCAL_DIR)) mkdirSync(PKI_LOCAL_DIR, { recursive: true });
+    writeFileSync(join(PKI_LOCAL_DIR, 'root.crt'), cert);
+    writeFileSync(join(PKI_LOCAL_DIR, 'root.key'), key);
+
+    // Remove the old intermediate so Caddy regenerates it signed by the new root
+    await rm(join(PKI_LOCAL_DIR, 'intermediate.crt'), { force: true }).catch(() => {});
+    await rm(join(PKI_LOCAL_DIR, 'intermediate.key'), { force: true }).catch(() => {});
+
+    // Clear cached site certificates so Caddy re-issues them with the new chain
     const certStorageDir = join(CADDY_DATA_WRITE, 'caddy/certificates');
     try {
       const entries = await readdir(certStorageDir);
       await Promise.all(
         entries
-          .filter(e => e.startsWith('local-'))
+          .filter(e => e === 'local' || e.startsWith('local-'))
           .map(e => rm(join(certStorageDir, e), { recursive: true, force: true }))
       );
     } catch { /* cert storage may not exist yet */ }
+
+    // Clean up the legacy custom-ca directory from older versions
+    await rm(join(CADDY_DATA_WRITE, 'custom-ca'), { recursive: true, force: true }).catch(() => {});
+
     return await pushConfig();
   } catch (err) {
     return { success: false, error: `${err}` };
@@ -245,14 +242,6 @@ export function buildCaddyConfig(): Record<string, unknown> {
   if (hasTls) {
     apps.tls = { automation: { policies: tlsPolicies } };
   }
-  if (hasCustomCa()) {
-    apps.pki = {
-      certificate_authorities: {
-        local: { root: { certificate: CUSTOM_CA_CERT_CADDY, private_key: CUSTOM_CA_KEY_CADDY } },
-      },
-    };
-  }
-
   const config: Record<string, unknown> = {
     admin: { listen: '0.0.0.0:2019', origins: [CADDY_ADMIN_URL] },
     apps,
