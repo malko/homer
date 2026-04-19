@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import http from 'http';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { readFile } from 'fs/promises';
+import { readFile, readdir, rm } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { proxyHostQueries, settingQueries } from '../db/index.js';
@@ -57,6 +57,16 @@ export async function importCa(cert: string, key: string): Promise<{ success: bo
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(CUSTOM_CA_CERT_WRITE, cert);
     writeFileSync(CUSTOM_CA_KEY_WRITE, key);
+    // Clear cached certificates issued by the old internal CA so Caddy re-issues them with the new CA
+    const certStorageDir = join(CADDY_DATA_WRITE, 'caddy/certificates');
+    try {
+      const entries = await readdir(certStorageDir);
+      await Promise.all(
+        entries
+          .filter(e => e.startsWith('local-'))
+          .map(e => rm(join(certStorageDir, e), { recursive: true, force: true }))
+      );
+    } catch { /* cert storage may not exist yet */ }
     return await pushConfig();
   } catch (err) {
     return { success: false, error: `${err}` };

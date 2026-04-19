@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getLocalInstance } from '../services/instance.js';
-import { discoverPeers } from '../services/mdns.js';
 import {
   sessionQueries,
   peerQueries,
@@ -63,16 +62,6 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       last_seen: p.last_seen,
     }));
     return { peers };
-  });
-
-  // ── mDNS discovery ────────────────────────────────────────────────────────
-  fastify.get('/api/instances/discover', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    const local = getLocalInstance();
-    const peers = await discoverPeers();
-    const knownUuids = new Set(peerQueries.getAll().map(p => p.peer_uuid));
-    const filtered = peers.filter(p => p.uuid !== local.uuid && !knownUuids.has(p.uuid));
-    return { peers: filtered };
   });
 
   // ── Pairing: list pending received requests (shown on B's UI) ─────────────

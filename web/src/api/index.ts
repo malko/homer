@@ -394,7 +394,6 @@ export const api = {
   instances: {
     self: () => request<LocalInstanceInfo>('/instances/self'),
     list: () => request<{ peers: PeerInstance[] }>('/instances'),
-    discover: () => request<{ peers: DiscoveredPeer[] }>('/instances/discover'),
     pendingPairings: () => request<{ pending: Array<{
       id: string;
       peer_uuid: string | null;
@@ -592,16 +591,6 @@ export interface PeerInstance {
   status: 'online' | 'offline' | 'unreachable';
   paired_at: number;
   last_seen: number | null;
-}
-
-export interface DiscoveredPeer {
-  uuid: string;
-  name: string;
-  version: string;
-  url: string;
-  hostname: string;
-  address: string;
-  port: number;
 }
 
 export { ApiError };

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { usePeer } from '../hooks/usePeer';
-import { api, LocalInstanceInfo, PeerInstance, DiscoveredPeer, ApiError } from '../api';
+import { api, LocalInstanceInfo, PeerInstance, ApiError } from '../api';
 
 interface PendingRequest {
   id: string;
@@ -14,17 +14,15 @@ interface PendingRequest {
 type PairingStep =
   | { type: 'idle' }
   | { type: 'form' }
-  | { type: 'waiting'; request_id: string; local_code: string; peer_name: string; peer_uuid: string }
-  | { type: 'done'; peer_name: string; peer_uuid: string; ca_same: boolean };
+  | { type: 'waiting'; request_id: string; local_code: string; peer_name: string; peer_uuid: string; peer_url: string }
+  | { type: 'done'; peer_name: string; peer_uuid: string; peer_url: string; ca_same: boolean };
 
 export function InstancesPage() {
   const { activePeer } = usePeer();
   const [self, setSelf] = useState<LocalInstanceInfo | null>(null);
   const [peers, setPeers] = useState<PeerInstance[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
-  const [discovered, setDiscovered] = useState<DiscoveredPeer[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [pairingStep, setPairingStep] = useState<PairingStep>({ type: 'idle' });
@@ -71,7 +69,7 @@ export function InstancesPage() {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
-    const { request_id } = pairingStep;
+    const { request_id, peer_name, peer_uuid, peer_url: waitingPeerUrl } = pairingStep;
     const poll = async () => {
       try {
         const result = await api.instances.pairingStatus(request_id);
@@ -80,8 +78,9 @@ export function InstancesPage() {
           pollRef.current = null;
           setPairingStep({
             type: 'done',
-            peer_name: result.peer_name ?? '',
-            peer_uuid: result.peer_uuid ?? '',
+            peer_name: result.peer_name ?? peer_name,
+            peer_uuid: result.peer_uuid ?? peer_uuid,
+            peer_url: waitingPeerUrl,
             ca_same: result.ca_same ?? true,
           });
           await loadData();
@@ -99,29 +98,18 @@ export function InstancesPage() {
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [pairingStep.type === 'waiting' ? pairingStep.request_id : null]);
 
-  const handleDiscover = async () => {
-    setScanning(true);
-    setError(null);
-    try {
-      const result = await api.instances.discover();
-      setDiscovered(result.peers);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Découverte impossible');
-    } finally {
-      setScanning(false);
-    }
-  };
-
   const handleInitiate = async () => {
     setPairingError(null);
+    const url = peerUrl.trim();
     try {
-      const result = await api.instances.initiatePairing(peerUrl.trim());
+      const result = await api.instances.initiatePairing(url);
       setPairingStep({
         type: 'waiting',
         request_id: result.request_id,
         local_code: result.local_code,
         peer_name: result.peer_name,
         peer_uuid: result.peer_uuid,
+        peer_url: url,
       });
       setPeerUrl('');
     } catch (err) {
@@ -142,13 +130,9 @@ export function InstancesPage() {
     setApproveError(null);
     try {
       await api.instances.approvePairing(id, approveCode);
-      setApprovingId(null);
-      setApproveCode('');
-      setPending(prev => prev.filter(p => p.id !== id));
-      await loadData();
+      window.location.reload();
     } catch (err) {
       setApproveError(err instanceof ApiError ? err.message : 'Approbation échouée');
-    } finally {
       setApproving(false);
     }
   };
@@ -210,10 +194,6 @@ export function InstancesPage() {
               <div className="instances-row">
                 <span className="instances-label">Nom</span>
                 <span className="instances-value">{self.name}</span>
-              </div>
-              <div className="instances-row">
-                <span className="instances-label">Identifiant</span>
-                <span className="instances-value instances-value--mono">{self.uuid}</span>
               </div>
               <div className="instances-row">
                 <span className="instances-label">Version</span>
@@ -371,7 +351,9 @@ export function InstancesPage() {
           {pairingStep.type === 'waiting' && (
             <div className="instances-card">
               <p className="instances-label" style={{ marginBottom: '0.75rem' }}>
-                Demande envoyée à <strong>{pairingStep.peer_name}</strong>. Communiquez votre code à l'administrateur de l'instance distante, qui pourra approuver depuis la page Fédération.
+                Demande envoyée à <strong>{pairingStep.peer_name}</strong>
+                {' '}(<span className="instances-value--mono" style={{ fontSize: '0.85em' }}>{pairingStep.peer_url}</span>).
+                {' '}Communiquez votre code à l'administrateur de l'instance distante, qui pourra approuver depuis la page Fédération.
               </p>
               <div className="instances-code-block" style={{ marginBottom: '1rem' }}>
                 <div className="instances-code-label">Votre code (à communiquer à l'admin distant)</div>
@@ -394,7 +376,7 @@ export function InstancesPage() {
           {pairingStep.type === 'done' && (
             <div className="instances-card">
               <div className="message message--success">
-                ✓ Instance "{pairingStep.peer_name}" appairée avec succès.
+                ✓ Instance "{pairingStep.peer_name}" ({pairingStep.peer_url}) appairée avec succès.
               </div>
               {!pairingStep.ca_same && caAdoptResult === null && (
                 <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
@@ -419,67 +401,17 @@ export function InstancesPage() {
               )}
               {!pairingStep.ca_same && caAdoptResult === 'adopted' && (
                 <div className="message message--success" style={{ marginTop: '0.75rem' }}>
-                  ✓ CA adoptée — redémarrez Caddy pour appliquer les changements.
+                  ✓ CA adoptée — les certificats seront régénérés automatiquement.
                 </div>
               )}
               <button
                 className="btn"
                 style={{ marginTop: '0.75rem' }}
-                onClick={() => { setPairingStep({ type: 'idle' }); setCaAdoptResult(null); setCaAdoptError(null); }}
+                onClick={() => window.location.reload()}
               >
                 Fermer
               </button>
             </div>
-          )}
-        </section>
-
-        {/* Découverte mDNS */}
-        <section className="instances-section">
-          <div className="instances-section-header">
-            <h2>Découverte sur le réseau local</h2>
-            <button className="btn btn-primary" onClick={handleDiscover} disabled={scanning}>
-              {scanning ? 'Analyse…' : 'Découvrir'}
-            </button>
-          </div>
-          {discovered === null ? (
-            <p className="instances-empty">
-              Lancez une découverte pour détecter les autres instances HOMER via mDNS.
-            </p>
-          ) : discovered.length === 0 ? (
-            <p className="instances-empty">Aucune autre instance détectée sur le réseau local.</p>
-          ) : (
-            <ul className="instances-list">
-              {discovered.map((peer) => (
-                <li key={peer.uuid} className="instances-card">
-                  <div className="instances-row">
-                    <span className="instances-label">{peer.name}</span>
-                    <span className="instances-value">{peer.address}:{peer.port}</span>
-                  </div>
-                  <div className="instances-row">
-                    <span className="instances-label">UUID</span>
-                    <span className="instances-value instances-value--mono">{peer.uuid}</span>
-                  </div>
-                  {peer.url && (
-                    <div className="instances-row">
-                      <span className="instances-label">URL</span>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <span className="instances-value">{peer.url}</span>
-                        <button
-                          className="btn btn-sm btn-primary"
-                          onClick={() => {
-                            setPeerUrl(peer.url!);
-                            setPairingStep({ type: 'form' });
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                        >
-                          Appairer
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
           )}
         </section>
       </div>
