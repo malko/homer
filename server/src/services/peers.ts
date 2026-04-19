@@ -1,6 +1,5 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
-import { createSocket } from 'dgram';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import * as https from 'https';
@@ -8,6 +7,9 @@ import * as http from 'http';
 import { URL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = process.env.NODE_ENV === 'production'
+  ? '/app/data'
+  : join(__dirname, '../../../data');
 const CADDY_RO = process.env.NODE_ENV === 'production'
   ? '/app/caddy-data'
   : join(__dirname, '../../../data/caddy/data');
@@ -19,90 +21,34 @@ const CA_PATHS = [
 
 const SIGNATURE_MAX_SKEW_MS = 60_000;
 
-function encodeDnsName(hostname: string): Buffer {
-  const parts = hostname.split('.');
-  const bufs = parts.map(part => Buffer.concat([Buffer.from([part.length]), Buffer.from(part, 'ascii')]));
-  return Buffer.concat([...bufs, Buffer.from([0])]);
-}
+// Resolve .local hostnames via the mDNS supervisor container (which runs with --network host
+// and talks to the host's Avahi daemon via D-Bus). Communication is file-based IPC through
+// the shared data volume. Falls back silently if the supervisor is not running.
+async function resolveMdnsViaSupervisor(hostname: string, timeoutMs = 5000): Promise<string> {
+  const id = randomBytes(4).toString('hex');
+  const reqFile = join(DATA_DIR, `mdns-resolve-${id}.request`);
+  const resFile = join(DATA_DIR, `mdns-resolve-${id}.result`);
 
-function buildMdnsQuery(hostname: string): Buffer {
-  const header = Buffer.alloc(12);
-  header.writeUInt16BE(Math.floor(Math.random() * 65536), 0); // transaction ID
-  header.writeUInt16BE(0x0000, 2); // flags: standard query
-  header.writeUInt16BE(1, 4);      // QDCOUNT = 1
-  // ANCOUNT, NSCOUNT, ARCOUNT = 0 (already zeroed)
-  const qtype_qclass = Buffer.alloc(4);
-  qtype_qclass.writeUInt16BE(1, 0);      // QTYPE = A
-  qtype_qclass.writeUInt16BE(0x8001, 2); // QCLASS = QU bit + IN
-  return Buffer.concat([header, encodeDnsName(hostname), qtype_qclass]);
-}
+  await writeFile(reqFile, hostname, 'utf-8');
 
-function skipDnsName(buf: Buffer, offset: number): number {
-  while (offset < buf.length) {
-    const len = buf[offset];
-    if (len === 0) return offset + 1;
-    if ((len & 0xc0) === 0xc0) return offset + 2; // compressed pointer
-    offset += 1 + len;
-  }
-  return offset;
-}
-
-function parseMdnsResponse(buf: Buffer): string | null {
-  if (buf.length < 12) return null;
-  const anCount = buf.readUInt16BE(6);
-  if (anCount === 0) return null;
-  let offset = 12;
-  // skip question section
-  const qdCount = buf.readUInt16BE(4);
-  for (let i = 0; i < qdCount; i++) {
-    offset = skipDnsName(buf, offset);
-    offset += 4; // QTYPE + QCLASS
-  }
-  // parse answer section
-  for (let i = 0; i < anCount; i++) {
-    offset = skipDnsName(buf, offset);
-    if (offset + 10 > buf.length) break;
-    const type = buf.readUInt16BE(offset);
-    const rdlength = buf.readUInt16BE(offset + 8);
-    offset += 10;
-    if (type === 1 && rdlength === 4 && offset + 4 <= buf.length) {
-      return `${buf[offset]}.${buf[offset + 1]}.${buf[offset + 2]}.${buf[offset + 3]}`;
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 300));
+      try {
+        const ip = (await readFile(resFile, 'utf-8')).trim();
+        await unlink(resFile).catch(() => {});
+        if (ip) return ip;
+        throw new Error(`Could not resolve ${hostname} via mDNS`);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      }
     }
-    offset += rdlength;
+  } finally {
+    await unlink(reqFile).catch(() => {});
+    await unlink(resFile).catch(() => {});
   }
-  return null;
-}
-
-function resolveMdnsLocal(hostname: string, timeoutMs = 3000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const socket = createSocket({ type: 'udp4', reuseAddr: true });
-    const query = buildMdnsQuery(hostname);
-    let done = false;
-
-    const finish = (err?: Error, ip?: string) => {
-      if (done) return;
-      done = true;
-      try { socket.close(); } catch {}
-      if (ip) resolve(ip);
-      else reject(err ?? new Error(`mDNS failed for ${hostname}`));
-    };
-
-    const timer = setTimeout(() => finish(new Error(`mDNS timeout resolving ${hostname}`)), timeoutMs);
-
-    socket.on('message', (msg) => {
-      const ip = parseMdnsResponse(msg);
-      if (ip) { clearTimeout(timer); finish(undefined, ip); }
-    });
-
-    socket.on('error', (err) => { clearTimeout(timer); finish(err); });
-
-    socket.bind(5353, () => {
-      try { socket.addMembership('224.0.0.251'); } catch {}
-      socket.send(query, 0, query.length, 5353, '224.0.0.251', (err) => {
-        if (err) { clearTimeout(timer); finish(err); }
-      });
-    });
-  });
+  throw new Error(`mDNS resolution timeout for ${hostname}`);
 }
 
 export function sixDigitCode(): string {
@@ -189,7 +135,7 @@ export async function peerFetch<T = unknown>(
   const isLocalHostname = url.hostname.endsWith('.local');
   if (isLocalHostname) {
     try {
-      connectHostname = await resolveMdnsLocal(url.hostname, Math.min(Math.floor(timeoutMs / 3), 3000));
+      connectHostname = await resolveMdnsViaSupervisor(url.hostname, Math.min(Math.floor(timeoutMs / 2), 5000));
     } catch {
       // leave connectHostname as-is; system DNS will fail with a clear message
     }
