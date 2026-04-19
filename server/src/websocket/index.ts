@@ -3,6 +3,8 @@ import { WebSocket } from '@fastify/websocket';
 import { createRequire } from 'module';
 import { sessionQueries } from '../db/index.js';
 import { streamLogs, deployProjectStream, downProjectStream } from '../services/docker.js';
+import { getLocalInstance } from '../services/instance.js';
+import { peerWsManager } from '../services/peer-ws.js';
 
 // Minimal typing for node-pty (native module, installed separately)
 interface IPty {
@@ -53,24 +55,44 @@ export function setupWebSocket(fastify: FastifyInstance) {
           const message = JSON.parse(data.toString());
 
           if (message.type === 'subscribe_logs' && message.containerId) {
-            const containerId = message.containerId;
-            const stopStreaming = await streamLogs(containerId, (line) => {
-              try {
-                socket.send(JSON.stringify({
-                  type: 'log_line',
-                  containerId,
-                  line,
-                  timestamp: new Date().toISOString(),
-                }));
-              } catch {}
-            });
-            logStreamers.set(`${clientId}:${containerId}`, stopStreaming);
+            const containerId = String(message.containerId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              const subKey = `${clientId}:${containerId}`;
+              peerWsManager.subscribe(peerUuid, subKey,
+                (event) => {
+                  if (event['type'] === 'log_line' && event['containerId'] === containerId) {
+                    try { socket.send(JSON.stringify(event)); } catch {}
+                  }
+                },
+                { type: 'subscribe_logs', containerId },
+                { type: 'unsubscribe_logs', containerId },
+              );
+            } else {
+              const stopStreaming = await streamLogs(containerId, (line) => {
+                try {
+                  socket.send(JSON.stringify({
+                    type: 'log_line', containerId, line,
+                    timestamp: new Date().toISOString(),
+                  }));
+                } catch {}
+              });
+              logStreamers.set(`${clientId}:${containerId}`, stopStreaming);
+            }
           }
 
           if (message.type === 'unsubscribe_logs' && message.containerId) {
-            const key = `${clientId}:${message.containerId}`;
-            const stop = logStreamers.get(key);
-            if (stop) { stop(); logStreamers.delete(key); }
+            const containerId = String(message.containerId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.unsubscribe(peerUuid, `${clientId}:${containerId}`);
+            } else {
+              const key = `${clientId}:${containerId}`;
+              const stop = logStreamers.get(key);
+              if (stop) { stop(); logStreamers.delete(key); }
+            }
           }
 
           if (message.type === 'subscribe_terminal' && message.containerId) {
@@ -142,67 +164,96 @@ export function setupWebSocket(fastify: FastifyInstance) {
 
           if (message.type === 'subscribe_deploy' && message.projectId) {
             const projectId = Number(message.projectId);
-            const key = `${clientId}:deploy:${projectId}`;
-            // Kill existing deploy for this project if any
-            const existing = deployStreamers.get(key);
-            if (existing) { existing(); deployStreamers.delete(key); }
-
-            const stop = deployProjectStream(
-              projectId,
-              (line) => {
-                try {
-                  socket.send(JSON.stringify({ type: 'deploy_output', projectId, line }));
-                } catch {}
-              },
-              (success) => {
-                deployStreamers.delete(key);
-                try {
-                  socket.send(JSON.stringify({ type: 'deploy_done', projectId, success }));
-                } catch {}
-                if (success) {
-                  instance.broadcast({ type: 'containers_updated' });
-                }
-              },
-            );
-            deployStreamers.set(key, stop);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              const subKey = `${clientId}:deploy:${projectId}`;
+              peerWsManager.subscribe(peerUuid, subKey,
+                (event) => {
+                  if ((event['type'] === 'deploy_output' || event['type'] === 'deploy_done') && event['projectId'] === projectId) {
+                    try { socket.send(JSON.stringify(event)); } catch {}
+                  }
+                },
+                { type: 'subscribe_deploy', projectId },
+                { type: 'abort_deploy', projectId },
+              );
+            } else {
+              const key = `${clientId}:deploy:${projectId}`;
+              const existing = deployStreamers.get(key);
+              if (existing) { existing(); deployStreamers.delete(key); }
+              const stop = deployProjectStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'deploy_output', projectId, line })); } catch {}
+                },
+                (success) => {
+                  deployStreamers.delete(key);
+                  try { socket.send(JSON.stringify({ type: 'deploy_done', projectId, success })); } catch {}
+                  if (success) instance.broadcast({ type: 'containers_updated' });
+                },
+              );
+              deployStreamers.set(key, stop);
+            }
           }
 
           if (message.type === 'abort_deploy' && message.projectId) {
-            const key = `${clientId}:deploy:${Number(message.projectId)}`;
-            const stop = deployStreamers.get(key);
-            if (stop) { stop(); deployStreamers.delete(key); }
+            const projectId = Number(message.projectId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.unsubscribe(peerUuid, `${clientId}:deploy:${projectId}`);
+            } else {
+              const key = `${clientId}:deploy:${projectId}`;
+              const stop = deployStreamers.get(key);
+              if (stop) { stop(); deployStreamers.delete(key); }
+            }
           }
 
           if (message.type === 'subscribe_down' && message.projectId) {
             const projectId = Number(message.projectId);
-            const key = `${clientId}:down:${projectId}`;
-            const existing = downStreamers.get(key);
-            if (existing) { existing(); downStreamers.delete(key); }
-
-            const stop = downProjectStream(
-              projectId,
-              (line) => {
-                try {
-                  socket.send(JSON.stringify({ type: 'down_output', projectId, line }));
-                } catch {}
-              },
-              (success) => {
-                downStreamers.delete(key);
-                try {
-                  socket.send(JSON.stringify({ type: 'down_done', projectId, success }));
-                } catch {}
-                if (success) {
-                  instance.broadcast({ type: 'containers_updated' });
-                }
-              },
-            );
-            downStreamers.set(key, stop);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              const subKey = `${clientId}:down:${projectId}`;
+              peerWsManager.subscribe(peerUuid, subKey,
+                (event) => {
+                  if ((event['type'] === 'down_output' || event['type'] === 'down_done') && event['projectId'] === projectId) {
+                    try { socket.send(JSON.stringify(event)); } catch {}
+                  }
+                },
+                { type: 'subscribe_down', projectId },
+                { type: 'abort_down', projectId },
+              );
+            } else {
+              const key = `${clientId}:down:${projectId}`;
+              const existing = downStreamers.get(key);
+              if (existing) { existing(); downStreamers.delete(key); }
+              const stop = downProjectStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'down_output', projectId, line })); } catch {}
+                },
+                (success) => {
+                  downStreamers.delete(key);
+                  try { socket.send(JSON.stringify({ type: 'down_done', projectId, success })); } catch {}
+                  if (success) instance.broadcast({ type: 'containers_updated' });
+                },
+              );
+              downStreamers.set(key, stop);
+            }
           }
 
           if (message.type === 'abort_down' && message.projectId) {
-            const key = `${clientId}:down:${Number(message.projectId)}`;
-            const stop = downStreamers.get(key);
-            if (stop) { stop(); downStreamers.delete(key); }
+            const projectId = Number(message.projectId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.unsubscribe(peerUuid, `${clientId}:down:${projectId}`);
+            } else {
+              const key = `${clientId}:down:${projectId}`;
+              const stop = downStreamers.get(key);
+              if (stop) { stop(); downStreamers.delete(key); }
+            }
           }
         } catch {}
       });
@@ -225,6 +276,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
           }
         });
         termKeysToDelete.forEach(key => terminalSessions.delete(key));
+        peerWsManager.cleanupClient(clientId);
         instance.wsClients.delete(clientId);
       });
 

@@ -22,6 +22,7 @@ import { instancesRoutes } from './routes/instances.js';
 import { getLocalInstance } from './services/instance.js';
 import { peerProxyHook } from './middleware/peer-proxy.js';
 import { setupWebSocket } from './websocket/index.js';
+import { setupPeerEventsWs } from './websocket/peer-events.js';
 import { watcher } from './services/watcher.js';
 import { waitForDb, settingQueries, projectQueries } from './db/index.js';
 import { startAutoUpdateChecker, performUpdate } from './services/updater.js';
@@ -41,6 +42,7 @@ await fastify.register(cors, {
 await fastify.register(websocket);
 
 setupWebSocket(fastify);
+setupPeerEventsWs(fastify);
 
 fastify.decorate('watcher', watcher);
 fastify.decorateRequest('isPeerRequest', false);

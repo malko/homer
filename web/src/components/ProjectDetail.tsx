@@ -3,7 +3,7 @@ import { YamlEditor } from './YamlEditor';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
 import { ContainerRow } from './ContainerRow';
-import { api, type AutoUpdatePolicy } from '../api';
+import { api, getActivePeer, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
@@ -241,7 +241,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       ws.onopen = () => {
         for (const c of project.containers) {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'subscribe_logs', containerId: c.id }));
+            ws.send(JSON.stringify({ type: 'subscribe_logs', containerId: c.id, peer_uuid: getActivePeer() }));
           }
         }
       };
@@ -438,7 +438,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
     ws.onopen = () => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe_deploy', projectId: project.id }));
+        ws.send(JSON.stringify({ type: 'subscribe_deploy', projectId: project.id, peer_uuid: getActivePeer() }));
       }
     };
 
@@ -502,7 +502,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
     ws.onopen = () => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe_down', projectId: project.id }));
+        ws.send(JSON.stringify({ type: 'subscribe_down', projectId: project.id, peer_uuid: getActivePeer() }));
       }
     };
 

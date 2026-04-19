@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, getActivePeer } from '../api';
 import { useAuth } from '../hooks/useAuth';
 import { parseAnsiSegments } from '../utils/ansi';
 
@@ -65,7 +65,7 @@ export function LogsPage() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe_logs', containerId }));
+      ws.send(JSON.stringify({ type: 'subscribe_logs', containerId, peer_uuid: getActivePeer() }));
       setWsConnected(true);
     };
 
