@@ -38,7 +38,8 @@ async function resolveMdnsViaSupervisor(hostname: string, timeoutMs = 5000): Pro
       try {
         const ip = (await readFile(resFile, 'utf-8')).trim();
         await unlink(resFile).catch(() => {});
-        if (ip) return ip;
+        if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+        if (ip) throw new Error(`mDNS returned non-IPv4 address for ${hostname}: ${ip}`);
         throw new Error(`Could not resolve ${hostname} via mDNS`);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;

@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpdates';
-import { PeerProvider } from './hooks/usePeer';
+import { PeerProvider, usePeer } from './hooks/usePeer';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
@@ -24,10 +24,11 @@ import './styles/updates.css';
 import './styles/instances.css';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
+  const { activePeer } = usePeer();
   return (
     <div className="app-layout-with-nav">
       <NavSidebar />
-      <div className="app-layout-content">
+      <div key={activePeer?.uuid ?? 'local'} className="app-layout-content">
         {children}
       </div>
     </div>

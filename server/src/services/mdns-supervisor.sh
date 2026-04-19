@@ -108,7 +108,7 @@ resolver_loop() {
       id="${id%.request}"
       rm -f "$reqfile"
       [ -z "$hostname" ] && continue
-      ip=$(DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-resolve --name "$hostname" 2>/dev/null | awk '{print $2; exit}')
+      ip=$(DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-resolve -4 --name "$hostname" 2>/dev/null | awk '{print $2; exit}')
       printf '%s\n' "${ip:-}" > "/data/mdns-resolve-${id}.result"
     done
     sleep 0.3

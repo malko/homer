@@ -114,31 +114,52 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid credentials on remote instance' });
     }
 
-    // Best-effort logout on remote
-    peerFetch(body.peer_url, '/api/auth/logout', { method: 'POST', peerCa: null }).catch(() => {});
+    const loginToken = loginResult.data.token;
 
-    // Optionally adopt the remote CA so all instances share the same trust anchor
-    if (body.adopt_ca && loginResult.data?.token) {
+    // 3. Optionally adopt the remote CA so all instances share the same trust anchor
+    if (body.adopt_ca) {
       const caExport = await peerFetch<{ cert: string; key: string }>(
         body.peer_url, '/api/proxy/ca-export',
-        { peerCa: null, bearerToken: loginResult.data.token }
+        { peerCa: null, bearerToken: loginToken }
       );
       if (caExport.ok && caExport.data?.cert && caExport.data?.key) {
         await importCa(caExport.data.cert, caExport.data.key).catch(() => {});
       }
     }
 
-    // 3. Fetch remote CA for future TLS (best effort)
+    // 4. Fetch remote CA for future TLS (best effort)
     const caResult = await peerFetch<string>(body.peer_url, '/api/proxy/root-ca', { peerCa: null }).catch(() => null);
     const peerCa = typeof caResult?.data === 'string' ? caResult.data : await loadLocalRootCa();
 
-    // 4. Store a peer entry for the home instance so login delegation knows the URL
+    // 5. Generate the shared secret once — used on BOTH sides for HMAC
+    const sharedSecret = generateSecret();
+
+    // 6. Register this new instance as a peer on the home instance (best-effort)
+    const local = getLocalInstance();
+    const localCa = await loadLocalRootCa();
+    peerFetch(body.peer_url, '/api/instances/_peer/federation-join', {
+      method: 'POST',
+      peerCa: null,
+      bearerToken: loginToken,
+      body: {
+        peer_uuid: local.uuid,
+        peer_name: local.name,
+        peer_url: local.url,
+        peer_ca: localCa,
+        shared_secret: sharedSecret,
+      },
+    }).catch(() => {});
+
+    // Best-effort logout on remote (after all token-authenticated calls)
+    peerFetch(body.peer_url, '/api/auth/logout', { method: 'POST', peerCa: null }).catch(() => {});
+
+    // 7. Store a peer entry for the home instance so login delegation knows the URL
     peerQueries.upsert({
       peer_uuid: remoteUuid,
       peer_name: remoteName,
       peer_url: body.peer_url,
       peer_ca: peerCa,
-      shared_secret: generateSecret(),
+      shared_secret: sharedSecret,
       paired_at: Date.now(),
       status: 'online',
     });

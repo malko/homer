@@ -472,6 +472,37 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     return ca;
   });
 
+  // ── Peer-to-peer: new instance registers itself via federation setup flow ───
+  // Auth: Bearer token of the user who just authenticated on this instance
+  fastify.post('/api/instances/_peer/federation-join', async (request, reply) => {
+    const token = request.headers.authorization?.replace('Bearer ', '');
+    const session = token ? sessionQueries.getByToken(token) : null;
+    if (!session) return reply.status(401).send({ error: 'Unauthorized' });
+
+    const body = (request.body as {
+      peer_uuid?: string;
+      peer_name?: string;
+      peer_url?: string;
+      peer_ca?: string;
+      shared_secret?: string;
+    });
+    if (!body.peer_uuid || !body.peer_name || !body.shared_secret) {
+      return reply.status(400).send({ error: 'peer_uuid, peer_name and shared_secret are required' });
+    }
+
+    peerQueries.upsert({
+      peer_uuid: body.peer_uuid,
+      peer_name: body.peer_name,
+      peer_url: body.peer_url ?? '',
+      peer_ca: body.peer_ca ?? null,
+      shared_secret: body.shared_secret,
+      paired_at: Date.now(),
+      status: 'online',
+    });
+
+    return { success: true };
+  });
+
   // ── Adopt a paired peer's CA on this instance ─────────────────────────────
   fastify.post('/api/instances/pair/adopt-ca', async (request, reply) => {
     if (!requireAuth(request, reply)) return;

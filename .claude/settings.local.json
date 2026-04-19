@@ -6,7 +6,8 @@
       "Bash(grep -r \"caddy\\\\|traefik\\\\|reverse.proxy\" /home/malko/git/homer --include=*.yml --include=*.yaml --include=*.json --include=*.ts --include=*.tsx)",
       "Bash(cd:*)",
       "Bash(grep -n \"logout\\\\|bigiconImage\\\\|from ''react-router-dom''\" web/src/pages/Projects.tsx web/src/pages/HomePage.tsx web/src/pages/SettingsPage.tsx)",
-      "Bash(find /home/malko/git/homelab-container-manager/web -name *.png -o -name *.svg)"
+      "Bash(find /home/malko/git/homelab-container-manager/web -name *.png -o -name *.svg)",
+      "Bash(grep -E \"\\\\.ts$\")"
     ]
   }
 }

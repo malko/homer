@@ -1,4 +1,12 @@
 import { usePeer } from '../hooks/usePeer';
+import type { PeerInstance } from '../api';
+
+function peerLabel(p: PeerInstance): string {
+  if (p.url) {
+    try { return new URL(p.url).hostname; } catch {}
+  }
+  return p.name;
+}
 
 export function PeerSelector() {
   const { peers, activePeer, selectPeer } = usePeer();
@@ -14,24 +22,19 @@ export function PeerSelector() {
         value={activePeer?.uuid ?? ''}
         onChange={e => {
           const uuid = e.target.value;
-          if (!uuid) {
-            selectPeer(null);
-          } else {
-            const peer = peers.find(p => p.uuid === uuid) ?? null;
-            selectPeer(peer);
-          }
+          selectPeer(uuid ? (peers.find(p => p.uuid === uuid) ?? null) : null);
         }}
         title={`${onlineCount}/${peers.length} pairs en ligne`}
       >
         <option value="">Instance locale</option>
         {peers.map(p => (
           <option key={p.uuid} value={p.uuid} disabled={p.status !== 'online'}>
-            {p.name}{p.status !== 'online' ? ' (hors ligne)' : ''}
+            {peerLabel(p)}{p.status !== 'online' ? ' (hors ligne)' : ''}
           </option>
         ))}
       </select>
       {activePeer && (
-        <span className="peer-selector-badge" title={`Connecté à ${activePeer.name}`}>
+        <span className="peer-selector-badge" title={`Connecté à ${peerLabel(activePeer)}`}>
           ⇄
         </span>
       )}
