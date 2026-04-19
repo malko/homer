@@ -32,60 +32,33 @@ get_hash() {
 }
 
 publish_domains() {
-  # Match pairs of "domain":"..." and "ip":"..." on the same line/object
-  sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)"[^}]*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1\t\2/p' "$CONFIG" | \
-  while IFS="$(printf '\t')" read -r domain ip; do
-    [ -z "$domain" ] || [ -z "$ip" ] && continue
-    log "Publishing A $domain -> $ip"
-    DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-publish -a -R "$domain" "$ip" &
-  done
+  # Use Node.js to parse JSON reliably (sed/awk can't handle multi-line JSON)
+  node -e "
+    const fs = require('fs');
+    const { spawn } = require('child_process');
+    const config = JSON.parse(fs.readFileSync('${CONFIG}', 'utf8'));
+    (config.domains || []).forEach(d => {
+      if (d.domain && d.ip) {
+        console.log('[mdns-supervisor] Publishing A ' + d.domain + ' -> ' + d.ip);
+        spawn('avahi-publish', ['-a', '-R', d.domain, d.ip], { detached: true, stdio: 'ignore' }).unref();
+      }
+    });
+  "
 }
 
 publish_services() {
-  # Each line: "_homer._tcp"\t"name"\t"port"\t"txt1"\t"txt2"\t...
-  # We parse the services array with a sed trick: extract each service object block.
-  awk '
-    BEGIN { depth=0; inarr=0; buf="" }
-    {
-      line=$0
-      for (i=1; i<=length(line); i++) {
-        c=substr(line,i,1)
-        if (!inarr) {
-          buf=buf c
-          if (match(buf, /"services"[[:space:]]*:[[:space:]]*\[/)) { inarr=1; buf=""; depth=0 }
-          continue
-        }
-        if (c=="{") { depth++; buf=buf c; continue }
-        if (c=="}") { depth--; buf=buf c; if (depth==0) { print buf; buf="" }; continue }
-        if (c=="]" && depth==0) { inarr=0; continue }
-        if (depth>0) buf=buf c
+  # Use Node.js to parse JSON reliably
+  node -e "
+    const fs = require('fs');
+    const { spawn } = require('child_process');
+    const config = JSON.parse(fs.readFileSync('${CONFIG}', 'utf8'));
+    (config.services || []).forEach(s => {
+      if (s.type && s.name && s.port) {
+        console.log('[mdns-supervisor] Publishing service ' + s.name + ' (' + s.type + ' port ' + s.port + ')');
+        spawn('avahi-publish', ['-s', s.name, s.type, String(s.port), ...(s.txt || [])], { detached: true, stdio: 'ignore' }).unref();
       }
-    }
-  ' "$CONFIG" | while IFS= read -r obj; do
-    [ -z "$obj" ] && continue
-    svc_type=$(printf '%s' "$obj" | sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    svc_name=$(printf '%s' "$obj" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    svc_port=$(printf '%s' "$obj" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\+\).*/\1/p')
-    [ -z "$svc_type" ] || [ -z "$svc_name" ] || [ -z "$svc_port" ] && continue
-
-    # Build txt args: extract strings from "txt": [ "a=b", "c=d" ]
-    txt_block=$(printf '%s' "$obj" | sed -n 's/.*"txt"[[:space:]]*:[[:space:]]*\(\[[^]]*\]\).*/\1/p')
-    # Write args to a tmp file, one per line, then read back
-    : > /tmp/_txt_args
-    printf '%s' "$txt_block" | sed -n 's/"\([^"]*\)"/\1\n/gp' | while IFS= read -r t; do
-      [ -n "$t" ] && printf '%s\n' "$t" >> /tmp/_txt_args
-    done
-
-    log "Publishing service $svc_name ($svc_type port $svc_port)"
-    # Build an sh command safely
-    set -- "$svc_name" "$svc_type" "$svc_port"
-    while IFS= read -r t; do
-      set -- "$@" "$t"
-    done < /tmp/_txt_args
-
-    DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-publish -s "$@" &
-  done
-  rm -f /tmp/_txt_args
+    });
+  "
 }
 
 sync_config() {

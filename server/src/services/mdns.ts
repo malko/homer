@@ -112,7 +112,7 @@ interface MdnsConfig {
 
 async function writeConfig(config: MdnsConfig): Promise<void> {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(config), 'utf-8');
 }
 
 async function readConfig(): Promise<MdnsConfig> {
