@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { api, setActivePeer as apiSetActivePeer, PeerInstance } from '../api';
+import { useWebSocket } from './useWebSocket';
 
 interface PeerContextValue {
   peers: PeerInstance[];
@@ -39,6 +40,14 @@ export function PeerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     reloadPeers();
   }, []);
+
+  const handleWsMessage = useCallback((msg: { type: string; [k: string]: unknown }) => {
+    if (msg.type === 'peer_status_changed' && typeof msg.peer_uuid === 'string' && typeof msg.status === 'string') {
+      setPeers(prev => prev.map(p => p.uuid === msg.peer_uuid ? { ...p, status: msg.status as PeerInstance['status'] } : p));
+    }
+  }, []);
+
+  useWebSocket(handleWsMessage);
 
   const selectPeer = (peer: PeerInstance | null) => {
     setActivePeerState(peer);

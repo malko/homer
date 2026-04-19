@@ -1,10 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { createRequire } from 'module';
-import { sessionQueries } from '../db/index.js';
+import { sessionQueries, peerQueries } from '../db/index.js';
 import { streamLogs, deployProjectStream, downProjectStream } from '../services/docker.js';
 import { getLocalInstance } from '../services/instance.js';
 import { peerWsManager } from '../services/peer-ws.js';
+import { peerFetch } from '../services/peers.js';
 
 // Minimal typing for node-pty (native module, installed separately)
 interface IPty {
@@ -33,6 +34,35 @@ const terminalSessions = new Map<string, IPty>();
 const deployStreamers = new Map<string, () => void>();
 const downStreamers = new Map<string, () => void>();
 
+const PEER_HEARTBEAT_INTERVAL_MS = 30_000;
+let peerHeartbeatTimer: NodeJS.Timeout | null = null;
+
+function startPeerHeartbeat(broadcast: (event: BroadcastEvent) => void) {
+  if (peerHeartbeatTimer) return;
+  peerHeartbeatTimer = setInterval(async () => {
+    const peers = peerQueries.getAll();
+    for (const peer of peers) {
+      const r = await peerFetch(peer.peer_url, '/api/instances/self', {
+        peerCa: peer.peer_ca,
+        timeoutMs: 5_000,
+      });
+      const newStatus = r.ok ? 'online' : 'offline';
+      if (newStatus !== peer.status) {
+        const lastSeen = newStatus === 'online' ? Date.now() : peer.last_seen;
+        peerQueries.updateStatus(peer.peer_uuid, newStatus, lastSeen);
+        broadcast({ type: 'peer_status_changed', peer_uuid: peer.peer_uuid, status: newStatus });
+      }
+    }
+  }, PEER_HEARTBEAT_INTERVAL_MS);
+}
+
+function stopPeerHeartbeat() {
+  if (peerHeartbeatTimer) {
+    clearInterval(peerHeartbeatTimer);
+    peerHeartbeatTimer = null;
+  }
+}
+
 export function setupWebSocket(fastify: FastifyInstance) {
   fastify.register(async (instance) => {
     instance.get('/api/events', { websocket: true }, (socket, request) => {
@@ -47,6 +77,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
 
       const clientId = crypto.randomUUID();
       instance.wsClients.set(clientId, socket);
+      if (instance.wsClients.size === 1) startPeerHeartbeat(fastify.broadcast);
 
       socket.send(JSON.stringify({ type: 'connected', clientId }));
 
@@ -278,6 +309,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
         termKeysToDelete.forEach(key => terminalSessions.delete(key));
         peerWsManager.cleanupClient(clientId);
         instance.wsClients.delete(clientId);
+        if (instance.wsClients.size === 0) stopPeerHeartbeat();
       });
 
       socket.on('error', () => {
