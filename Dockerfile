@@ -5,7 +5,7 @@ FROM base AS server-deps
 WORKDIR /app/server
 COPY server/package.json server/package-lock.json ./
 # node-pty requires a C++ compiler at install time
-RUN apk add --no-cache python3 make g++ linux-headers && npm install --ignore-scripts && npm rebuild node-pty
+RUN apk add --no-cache python3 make g++ linux-headers && npm install --ignore-scripts && npm rebuild node-pty --build-from-source=false
 
 FROM base AS web-deps
 WORKDIR /app/web

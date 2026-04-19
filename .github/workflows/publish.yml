@@ -8,13 +8,16 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Validate tag is from main
         if: startsWith(github.ref, 'refs/tags/')
