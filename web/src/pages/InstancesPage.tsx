@@ -9,11 +9,19 @@ interface PairingData {
   peer_name: string;
 }
 
+interface ConflictResolution {
+  username: string;
+  password_local: string;
+  password_remote: string;
+}
+
 type PairingStep =
   | { type: 'idle' }
   | { type: 'form' }
   | ({ type: 'codes' } & PairingData)
   | ({ type: 'confirming' } & PairingData)
+  | ({ type: 'conflicts' } & PairingData & { conflicts: string[] })
+  | ({ type: 'resolving' } & PairingData & { conflicts: string[] })
   | { type: 'done'; peer_name: string };
 
 interface PendingRequest {
@@ -38,6 +46,7 @@ export function InstancesPage() {
   const [peerUrl, setPeerUrl] = useState('');
   const [enteredCode, setEnteredCode] = useState('');
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [conflictResolutions, setConflictResolutions] = useState<ConflictResolution[]>([]);
 
   const loadData = async () => {
     try {
@@ -102,13 +111,44 @@ export function InstancesPage() {
     setPairingStep({ type: 'confirming', ...data });
     try {
       const result = await api.instances.confirmPairing(data.request_id, enteredCode.trim());
-      setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name });
-      setEnteredCode('');
-      await loadData();
+      if (result.conflicts && result.conflicts.length > 0) {
+        setConflictResolutions(result.conflicts.map(u => ({ username: u, password_local: '', password_remote: '' })));
+        setPairingStep({ type: 'conflicts', ...data, conflicts: result.conflicts });
+        setEnteredCode('');
+      } else {
+        setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name });
+        setEnteredCode('');
+        await loadData();
+      }
     } catch (err) {
       setPairingError(err instanceof ApiError ? err.message : 'Confirmation échouée');
       setPairingStep({ type: 'codes', ...data });
     }
+  };
+
+  const handleResolveConflicts = async () => {
+    if (pairingStep.type !== 'conflicts') return;
+    const data: PairingData = {
+      request_id: pairingStep.request_id,
+      local_code: pairingStep.local_code,
+      remote_code: pairingStep.remote_code,
+      peer_name: pairingStep.peer_name,
+    };
+    setPairingError(null);
+    setPairingStep({ type: 'resolving', ...data, conflicts: pairingStep.conflicts });
+    try {
+      const result = await api.instances.resolvePairing(data.request_id, conflictResolutions);
+      setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name });
+      setConflictResolutions([]);
+      await loadData();
+    } catch (err) {
+      setPairingError(err instanceof ApiError ? err.message : 'Résolution échouée');
+      setPairingStep({ type: 'conflicts', ...data, conflicts: pairingStep.conflicts });
+    }
+  };
+
+  const updateConflictResolution = (username: string, field: 'password_local' | 'password_remote', value: string) => {
+    setConflictResolutions(prev => prev.map(r => r.username === username ? { ...r, [field]: value } : r));
   };
 
   const handleCancelPairing = (id: string) => {
@@ -313,6 +353,66 @@ export function InstancesPage() {
                   className="btn"
                   disabled={pairingStep.type === 'confirming'}
                   onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); setEnteredCode(''); }}
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(pairingStep.type === 'conflicts' || pairingStep.type === 'resolving') && (
+            <div className="instances-card">
+              {pairingError && <div className="message message--error" style={{ marginBottom: '0.75rem' }}>{pairingError}</div>}
+              <p className="instances-label" style={{ marginBottom: '0.75rem' }}>
+                Des utilisateurs portent le même nom sur les deux instances. Prouvez votre accès aux deux comptes pour les fusionner.
+              </p>
+              {conflictResolutions.map((res) => (
+                <div key={res.username} className="instances-card" style={{ marginBottom: '0.75rem', background: 'var(--color-surface-raised)' }}>
+                  <div className="instances-row" style={{ marginBottom: '0.5rem' }}>
+                    <span className="instances-label">Utilisateur</span>
+                    <strong className="instances-value--mono">{res.username}</strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <label style={{ flex: 1 }}>
+                      <span className="instances-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Mot de passe local</span>
+                      <input
+                        className="form-input"
+                        type="password"
+                        placeholder="Mot de passe sur cette instance"
+                        value={res.password_local}
+                        onChange={e => updateConflictResolution(res.username, 'password_local', e.target.value)}
+                        disabled={pairingStep.type === 'resolving'}
+                      />
+                    </label>
+                    <label style={{ flex: 1 }}>
+                      <span className="instances-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Mot de passe distant</span>
+                      <input
+                        className="form-input"
+                        type="password"
+                        placeholder={`Mot de passe sur ${pairingStep.peer_name}`}
+                        value={res.password_remote}
+                        onChange={e => updateConflictResolution(res.username, 'password_remote', e.target.value)}
+                        disabled={pairingStep.type === 'resolving'}
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleResolveConflicts}
+                  disabled={
+                    pairingStep.type === 'resolving' ||
+                    conflictResolutions.some(r => !r.password_local || !r.password_remote)
+                  }
+                >
+                  {pairingStep.type === 'resolving' ? 'Résolution…' : 'Valider et appairer'}
+                </button>
+                <button
+                  className="btn"
+                  disabled={pairingStep.type === 'resolving'}
+                  onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); setConflictResolutions([]); }}
                 >
                   Annuler
                 </button>

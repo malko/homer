@@ -132,6 +132,7 @@ async function initDb() {
     checked_at INTEGER
   )`); } catch {}
 
+  try { db.run('ALTER TABLE users ADD COLUMN home_instance_uuid TEXT'); } catch {}
   try { db.run(`CREATE TABLE IF NOT EXISTS peer_instances (
     peer_uuid TEXT PRIMARY KEY,
     peer_name TEXT NOT NULL,
@@ -154,9 +155,11 @@ async function initDb() {
     local_code TEXT NOT NULL,
     remote_code TEXT,
     shared_secret TEXT NOT NULL,
+    conflicts TEXT,
     expires_at INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`); } catch {}
+  try { db.run('ALTER TABLE pairing_requests ADD COLUMN conflicts TEXT'); } catch {}
 
   saveDb();
 }
@@ -178,6 +181,7 @@ export interface User {
   username: string;
   password_hash: string;
   must_change_password: number;
+  home_instance_uuid: string | null;
   created_at: string;
 }
 
@@ -238,6 +242,18 @@ function normalizeProject(project: Project): Project {
 }
 
 export const userQueries = {
+  getAllForFederation: (): Array<{ username: string; home_instance_uuid: string | null }> => {
+    const result = db.exec('SELECT username, home_instance_uuid FROM users');
+    if (result.length === 0) return [];
+    return result[0].values.map(row => ({
+      username: row[0] as string,
+      home_instance_uuid: row[1] as string | null,
+    }));
+  },
+  setHomeInstance: (username: string, homeInstanceUuid: string | null) => {
+    db.run('UPDATE users SET home_instance_uuid = ? WHERE username = ?', [homeInstanceUuid, username]);
+    saveDb();
+  },
   getByUsername: (username: string): User | undefined => {
     const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
     stmt.bind([username]);
@@ -609,16 +625,21 @@ export interface PairingRequest {
   local_code: string;
   remote_code: string | null;
   shared_secret: string;
+  conflicts: string | null;
   expires_at: number;
   created_at: string;
 }
 
 export const pairingQueries = {
-  create: (req: Omit<PairingRequest, 'created_at'>) => {
+  create: (req: Omit<PairingRequest, 'created_at' | 'conflicts'>) => {
     db.run(
       'INSERT INTO pairing_requests (id, direction, peer_url, peer_uuid, peer_name, peer_ca, local_code, remote_code, shared_secret, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [req.id, req.direction, req.peer_url, req.peer_uuid, req.peer_name, req.peer_ca, req.local_code, req.remote_code, req.shared_secret, req.expires_at]
     );
+    saveDb();
+  },
+  updateConflicts: (id: string, conflicts: string) => {
+    db.run('UPDATE pairing_requests SET conflicts = ? WHERE id = ?', [conflicts, id]);
     saveDb();
   },
   getById: (id: string): PairingRequest | undefined => {

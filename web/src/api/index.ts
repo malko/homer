@@ -403,10 +403,17 @@ export const api = {
       peer_uuid: string;
     }>('/instances/pair/initiate', { method: 'POST', body: JSON.stringify({ url }) }),
     confirmPairing: (request_id: string, entered_code: string) => request<{
-      success: boolean;
-      peer_name: string | null;
-      peer_uuid: string | null;
+      success?: boolean;
+      peer_name?: string | null;
+      peer_uuid?: string | null;
+      conflicts?: string[];
+      request_id?: string;
     }>('/instances/pair/confirm', { method: 'POST', body: JSON.stringify({ request_id, entered_code }) }),
+    resolvePairing: (request_id: string, resolutions: Array<{ username: string; password_local: string; password_remote: string }>) =>
+      request<{ success: boolean; peer_name: string | null; peer_uuid: string | null }>(
+        '/instances/pair/resolve',
+        { method: 'POST', body: JSON.stringify({ request_id, resolutions }) }
+      ),
     cancelPairing: (id: string) => request<{ success: boolean }>(`/instances/pair/${id}`, { method: 'DELETE' }),
     unpair: (uuid: string) => request<{ success: boolean }>(`/instances/${uuid}`, { method: 'DELETE' }),
   },
