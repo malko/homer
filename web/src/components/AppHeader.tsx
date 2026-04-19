@@ -1,5 +1,6 @@
 import { useTheme } from '../hooks/useTheme';
 import { useProjectUpdates } from '../hooks/useProjectUpdates';
+import { useMobileSidebar, useIsMobile } from '../hooks/useMobileSidebar';
 import { PeerSelector } from './PeerSelector';
 
 function SunIcon() {
@@ -26,6 +27,16 @@ function MoonIcon() {
   );
 }
 
+function BurgerIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
 interface AppHeaderProps {
   title?: string;
   stats?: string;
@@ -35,10 +46,17 @@ interface AppHeaderProps {
 export function AppHeader({ title, stats, children }: AppHeaderProps) {
   const { resolvedTheme, toggleTheme } = useTheme();
   const { hasUpdates, updates, setShowModal } = useProjectUpdates();
+  const { open: openMobileSidebar } = useMobileSidebar();
+  const isMobile = useIsMobile();
 
   return (
     <header className="app-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '0.5rem' : '1rem' }}>
+        {isMobile && (
+          <button className="header-burger-btn" onClick={openMobileSidebar} title="Ouvrir le menu">
+            <BurgerIcon />
+          </button>
+        )}
         {title && <span className="header-title">{title}</span>}
         {stats && <span className="header-stats">{stats}</span>}
       </div>

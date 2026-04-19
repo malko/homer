@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpdates';
 import { PeerProvider, usePeer } from './hooks/usePeer';
+import { MobileSidebarProvider } from './hooks/useMobileSidebar';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
@@ -258,7 +259,9 @@ export default function App() {
         <AuthProvider>
           <PeerProvider>
             <ProjectUpdatesProvider>
-              <AppRoutes />
+              <MobileSidebarProvider>
+                <AppRoutes />
+              </MobileSidebarProvider>
             </ProjectUpdatesProvider>
           </PeerProvider>
         </AuthProvider>

@@ -229,16 +229,3 @@ npm run release major  # 1.0.0 → 2.0.0
 
 git push && git push --tags
 ```
-
-## Git Configuration
-
-If you encounter SSH authentication errors when pushing:
-
-```bash
-# Use HTTPS instead of SSH
-git remote set-url origin https://github.com/malko/homer.git
-
-# Or configure SSH key
-ssh-keygen -t ed25519 -C "your_email@example.com"
-# Add the public key to GitHub → Settings → SSH and GPG keys
-```
