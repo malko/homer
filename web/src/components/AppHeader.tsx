@@ -1,5 +1,6 @@
 import { useTheme } from '../hooks/useTheme';
 import { useProjectUpdates } from '../hooks/useProjectUpdates';
+import { PeerSelector } from './PeerSelector';
 
 function SunIcon() {
   return (
@@ -43,6 +44,7 @@ export function AppHeader({ title, stats, children }: AppHeaderProps) {
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <PeerSelector />
         {children}
         {hasUpdates && (
           <button

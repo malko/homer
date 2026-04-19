@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpdates';
+import { PeerProvider } from './hooks/usePeer';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
@@ -254,9 +255,11 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <ProjectUpdatesProvider>
-            <AppRoutes />
-          </ProjectUpdatesProvider>
+          <PeerProvider>
+            <ProjectUpdatesProvider>
+              <AppRoutes />
+            </ProjectUpdatesProvider>
+          </PeerProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

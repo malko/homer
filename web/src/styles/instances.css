@@ -139,6 +139,34 @@
   color: var(--text-muted);
 }
 
+.peer-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.peer-selector-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  max-width: 14rem;
+}
+
+.peer-selector-select:focus {
+  outline: none;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.peer-selector-badge {
+  font-size: 0.9rem;
+  color: #23a55a;
+  font-weight: 700;
+}
+
 .instances-code {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 1.5rem;

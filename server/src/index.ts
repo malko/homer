@@ -20,6 +20,7 @@ import { systemRoutes } from './routes/system.js';
 import { proxyRoutes } from './routes/proxy.js';
 import { instancesRoutes } from './routes/instances.js';
 import { getLocalInstance } from './services/instance.js';
+import { peerProxyHook } from './middleware/peer-proxy.js';
 import { setupWebSocket } from './websocket/index.js';
 import { watcher } from './services/watcher.js';
 import { waitForDb, settingQueries, projectQueries } from './db/index.js';
@@ -42,6 +43,8 @@ await fastify.register(websocket);
 setupWebSocket(fastify);
 
 fastify.decorate('watcher', watcher);
+fastify.decorateRequest('isPeerRequest', false);
+fastify.addHook('preHandler', peerProxyHook);
 
 fastify.register(authRoutes);
 fastify.register(projectRoutes);

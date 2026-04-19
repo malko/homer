@@ -330,6 +330,7 @@ const orderSchema = z.object({
 
 export async function homeRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', async (request: FastifyRequest) => {
+    if (request.isPeerRequest) return;
     const token = request.headers.authorization?.replace('Bearer ', '');
     const session = token ? sessionQueries.getByToken(token) : null;
     if (!session) throw { statusCode: 401, message: 'Unauthorized' };

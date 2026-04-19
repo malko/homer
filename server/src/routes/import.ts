@@ -23,6 +23,7 @@ declare module 'fastify' {
 
 export async function importRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', async (request: FastifyRequest) => {
+    if (request.isPeerRequest) return;
     const token = request.headers.authorization?.replace('Bearer ', '');
     const session = token ? sessionQueries.getByToken(token) : null;
     if (!session) {

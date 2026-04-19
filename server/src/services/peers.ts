@@ -43,6 +43,7 @@ export interface PeerFetchOptions {
   body?: unknown;
   peerCa?: string | null;
   sharedSecret?: string | null;
+  senderUuid?: string | null;
   timeoutMs?: number;
 }
 
@@ -67,6 +68,10 @@ export async function peerFetch<T = unknown>(
   if (bodyString) {
     reqHeaders['Content-Type'] = 'application/json';
     reqHeaders['Content-Length'] = String(Buffer.byteLength(bodyString));
+  }
+
+  if (options.senderUuid) {
+    reqHeaders['X-Peer-Uuid'] = options.senderUuid;
   }
 
   if (options.sharedSecret) {

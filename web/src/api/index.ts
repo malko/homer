@@ -1,5 +1,15 @@
 const API_BASE = '/api';
 
+let _activePeerUuid: string | null = null;
+
+export function setActivePeer(uuid: string | null) {
+  _activePeerUuid = uuid;
+}
+
+export function getActivePeer(): string | null {
+  return _activePeerUuid;
+}
+
 class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -7,29 +17,35 @@ class ApiError extends Error {
   }
 }
 
+const PEER_SKIP_PREFIXES = ['/auth', '/instances'];
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
   const token = localStorage.getItem('token');
   console.log(`[API] ${options.method || 'GET'} ${path} - Token:`, token ? 'present' : 'missing');
-  
+
   const headers = new Headers();
-  
+
   const hasBody = options.body && options.method !== 'GET' && options.method !== 'DELETE';
   if (hasBody) {
     headers.set('Content-Type', 'application/json');
   }
-  
+
   if (options.headers) {
     const extraHeaders = options.headers as Record<string, string>;
     Object.entries(extraHeaders).forEach(([key, value]) => {
       headers.set(key, value);
     });
   }
-  
+
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  if (_activePeerUuid && !PEER_SKIP_PREFIXES.some(p => path.startsWith(p))) {
+    headers.set('X-Peer-Uuid', _activePeerUuid);
   }
   
   const response = await fetch(`${API_BASE}${path}`, {
