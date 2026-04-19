@@ -1,13 +1,11 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import bcrypt from 'bcryptjs';
 import { getLocalInstance } from '../services/instance.js';
 import { discoverPeers } from '../services/mdns.js';
 import {
   sessionQueries,
   peerQueries,
   pairingQueries,
-  userQueries,
 } from '../db/index.js';
 import {
   sixDigitCode,
@@ -19,46 +17,6 @@ import {
 import { exportLocalCa, importCa } from '../services/caddy.js';
 
 const PAIRING_TTL_MS = 5 * 60 * 1000;
-
-type PairingRequestRow = import('../db/index.js').PairingRequest;
-
-async function finalizePairing(
-  req: PairingRequestRow,
-  localUuid: string,
-  localCa: string | null,
-  reply: FastifyReply,
-  conflictResolutions?: Array<{ username: string; home_instance_uuid: string }>,
-) {
-  const finalizeResult = await peerFetch<{ success: boolean }>(
-    req.peer_url!,
-    '/api/instances/_peer/pair/finalize',
-    {
-      method: 'POST',
-      body: { from_uuid: localUuid, local_code: req.local_code, shared_secret: req.shared_secret, ca: localCa, conflict_resolutions: conflictResolutions ?? [] },
-      peerCa: req.peer_ca,
-    }
-  );
-
-  if (!finalizeResult.ok) {
-    return reply.status(502).send({ error: finalizeResult.error ?? 'Finalisation échouée côté pair' });
-  }
-
-  peerQueries.create({
-    peer_uuid: req.peer_uuid!,
-    peer_name: req.peer_name!,
-    peer_url: req.peer_url!,
-    peer_ca: req.peer_ca,
-    shared_secret: req.shared_secret,
-    paired_at: Date.now(),
-  });
-  pairingQueries.delete(req.id);
-
-  const peerCa = req.peer_ca?.trim() ?? null;
-  const localCaStr = localCa?.trim() ?? null;
-  const ca_same = !!peerCa && !!localCaStr && peerCa === localCaStr;
-
-  return { success: true, peer_name: req.peer_name, peer_uuid: req.peer_uuid, ca_same };
-}
 
 function requireAuth(request: FastifyRequest, reply: FastifyReply): boolean {
   const token = request.headers.authorization?.replace('Bearer ', '');
@@ -126,13 +84,12 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       peer_uuid: r.peer_uuid,
       peer_name: r.peer_name,
       peer_url: r.peer_url,
-      local_code: r.local_code,
       expires_at: r.expires_at,
     }));
     return { pending };
   });
 
-  // ── Pairing: initiate (A contacts B) ──────────────────────────────────────
+  // ── Pairing: initiate (A contacts B, gets back request_id + local code) ───
   fastify.post('/api/instances/pair/initiate', async (request, reply) => {
     if (!requireAuth(request, reply)) return;
 
@@ -150,7 +107,6 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       to_name: string;
       to_url: string | null;
       ca: string | null;
-      local_code: string;
     }>(url, '/api/instances/_peer/pair/hello', {
       method: 'POST',
       body: {
@@ -163,10 +119,10 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     });
 
     if (!helloResult.ok || !helloResult.data) {
-      return reply.status(502).send({ error: helloResult.error ?? 'Peer unreachable' });
+      return reply.status(502).send({ error: helloResult.error ?? 'Pair injoignable' });
     }
 
-    const { to_uuid, to_name, to_url, ca: peerCa, local_code: remoteCode } = helloResult.data;
+    const { to_uuid, to_name, to_url, ca: peerCa } = helloResult.data;
 
     if (peerQueries.getByUuid(to_uuid)) {
       return reply.status(409).send({ error: 'Cette instance est déjà appairée' });
@@ -181,7 +137,7 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       peer_url: to_url ?? url,
       peer_ca: peerCa,
       local_code: localCode,
-      remote_code: remoteCode,
+      remote_code: null,
       shared_secret: sharedSecret,
       expires_at: Date.now() + PAIRING_TTL_MS,
     });
@@ -189,113 +145,91 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     return {
       request_id: requestId,
       local_code: localCode,
-      remote_code: remoteCode,
       peer_name: to_name,
       peer_uuid: to_uuid,
     };
   });
 
-  // ── Pairing: confirm (A enters B's code, detects conflicts, or finalizes) ──
-  fastify.post('/api/instances/pair/confirm', async (request, reply) => {
+  // ── Pairing: poll approval status (A polls while waiting for B to approve) ─
+  fastify.get('/api/instances/pair/status/:id', async (request, reply) => {
     if (!requireAuth(request, reply)) return;
-
-    const { request_id, entered_code } = request.body as { request_id?: string; entered_code?: string };
-    if (!request_id || !entered_code) {
-      return reply.status(400).send({ error: 'Missing request_id or entered_code' });
-    }
+    const { id } = request.params as { id: string };
 
     pairingQueries.cleanExpired();
-    const req = pairingQueries.getById(request_id);
+    const req = pairingQueries.getById(id);
     if (!req || req.direction !== 'initiated') {
-      return reply.status(404).send({ error: 'Demande de pairing introuvable ou expirée' });
+      return { status: 'expired' };
     }
-    if (req.expires_at < Date.now()) {
-      pairingQueries.delete(request_id);
-      return reply.status(410).send({ error: 'Demande de pairing expirée' });
+
+    const local = getLocalInstance();
+    const statusResult = await peerFetch<{
+      status: string;
+      peer_name?: string;
+      ca?: string | null;
+    }>(
+      req.peer_url!,
+      '/api/instances/_peer/pair/status',
+      {
+        peerCa: req.peer_ca,
+        sharedSecret: req.shared_secret,
+        senderUuid: local.uuid,
+        timeoutMs: 5000,
+      }
+    );
+
+    if (!statusResult.ok || !statusResult.data) {
+      return { status: 'pending' };
+    }
+
+    if (statusResult.data.status === 'approved') {
+      const bCa = statusResult.data.ca ?? req.peer_ca;
+      peerQueries.upsert({
+        peer_uuid: req.peer_uuid!,
+        peer_name: req.peer_name!,
+        peer_url: req.peer_url!,
+        peer_ca: bCa,
+        shared_secret: req.shared_secret,
+        paired_at: Date.now(),
+        status: 'online',
+      });
+      pairingQueries.delete(req.id);
+
+      const localCa = await loadLocalRootCa();
+      const ca_same = !!bCa && !!localCa && bCa.trim() === localCa.trim();
+      return { status: 'approved', peer_name: req.peer_name, peer_uuid: req.peer_uuid, ca_same };
+    }
+
+    return { status: statusResult.data.status ?? 'pending' };
+  });
+
+  // ── Pairing: approve a received request (B's admin enters A's code) ────────
+  fastify.post('/api/instances/pair/approve/:id', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const { id } = request.params as { id: string };
+    const { entered_code } = request.body as { entered_code?: string };
+    if (!entered_code) return reply.status(400).send({ error: 'entered_code required' });
+
+    pairingQueries.cleanExpired();
+    const req = pairingQueries.getById(id);
+    if (!req || req.direction !== 'received') {
+      return reply.status(404).send({ error: 'Demande introuvable ou expirée' });
     }
     if (entered_code !== req.remote_code) {
       return reply.status(400).send({ error: 'Code incorrect' });
     }
 
-    const local = getLocalInstance();
+    peerQueries.upsert({
+      peer_uuid: req.peer_uuid!,
+      peer_name: req.peer_name!,
+      peer_url: req.peer_url ?? '',
+      peer_ca: null,
+      shared_secret: req.shared_secret,
+      paired_at: Date.now(),
+      status: 'online',
+    });
+    pairingQueries.delete(req.id);
 
-    // Fetch peer user list to detect conflicts
-    const peerUsersResult = await peerFetch<{ users: Array<{ username: string; home_instance_uuid: string | null }> }>(
-      req.peer_url!,
-      '/api/instances/_peer/users',
-      { peerCa: req.peer_ca, sharedSecret: req.shared_secret, senderUuid: local.uuid }
-    );
-
-    if (!peerUsersResult.ok || !peerUsersResult.data) {
-      return reply.status(502).send({ error: peerUsersResult.error ?? 'Impossible de récupérer les utilisateurs du pair' });
-    }
-
-    const localUsers = userQueries.getAllForFederation();
-    const localUsernames = new Set(localUsers.map(u => u.username));
-    const conflicts = peerUsersResult.data.users.filter(u => localUsernames.has(u.username));
-
-    if (conflicts.length > 0) {
-      pairingQueries.updateConflicts(request_id, JSON.stringify(conflicts.map(u => u.username)));
-      return {
-        conflicts: conflicts.map(u => u.username),
-        request_id,
-        peer_name: req.peer_name,
-        peer_uuid: req.peer_uuid,
-      };
-    }
-
-    // No conflicts — finalize immediately
-    return await finalizePairing(req, local.uuid, await loadLocalRootCa(), reply);
-  });
-
-  // ── Pairing: resolve user conflicts then finalize ─────────────────────────
-  fastify.post('/api/instances/pair/resolve', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-
-    const { request_id, resolutions } = request.body as {
-      request_id?: string;
-      resolutions?: Array<{ username: string; password_local: string; password_remote: string }>;
-    };
-    if (!request_id || !Array.isArray(resolutions) || resolutions.length === 0) {
-      return reply.status(400).send({ error: 'Missing request_id or resolutions' });
-    }
-
-    pairingQueries.cleanExpired();
-    const req = pairingQueries.getById(request_id);
-    if (!req || req.direction !== 'initiated' || !req.conflicts) {
-      return reply.status(404).send({ error: 'Demande de pairing introuvable, expirée ou sans conflit en attente' });
-    }
-
-    const local = getLocalInstance();
-
-    // Validate all passwords
-    for (const res of resolutions) {
-      const localUser = userQueries.getByUsername(res.username);
-      if (!localUser) return reply.status(400).send({ error: `Utilisateur local "${res.username}" introuvable` });
-
-      const localOk = await bcrypt.compare(res.password_local, localUser.password_hash);
-      if (!localOk) return reply.status(400).send({ error: `Mot de passe local incorrect pour "${res.username}"` });
-
-      const remoteVerify = await peerFetch<{ valid: boolean }>(
-        req.peer_url!,
-        '/api/instances/_peer/auth/verify',
-        {
-          method: 'POST',
-          body: { username: res.username, password: res.password_remote },
-          peerCa: req.peer_ca,
-          sharedSecret: req.shared_secret,
-          senderUuid: local.uuid,
-        }
-      );
-      if (!remoteVerify.ok || !remoteVerify.data?.valid) {
-        return reply.status(400).send({ error: `Mot de passe distant incorrect pour "${res.username}"` });
-      }
-    }
-
-    // All passwords valid — finalize with conflict resolutions
-    const localCa = await loadLocalRootCa();
-    const conflictResolutions = resolutions.map(r => ({ username: r.username, home_instance_uuid: local.uuid }));
-    return await finalizePairing(req, local.uuid, localCa, reply, conflictResolutions);
+    return { success: true, peer_name: req.peer_name, peer_uuid: req.peer_uuid };
   });
 
   // ── Pairing: cancel a pending request ────────────────────────────────────
@@ -344,7 +278,6 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       return reply.status(409).send({ error: 'Already paired' });
     }
 
-    const localCode = sixDigitCode();
     const requestId = randomUUID();
     pairingQueries.cleanExpired();
     pairingQueries.create({
@@ -354,7 +287,7 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       peer_name: body.from_name,
       peer_url: body.from_url ?? null,
       peer_ca: null,
-      local_code: localCode,
+      local_code: sixDigitCode(),
       remote_code: body.local_code,
       shared_secret: body.shared_secret,
       expires_at: Date.now() + PAIRING_TTL_MS,
@@ -367,84 +300,28 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       to_name: local.name,
       to_url: local.url,
       ca,
-      local_code: localCode,
     };
   });
 
-  // ── Peer-to-peer: list users for conflict detection ───────────────────────
-  fastify.get('/api/instances/_peer/users', async (request, reply) => {
+  // ── Peer-to-peer: approval status (B responds to A's poll) ───────────────
+  fastify.get('/api/instances/_peer/pair/status', async (request, reply) => {
     const peerUuid = request.headers['x-peer-uuid'] as string | undefined;
     if (!peerUuid) return reply.status(401).send({ error: 'Missing X-Peer-Uuid' });
 
-    // Accept auth from pending pairing request OR established peer
+    // Accept HMAC from pairing request (pending) or established peer (just approved)
     const pairingReq = pairingQueries.getByPeerUuid(peerUuid);
-    const secret = pairingReq?.shared_secret ?? peerQueries.getByUuid(peerUuid)?.shared_secret;
+    const peer = peerQueries.getByUuid(peerUuid);
+    const secret = pairingReq?.shared_secret ?? peer?.shared_secret;
     if (!secret || !verifyPeerHmac(request, reply, secret)) return;
 
-    return { users: userQueries.getAllForFederation() };
-  });
-
-  // ── Peer-to-peer: verify password for conflict resolution ─────────────────
-  fastify.post('/api/instances/_peer/auth/verify', async (request, reply) => {
-    const body = request.body as { username?: string; password?: string };
-    const peerUuid = request.headers['x-peer-uuid'] as string | undefined;
-    if (!peerUuid || !body.username || !body.password) {
-      return reply.status(400).send({ error: 'Missing required fields' });
+    if (peer) {
+      const ca = await loadLocalRootCa();
+      return { status: 'approved', ca };
     }
-
-    const pairingReq = pairingQueries.getByPeerUuid(peerUuid);
-    const secret = pairingReq?.shared_secret ?? peerQueries.getByUuid(peerUuid)?.shared_secret;
-    if (!secret || !verifyPeerHmac(request, reply, secret)) return;
-
-    const user = userQueries.getByUsername(body.username);
-    if (!user) return { valid: false };
-
-    const valid = await bcrypt.compare(body.password, user.password_hash);
-    return { valid };
-  });
-
-  // ── Peer-to-peer: finalize (B completes pairing after A's confirm) ────────
-  fastify.post('/api/instances/_peer/pair/finalize', async (request, reply) => {
-    const body = request.body as {
-      from_uuid?: string;
-      local_code?: string;
-      shared_secret?: string;
-      ca?: string | null;
-      conflict_resolutions?: Array<{ username: string; home_instance_uuid: string }>;
-    };
-
-    if (!body.from_uuid || !body.local_code || !body.shared_secret) {
-      return reply.status(400).send({ error: 'Missing required fields' });
+    if (pairingReq) {
+      return { status: 'pending' };
     }
-
-    pairingQueries.cleanExpired();
-    const req = pairingQueries.getByPeerUuid(body.from_uuid);
-    if (!req || req.direction !== 'received') {
-      return reply.status(404).send({ error: 'No pending pairing request from this peer' });
-    }
-    if (body.local_code !== req.remote_code) {
-      return reply.status(400).send({ error: 'Code mismatch' });
-    }
-    if (body.shared_secret !== req.shared_secret) {
-      return reply.status(400).send({ error: 'Secret mismatch' });
-    }
-
-    // Apply conflict resolutions: update home_instance_uuid for conflicting users
-    for (const res of body.conflict_resolutions ?? []) {
-      userQueries.setHomeInstance(res.username, res.home_instance_uuid);
-    }
-
-    peerQueries.create({
-      peer_uuid: body.from_uuid,
-      peer_name: req.peer_name!,
-      peer_url: req.peer_url!,
-      peer_ca: body.ca ?? null,
-      shared_secret: req.shared_secret,
-      paired_at: Date.now(),
-    });
-    pairingQueries.delete(req.id);
-
-    return { success: true };
+    return { status: 'expired' };
   });
 
   // ── Peer-to-peer: unpair notification (HMAC auth) ─────────────────────────
@@ -473,7 +350,6 @@ export async function instancesRoutes(fastify: FastifyInstance) {
   });
 
   // ── Peer-to-peer: new instance registers itself via federation setup flow ───
-  // Auth: Bearer token of the user who just authenticated on this instance
   fastify.post('/api/instances/_peer/federation-join', async (request, reply) => {
     const token = request.headers.authorization?.replace('Bearer ', '');
     const session = token ? sessionQueries.getByToken(token) : null;
@@ -524,6 +400,18 @@ export async function instancesRoutes(fastify: FastifyInstance) {
 
     const result = await importCa(caResult.data.cert, caResult.data.key);
     if (!result.success) return reply.status(500).send({ error: result.error });
+
+    // Update stored peer_ca so the heartbeat uses the new CA after import
+    peerQueries.upsert({
+      peer_uuid: peer.peer_uuid,
+      peer_name: peer.peer_name,
+      peer_url: peer.peer_url,
+      peer_ca: caResult.data.cert,
+      shared_secret: peer.shared_secret,
+      paired_at: peer.paired_at,
+      status: peer.status ?? 'online',
+    });
+
     return { success: true };
   });
 }

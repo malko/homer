@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { usePeer } from '../hooks/usePeer';
 import bannerImage from '@assets/HOMER-banner.png';
 
 export function SetupPage() {
   const { setup, setupFederation, error: globalError } = useAuth();
+  const { reloadPeers } = usePeer();
   const navigate = useNavigate();
   const [mode, setMode] = useState<'local' | 'federation'>('local');
 
@@ -44,6 +46,7 @@ export function SetupPage() {
     setLoading(true);
     try {
       await setupFederation(fedPeerUrl.trim(), fedUsername.trim(), fedPassword, fedAdoptCa);
+      reloadPeers();
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not join federation');

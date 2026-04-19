@@ -301,7 +301,13 @@ export interface DiscoveredPeer {
 }
 
 export async function discoverPeers(): Promise<DiscoveredPeer[]> {
-  if (!await isContainerRunning()) return [];
+  if (!await isContainerRunning()) {
+    const status = await getMdnsStatus();
+    if (!status.available || !status.enabled) return [];
+    if (!await ensureContainerRunning()) return [];
+    // Brief pause for avahi to start
+    await new Promise(r => setTimeout(r, 1500));
+  }
   try {
     const { stdout } = await execAsync(
       `docker exec ${MDNS_CONTAINER} avahi-browse -prkt _homer._tcp`,

@@ -1,40 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppHeader } from '../components/AppHeader';
+import { usePeer } from '../hooks/usePeer';
 import { api, LocalInstanceInfo, PeerInstance, DiscoveredPeer, ApiError } from '../api';
-
-interface PairingData {
-  request_id: string;
-  local_code: string;
-  remote_code: string;
-  peer_name: string;
-  peer_uuid: string;
-}
-
-interface ConflictResolution {
-  username: string;
-  password_local: string;
-  password_remote: string;
-}
-
-type PairingStep =
-  | { type: 'idle' }
-  | { type: 'form' }
-  | ({ type: 'codes' } & PairingData)
-  | ({ type: 'confirming' } & PairingData)
-  | ({ type: 'conflicts' } & PairingData & { conflicts: string[] })
-  | ({ type: 'resolving' } & PairingData & { conflicts: string[] })
-  | { type: 'done'; peer_name: string; peer_uuid: string; ca_same: boolean };
 
 interface PendingRequest {
   id: string;
   peer_uuid: string | null;
   peer_name: string | null;
   peer_url: string | null;
-  local_code: string;
   expires_at: number;
 }
 
+type PairingStep =
+  | { type: 'idle' }
+  | { type: 'form' }
+  | { type: 'waiting'; request_id: string; local_code: string; peer_name: string; peer_uuid: string }
+  | { type: 'done'; peer_name: string; peer_uuid: string; ca_same: boolean };
+
 export function InstancesPage() {
+  const { activePeer } = usePeer();
   const [self, setSelf] = useState<LocalInstanceInfo | null>(null);
   const [peers, setPeers] = useState<PeerInstance[]>([]);
   const [pending, setPending] = useState<PendingRequest[]>([]);
@@ -45,12 +29,20 @@ export function InstancesPage() {
 
   const [pairingStep, setPairingStep] = useState<PairingStep>({ type: 'idle' });
   const [peerUrl, setPeerUrl] = useState('');
-  const [enteredCode, setEnteredCode] = useState('');
   const [pairingError, setPairingError] = useState<string | null>(null);
-  const [conflictResolutions, setConflictResolutions] = useState<ConflictResolution[]>([]);
+
+  // B-side approve state
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approveCode, setApproveCode] = useState('');
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
+
+  // CA adoption state (after pairing done)
   const [caAdopting, setCaAdopting] = useState(false);
   const [caAdoptResult, setCaAdoptResult] = useState<'adopted' | 'skipped' | null>(null);
   const [caAdoptError, setCaAdoptError] = useState<string | null>(null);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = async () => {
     try {
@@ -73,6 +65,40 @@ export function InstancesPage() {
     loadData();
   }, []);
 
+  // Poll approval status while waiting
+  useEffect(() => {
+    if (pairingStep.type !== 'waiting') {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
+    const { request_id } = pairingStep;
+    const poll = async () => {
+      try {
+        const result = await api.instances.pairingStatus(request_id);
+        if (result.status === 'approved') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPairingStep({
+            type: 'done',
+            peer_name: result.peer_name ?? '',
+            peer_uuid: result.peer_uuid ?? '',
+            ca_same: result.ca_same ?? true,
+          });
+          await loadData();
+        } else if (result.status === 'expired') {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setPairingError('La demande a expiré. Veuillez réessayer.');
+          setPairingStep({ type: 'idle' });
+        }
+      } catch {
+        // network error, continue polling
+      }
+    };
+    pollRef.current = setInterval(poll, 3000);
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  }, [pairingStep.type === 'waiting' ? pairingStep.request_id : null]);
+
   const handleDiscover = async () => {
     setScanning(true);
     setError(null);
@@ -91,10 +117,9 @@ export function InstancesPage() {
     try {
       const result = await api.instances.initiatePairing(peerUrl.trim());
       setPairingStep({
-        type: 'codes',
+        type: 'waiting',
         request_id: result.request_id,
         local_code: result.local_code,
-        remote_code: result.remote_code,
         peer_name: result.peer_name,
         peer_uuid: result.peer_uuid,
       });
@@ -104,58 +129,28 @@ export function InstancesPage() {
     }
   };
 
-  const handleConfirm = async () => {
-    if (pairingStep.type !== 'codes') return;
-    const data: PairingData = {
-      request_id: pairingStep.request_id,
-      local_code: pairingStep.local_code,
-      remote_code: pairingStep.remote_code,
-      peer_name: pairingStep.peer_name,
-      peer_uuid: pairingStep.peer_uuid,
-    };
-    setPairingError(null);
-    setPairingStep({ type: 'confirming', ...data });
-    try {
-      const result = await api.instances.confirmPairing(data.request_id, enteredCode.trim());
-      if (result.conflicts && result.conflicts.length > 0) {
-        setConflictResolutions(result.conflicts.map(u => ({ username: u, password_local: '', password_remote: '' })));
-        setPairingStep({ type: 'conflicts', ...data, conflicts: result.conflicts });
-        setEnteredCode('');
-      } else {
-        setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name, peer_uuid: result.peer_uuid ?? data.peer_uuid, ca_same: result.ca_same ?? true });
-        setEnteredCode('');
-        await loadData();
-      }
-    } catch (err) {
-      setPairingError(err instanceof ApiError ? err.message : 'Confirmation échouée');
-      setPairingStep({ type: 'codes', ...data });
+  const handleCancelWaiting = () => {
+    if (pairingStep.type === 'waiting') {
+      api.instances.cancelPairing(pairingStep.request_id).catch(() => {});
     }
+    setPairingStep({ type: 'idle' });
+    setPairingError(null);
   };
 
-  const handleResolveConflicts = async () => {
-    if (pairingStep.type !== 'conflicts') return;
-    const data: PairingData = {
-      request_id: pairingStep.request_id,
-      local_code: pairingStep.local_code,
-      remote_code: pairingStep.remote_code,
-      peer_name: pairingStep.peer_name,
-      peer_uuid: pairingStep.peer_uuid,
-    };
-    setPairingError(null);
-    setPairingStep({ type: 'resolving', ...data, conflicts: pairingStep.conflicts });
+  const handleApprove = async (id: string) => {
+    setApproving(true);
+    setApproveError(null);
     try {
-      const result = await api.instances.resolvePairing(data.request_id, conflictResolutions);
-      setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name, peer_uuid: result.peer_uuid ?? data.peer_uuid, ca_same: result.ca_same ?? true });
-      setConflictResolutions([]);
+      await api.instances.approvePairing(id, approveCode);
+      setApprovingId(null);
+      setApproveCode('');
+      setPending(prev => prev.filter(p => p.id !== id));
       await loadData();
     } catch (err) {
-      setPairingError(err instanceof ApiError ? err.message : 'Résolution échouée');
-      setPairingStep({ type: 'conflicts', ...data, conflicts: pairingStep.conflicts });
+      setApproveError(err instanceof ApiError ? err.message : 'Approbation échouée');
+    } finally {
+      setApproving(false);
     }
-  };
-
-  const updateConflictResolution = (username: string, field: 'password_local' | 'password_remote', value: string) => {
-    setConflictResolutions(prev => prev.map(r => r.username === username ? { ...r, [field]: value } : r));
   };
 
   const handleCancelPairing = (id: string) => {
@@ -200,6 +195,12 @@ export function InstancesPage() {
       <AppHeader title="Fédération" />
       <div className="page-content">
         {error && <div className="message message--error">{error}</div>}
+
+        {activePeer && (
+          <div className="message" style={{ background: 'rgba(74, 158, 255, 0.1)', border: '1px solid rgba(74, 158, 255, 0.25)', color: 'var(--text-primary)', marginBottom: '1rem' }}>
+            Cette page affiche les informations de l'<strong>instance locale</strong>, indépendamment de l'instance sélectionnée dans la barre de navigation.
+          </div>
+        )}
 
         {/* Cette instance */}
         {self && (
@@ -253,7 +254,7 @@ export function InstancesPage() {
                   </div>
                   <div className="instances-row">
                     <span className="instances-label">URL</span>
-                    <span className="instances-value">{peer.url}</span>
+                    <span className="instances-value">{peer.url || '—'}</span>
                   </div>
                 </li>
               ))}
@@ -261,7 +262,7 @@ export function InstancesPage() {
           )}
         </section>
 
-        {/* Appairages reçus en attente */}
+        {/* Demandes d'appairage reçues (B's pending) */}
         {pending.length > 0 && (
           <section className="instances-section">
             <h2>Demandes d'appairage reçues</h2>
@@ -269,19 +270,53 @@ export function InstancesPage() {
               {pending.map((req) => (
                 <li key={req.id} className="instances-card">
                   <div className="instances-row">
-                    <span className="instances-label">{req.peer_name ?? req.peer_uuid ?? 'Inconnu'}</span>
-                    <span className="instances-value">{req.peer_url}</span>
+                    <span className="instances-label">{req.peer_name ?? 'Inconnu'}</span>
+                    <span className="instances-value">{req.peer_url ?? '—'}</span>
                   </div>
-                  <div className="instances-row">
-                    <span className="instances-label">Code à afficher à l'admin distant</span>
-                    <span className="instances-value instances-value--mono instances-code">{req.local_code}</span>
-                  </div>
-                  <div className="instances-row">
-                    <span className="instances-label" />
-                    <button className="btn btn-sm" onClick={() => handleCancelPairing(req.id)}>
-                      Annuler
-                    </button>
-                  </div>
+                  {approvingId === req.id ? (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <p className="instances-label" style={{ marginBottom: '0.5rem' }}>
+                        Saisissez le code affiché sur l'instance distante pour confirmer l'appairage :
+                      </p>
+                      {approveError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{approveError}</div>}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input
+                          className="form-input instances-value--mono"
+                          type="text"
+                          placeholder="000000"
+                          maxLength={6}
+                          value={approveCode}
+                          onChange={e => setApproveCode(e.target.value.replace(/\D/g, ''))}
+                          onKeyDown={e => e.key === 'Enter' && approveCode.length === 6 && handleApprove(req.id)}
+                          disabled={approving}
+                          style={{ width: '9rem', letterSpacing: '0.2em', textAlign: 'center' }}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => handleApprove(req.id)}
+                          disabled={approveCode.length !== 6 || approving}
+                        >
+                          {approving ? 'Approbation…' : 'Confirmer'}
+                        </button>
+                        <button
+                          className="btn"
+                          disabled={approving}
+                          onClick={() => { setApprovingId(null); setApproveCode(''); setApproveError(null); }}
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="instances-row" style={{ marginTop: '0.5rem' }}>
+                      <button className="btn btn-primary btn-sm" onClick={() => { setApprovingId(req.id); setApproveCode(''); setApproveError(null); }}>
+                        Approuver
+                      </button>
+                      <button className="btn btn-sm" onClick={() => handleCancelPairing(req.id)}>
+                        Refuser
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -293,11 +328,15 @@ export function InstancesPage() {
           <div className="instances-section-header">
             <h2>Appairer une instance</h2>
             {pairingStep.type === 'idle' && (
-              <button className="btn btn-primary" onClick={() => setPairingStep({ type: 'form' })}>
+              <button className="btn btn-primary" onClick={() => { setPairingStep({ type: 'form' }); setPairingError(null); }}>
                 Appairer
               </button>
             )}
           </div>
+
+          {pairingError && pairingStep.type === 'idle' && (
+            <div className="message message--error">{pairingError}</div>
+          )}
 
           {pairingStep.type === 'form' && (
             <div className="instances-card">
@@ -329,114 +368,26 @@ export function InstancesPage() {
             </div>
           )}
 
-          {(pairingStep.type === 'codes' || pairingStep.type === 'confirming') && (
+          {pairingStep.type === 'waiting' && (
             <div className="instances-card">
-              {pairingError && <div className="message message--error" style={{ marginBottom: '0.75rem' }}>{pairingError}</div>}
               <p className="instances-label" style={{ marginBottom: '0.75rem' }}>
-                Appairage avec <strong>{pairingStep.peer_name}</strong> en cours. Échangez les codes avec l'admin de l'instance distante.
+                Demande envoyée à <strong>{pairingStep.peer_name}</strong>. Communiquez votre code à l'administrateur de l'instance distante, qui pourra approuver depuis la page Fédération.
               </p>
-
-              <div className="instances-pairing-codes">
-                <div className="instances-code-block">
-                  <div className="instances-code-label">Votre code (à communiquer à l'admin distant)</div>
-                  <div className="instances-code-display">{pairingStep.local_code}</div>
-                </div>
-                <div className="instances-code-block">
-                  <div className="instances-code-label">Code affiché sur l'instance distante (à saisir ici)</div>
-                  <div className="instances-code-display">
-                    {pairingStep.remote_code}
-                    <span className="instances-code-hint"> (attendu)</span>
-                  </div>
-                </div>
+              <div className="instances-code-block" style={{ marginBottom: '1rem' }}>
+                <div className="instances-code-label">Votre code (à communiquer à l'admin distant)</div>
+                <div className="instances-code-display">{pairingStep.local_code}</div>
               </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', alignItems: 'center' }}>
-                <input
-                  className="form-input instances-value--mono"
-                  type="text"
-                  placeholder="Code vu sur l'instance distante"
-                  maxLength={6}
-                  value={enteredCode}
-                  onChange={e => setEnteredCode(e.target.value.replace(/\D/g, ''))}
-                  onKeyDown={e => e.key === 'Enter' && enteredCode.length === 6 && handleConfirm()}
-                  disabled={pairingStep.type === 'confirming'}
-                  style={{ width: '10rem', letterSpacing: '0.2em', textAlign: 'center' }}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={handleConfirm}
-                  disabled={enteredCode.length !== 6 || pairingStep.type === 'confirming'}
-                >
-                  {pairingStep.type === 'confirming' ? 'Confirmation…' : 'Confirmer'}
-                </button>
-                <button
-                  className="btn"
-                  disabled={pairingStep.type === 'confirming'}
-                  onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); setEnteredCode(''); }}
-                >
-                  Annuler
-                </button>
-              </div>
-            </div>
-          )}
-
-          {(pairingStep.type === 'conflicts' || pairingStep.type === 'resolving') && (
-            <div className="instances-card">
-              {pairingError && <div className="message message--error" style={{ marginBottom: '0.75rem' }}>{pairingError}</div>}
-              <p className="instances-label" style={{ marginBottom: '0.75rem' }}>
-                Des utilisateurs portent le même nom sur les deux instances. Prouvez votre accès aux deux comptes pour les fusionner.
+              <p className="instances-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="spinner" style={{ width: '1em', height: '1em', borderWidth: '2px' }} />
+                En attente d'approbation…
               </p>
-              {conflictResolutions.map((res) => (
-                <div key={res.username} className="instances-card" style={{ marginBottom: '0.75rem', background: 'var(--color-surface-raised)' }}>
-                  <div className="instances-row" style={{ marginBottom: '0.5rem' }}>
-                    <span className="instances-label">Utilisateur</span>
-                    <strong className="instances-value--mono">{res.username}</strong>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <label style={{ flex: 1 }}>
-                      <span className="instances-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Mot de passe local</span>
-                      <input
-                        className="form-input"
-                        type="password"
-                        placeholder="Mot de passe sur cette instance"
-                        value={res.password_local}
-                        onChange={e => updateConflictResolution(res.username, 'password_local', e.target.value)}
-                        disabled={pairingStep.type === 'resolving'}
-                      />
-                    </label>
-                    <label style={{ flex: 1 }}>
-                      <span className="instances-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Mot de passe distant</span>
-                      <input
-                        className="form-input"
-                        type="password"
-                        placeholder={`Mot de passe sur ${pairingStep.peer_name}`}
-                        value={res.password_remote}
-                        onChange={e => updateConflictResolution(res.username, 'password_remote', e.target.value)}
-                        disabled={pairingStep.type === 'resolving'}
-                      />
-                    </label>
-                  </div>
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleResolveConflicts}
-                  disabled={
-                    pairingStep.type === 'resolving' ||
-                    conflictResolutions.some(r => !r.password_local || !r.password_remote)
-                  }
-                >
-                  {pairingStep.type === 'resolving' ? 'Résolution…' : 'Valider et appairer'}
-                </button>
-                <button
-                  className="btn"
-                  disabled={pairingStep.type === 'resolving'}
-                  onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); setConflictResolutions([]); }}
-                >
-                  Annuler
-                </button>
-              </div>
+              <button
+                className="btn"
+                style={{ marginTop: '0.75rem' }}
+                onClick={handleCancelWaiting}
+              >
+                Annuler
+              </button>
             </div>
           )}
 
@@ -448,7 +399,7 @@ export function InstancesPage() {
               {!pairingStep.ca_same && caAdoptResult === null && (
                 <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
                   <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Autorités de certification différentes</p>
-                  <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                     Les deux instances utilisent des CA distinctes. Adopter la CA de l'instance distante permet de partager la même autorité dans tout le homelab.
                   </p>
                   {caAdoptError && <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: 'var(--color-danger)' }}>{caAdoptError}</p>}
@@ -460,11 +411,7 @@ export function InstancesPage() {
                     >
                       {caAdopting ? 'Adoption…' : 'Adopter la CA distante'}
                     </button>
-                    <button
-                      className="btn"
-                      disabled={caAdopting}
-                      onClick={() => setCaAdoptResult('skipped')}
-                    >
+                    <button className="btn" disabled={caAdopting} onClick={() => setCaAdoptResult('skipped')}>
                       Garder les CA séparées
                     </button>
                   </div>

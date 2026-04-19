@@ -400,28 +400,24 @@ export const api = {
       peer_uuid: string | null;
       peer_name: string | null;
       peer_url: string | null;
-      local_code: string;
       expires_at: number;
     }> }>('/instances/pair/pending'),
     initiatePairing: (url: string) => request<{
       request_id: string;
       local_code: string;
-      remote_code: string;
       peer_name: string;
       peer_uuid: string;
     }>('/instances/pair/initiate', { method: 'POST', body: JSON.stringify({ url }) }),
-    confirmPairing: (request_id: string, entered_code: string) => request<{
-      success?: boolean;
+    pairingStatus: (id: string) => request<{
+      status: 'pending' | 'approved' | 'expired';
       peer_name?: string | null;
       peer_uuid?: string | null;
-      conflicts?: string[];
-      request_id?: string;
       ca_same?: boolean;
-    }>('/instances/pair/confirm', { method: 'POST', body: JSON.stringify({ request_id, entered_code }) }),
-    resolvePairing: (request_id: string, resolutions: Array<{ username: string; password_local: string; password_remote: string }>) =>
-      request<{ success: boolean; peer_name: string | null; peer_uuid: string | null; ca_same?: boolean }>(
-        '/instances/pair/resolve',
-        { method: 'POST', body: JSON.stringify({ request_id, resolutions }) }
+    }>(`/instances/pair/status/${id}`),
+    approvePairing: (id: string, entered_code: string) =>
+      request<{ success: boolean; peer_name?: string | null; peer_uuid?: string | null }>(
+        `/instances/pair/approve/${id}`,
+        { method: 'POST', body: JSON.stringify({ entered_code }) }
       ),
     adoptPeerCa: (peer_uuid: string) =>
       request<{ success: boolean }>('/instances/pair/adopt-ca', { method: 'POST', body: JSON.stringify({ peer_uuid }) }),
