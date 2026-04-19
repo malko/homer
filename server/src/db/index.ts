@@ -132,6 +132,32 @@ async function initDb() {
     checked_at INTEGER
   )`); } catch {}
 
+  try { db.run(`CREATE TABLE IF NOT EXISTS peer_instances (
+    peer_uuid TEXT PRIMARY KEY,
+    peer_name TEXT NOT NULL,
+    peer_url TEXT NOT NULL,
+    peer_ca TEXT,
+    shared_secret TEXT NOT NULL,
+    paired_at INTEGER NOT NULL,
+    last_seen INTEGER,
+    status TEXT DEFAULT 'offline',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`); } catch {}
+
+  try { db.run(`CREATE TABLE IF NOT EXISTS pairing_requests (
+    id TEXT PRIMARY KEY,
+    direction TEXT NOT NULL,
+    peer_url TEXT,
+    peer_uuid TEXT,
+    peer_name TEXT,
+    peer_ca TEXT,
+    local_code TEXT NOT NULL,
+    remote_code TEXT,
+    shared_secret TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`); } catch {}
+
   saveDb();
 }
 
@@ -524,6 +550,117 @@ export interface ContainerUpdate {
   has_update: number;
   checked_at: number | null;
 }
+
+export interface PeerInstance {
+  peer_uuid: string;
+  peer_name: string;
+  peer_url: string;
+  peer_ca: string | null;
+  shared_secret: string;
+  paired_at: number;
+  last_seen: number | null;
+  status: string;
+  created_at: string;
+}
+
+export const peerQueries = {
+  getAll: (): PeerInstance[] => {
+    const result = db.exec('SELECT * FROM peer_instances ORDER BY paired_at DESC');
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<PeerInstance>(columns, row));
+  },
+  getByUuid: (uuid: string): PeerInstance | undefined => {
+    const stmt = db.prepare('SELECT * FROM peer_instances WHERE peer_uuid = ?');
+    stmt.bind([uuid]);
+    if (stmt.step()) {
+      const columns = stmt.getColumnNames();
+      const row = stmt.get();
+      stmt.free();
+      return rowToObj<PeerInstance>(columns, row);
+    }
+    stmt.free();
+    return undefined;
+  },
+  create: (peer: Omit<PeerInstance, 'created_at' | 'status' | 'last_seen'> & { status?: string }) => {
+    db.run(
+      'INSERT INTO peer_instances (peer_uuid, peer_name, peer_url, peer_ca, shared_secret, paired_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [peer.peer_uuid, peer.peer_name, peer.peer_url, peer.peer_ca, peer.shared_secret, peer.paired_at, peer.status ?? 'offline']
+    );
+    saveDb();
+  },
+  updateStatus: (uuid: string, status: string, lastSeen: number | null = Date.now()) => {
+    db.run('UPDATE peer_instances SET status = ?, last_seen = ? WHERE peer_uuid = ?', [status, lastSeen, uuid]);
+    saveDb();
+  },
+  delete: (uuid: string) => {
+    db.run('DELETE FROM peer_instances WHERE peer_uuid = ?', [uuid]);
+    saveDb();
+  },
+};
+
+export interface PairingRequest {
+  id: string;
+  direction: 'initiated' | 'received';
+  peer_url: string | null;
+  peer_uuid: string | null;
+  peer_name: string | null;
+  peer_ca: string | null;
+  local_code: string;
+  remote_code: string | null;
+  shared_secret: string;
+  expires_at: number;
+  created_at: string;
+}
+
+export const pairingQueries = {
+  create: (req: Omit<PairingRequest, 'created_at'>) => {
+    db.run(
+      'INSERT INTO pairing_requests (id, direction, peer_url, peer_uuid, peer_name, peer_ca, local_code, remote_code, shared_secret, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [req.id, req.direction, req.peer_url, req.peer_uuid, req.peer_name, req.peer_ca, req.local_code, req.remote_code, req.shared_secret, req.expires_at]
+    );
+    saveDb();
+  },
+  getById: (id: string): PairingRequest | undefined => {
+    const stmt = db.prepare('SELECT * FROM pairing_requests WHERE id = ?');
+    stmt.bind([id]);
+    if (stmt.step()) {
+      const columns = stmt.getColumnNames();
+      const row = stmt.get();
+      stmt.free();
+      return rowToObj<PairingRequest>(columns, row);
+    }
+    stmt.free();
+    return undefined;
+  },
+  getPendingReceived: (): PairingRequest[] => {
+    const now = Date.now();
+    const result = db.exec("SELECT * FROM pairing_requests WHERE direction = 'received' AND expires_at > ? ORDER BY created_at DESC", [now]);
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<PairingRequest>(columns, row));
+  },
+  getByPeerUuid: (peerUuid: string): PairingRequest | undefined => {
+    const stmt = db.prepare('SELECT * FROM pairing_requests WHERE peer_uuid = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1');
+    stmt.bind([peerUuid, Date.now()]);
+    if (stmt.step()) {
+      const columns = stmt.getColumnNames();
+      const row = stmt.get();
+      stmt.free();
+      return rowToObj<PairingRequest>(columns, row);
+    }
+    stmt.free();
+    return undefined;
+  },
+  delete: (id: string) => {
+    db.run('DELETE FROM pairing_requests WHERE id = ?', [id]);
+    saveDb();
+  },
+  cleanExpired: () => {
+    db.run('DELETE FROM pairing_requests WHERE expires_at <= ?', [Date.now()]);
+    saveDb();
+  },
+};
 
 export const containerUpdateQueries = {
   get: (containerId: string): ContainerUpdate | undefined => {

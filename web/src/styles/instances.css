@@ -1,0 +1,147 @@
+.message {
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.message--error {
+  background: rgba(200, 60, 60, 0.12);
+  color: #d04242;
+  border: 1px solid rgba(200, 60, 60, 0.25);
+}
+
+.message--success {
+  background: rgba(0, 170, 80, 0.12);
+  color: #23a55a;
+  border: 1px solid rgba(0, 170, 80, 0.25);
+}
+
+.instances-section {
+  margin-bottom: 2rem;
+}
+
+.instances-section h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.instances-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.instances-section-header h2 {
+  margin: 0;
+}
+
+.instances-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.instances-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  gap: 1rem;
+}
+
+.instances-row + .instances-row {
+  border-top: 1px solid var(--border-color-subtle, var(--border-color));
+}
+
+.instances-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.instances-value {
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+}
+
+.instances-value--mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.instances-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.instances-empty {
+  color: var(--text-muted);
+  padding: 0.75rem 0;
+}
+
+.instances-status {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.instances-status--online {
+  background: rgba(0, 170, 80, 0.15);
+  color: #23a55a;
+}
+
+.instances-status--offline,
+.instances-status--unreachable {
+  background: rgba(200, 60, 60, 0.15);
+  color: #d04242;
+}
+
+.instances-pairing-codes {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.instances-code-block {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.instances-code-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.instances-code-display {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.instances-code-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
+.instances-code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}

@@ -1,19 +1,13 @@
 #!/bin/sh
 
 CONFIG="/data/mdns.json"
+DBUS_ADDR="unix:path=/var/run/dbus/system_bus_socket"
 
 log() { echo "[mdns-supervisor] $*"; }
 
-PIDS=""
-DOMAINS_PIDS=""
-
 stop_all() {
-  for entry in $DOMAINS_PIDS; do
-    pid="${entry##*:}"
-    kill "$pid" 2>/dev/null
-  done
-  PIDS=""
-  DOMAINS_PIDS=""
+  pkill -TERM -f '^avahi-publish' 2>/dev/null
+  sleep 1
 }
 
 cleanup() {
@@ -24,65 +18,96 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT
 
-last_md5="" 
+last_hash=""
 
-get_md5() {
+get_hash() {
   if command -v md5sum >/dev/null 2>&1; then
     md5sum "$1" 2>/dev/null | cut -d' ' -f1
   elif command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" 2>/dev/null | cut -d' ' -f1
   else
-    cat "$1" 2>/dev/null
+    wc -c < "$1" 2>/dev/null
   fi
+}
+
+publish_domains() {
+  # Match pairs of "domain":"..." and "ip":"..." on the same line/object
+  sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)"[^}]*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1\t\2/p' "$CONFIG" | \
+  while IFS="$(printf '\t')" read -r domain ip; do
+    [ -z "$domain" ] || [ -z "$ip" ] && continue
+    log "Publishing A $domain -> $ip"
+    DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-publish -a -R "$domain" "$ip" &
+  done
+}
+
+publish_services() {
+  # Each line: "_homer._tcp"\t"name"\t"port"\t"txt1"\t"txt2"\t...
+  # We parse the services array with a sed trick: extract each service object block.
+  awk '
+    BEGIN { depth=0; inarr=0; buf="" }
+    {
+      line=$0
+      for (i=1; i<=length(line); i++) {
+        c=substr(line,i,1)
+        if (!inarr) {
+          buf=buf c
+          if (match(buf, /"services"[[:space:]]*:[[:space:]]*\[/)) { inarr=1; buf=""; depth=0 }
+          continue
+        }
+        if (c=="{") { depth++; buf=buf c; continue }
+        if (c=="}") { depth--; buf=buf c; if (depth==0) { print buf; buf="" }; continue }
+        if (c=="]" && depth==0) { inarr=0; continue }
+        if (depth>0) buf=buf c
+      }
+    }
+  ' "$CONFIG" | while IFS= read -r obj; do
+    [ -z "$obj" ] && continue
+    svc_type=$(printf '%s' "$obj" | sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    svc_name=$(printf '%s' "$obj" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    svc_port=$(printf '%s' "$obj" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\+\).*/\1/p')
+    [ -z "$svc_type" ] || [ -z "$svc_name" ] || [ -z "$svc_port" ] && continue
+
+    # Build txt args: extract strings from "txt": [ "a=b", "c=d" ]
+    txt_block=$(printf '%s' "$obj" | sed -n 's/.*"txt"[[:space:]]*:[[:space:]]*\(\[[^]]*\]\).*/\1/p')
+    # Write args to a tmp file, one per line, then read back
+    : > /tmp/_txt_args
+    printf '%s' "$txt_block" | sed -n 's/"\([^"]*\)"/\1\n/gp' | while IFS= read -r t; do
+      [ -n "$t" ] && printf '%s\n' "$t" >> /tmp/_txt_args
+    done
+
+    log "Publishing service $svc_name ($svc_type port $svc_port)"
+    # Build an sh command safely
+    set -- "$svc_name" "$svc_type" "$svc_port"
+    while IFS= read -r t; do
+      set -- "$@" "$t"
+    done < /tmp/_txt_args
+
+    DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-publish -s "$@" &
+  done
+  rm -f /tmp/_txt_args
 }
 
 sync_config() {
   stop_all
-
   if [ ! -f "$CONFIG" ]; then
-    log "No config file"
+    log "No config file yet"
     return 1
   fi
-
-  content=$(cat "$CONFIG" 2>/dev/null)
-  if [ -z "$content" ]; then
-    log "Empty config"
-    return 1
-  fi
-
-  count=$(printf '%s' "$content" | grep -o '"domain"' | wc -l)
-  if [ "$count" -eq 0 ]; then
-    log "No domains in config"
-    return 1
-  fi
-
-  i=0
-  while [ "$i" -lt "$count" ]; do
-    domain=$(printf '%s' "$content" | sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n "$((i+1))p")
-    ip=$(printf '%s' "$content" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n "$((i+1))p")
-
-    if [ -n "$domain" ] && [ -n "$ip" ]; then
-      log "Publishing $domain -> $ip"
-      DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket" \
-        avahi-publish -a -R "$domain" "$ip" &
-      DOMAINS_PIDS="$DOMAINS_PIDS $domain:$!"
-    fi
-    i=$((i + 1))
-  done
-
+  publish_domains
+  publish_services
   return 0
 }
 
 log "Starting"
 sync_config
-last_md5=$(get_md5 "$CONFIG")
+last_hash=$(get_hash "$CONFIG")
 
 while true; do
   sleep 3
-  current_md5=$(get_md5 "$CONFIG")
-  if [ "$current_md5" != "$last_md5" ]; then
+  current_hash=$(get_hash "$CONFIG")
+  if [ "$current_hash" != "$last_hash" ]; then
     log "Config changed, reloading"
     sync_config
-    last_md5="$current_md5"
+    last_hash="$current_hash"
   fi
 done

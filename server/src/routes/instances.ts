@@ -1,0 +1,336 @@
+import { randomUUID } from 'crypto';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { getLocalInstance } from '../services/instance.js';
+import { discoverPeers } from '../services/mdns.js';
+import {
+  sessionQueries,
+  peerQueries,
+  pairingQueries,
+} from '../db/index.js';
+import {
+  sixDigitCode,
+  generateSecret,
+  verifySignature,
+  loadLocalRootCa,
+  peerFetch,
+} from '../services/peers.js';
+
+const PAIRING_TTL_MS = 5 * 60 * 1000;
+
+function requireAuth(request: FastifyRequest, reply: FastifyReply): boolean {
+  const token = request.headers.authorization?.replace('Bearer ', '');
+  const session = token ? sessionQueries.getByToken(token) : null;
+  if (!session) {
+    reply.status(401).send({ error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+function verifyPeerHmac(request: FastifyRequest, reply: FastifyReply, sharedSecret: string): boolean {
+  const timestamp = Number(request.headers['x-peer-timestamp']);
+  const signature = request.headers['x-peer-signature'] as string | undefined;
+  if (!signature || !verifySignature(sharedSecret, JSON.stringify(request.body) ?? '', timestamp, signature)) {
+    reply.status(401).send({ error: 'Invalid peer signature' });
+    return false;
+  }
+  return true;
+}
+
+export async function instancesRoutes(fastify: FastifyInstance) {
+
+  // ── Public self-info ──────────────────────────────────────────────────────
+  fastify.get('/api/instances/self', async () => {
+    const instance = getLocalInstance();
+    return {
+      uuid: instance.uuid,
+      name: instance.name,
+      version: instance.version,
+      url: instance.url,
+    };
+  });
+
+  // ── Paired peers list ─────────────────────────────────────────────────────
+  fastify.get('/api/instances', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const peers = peerQueries.getAll().map(p => ({
+      uuid: p.peer_uuid,
+      name: p.peer_name,
+      url: p.peer_url,
+      status: p.status,
+      paired_at: p.paired_at,
+      last_seen: p.last_seen,
+    }));
+    return { peers };
+  });
+
+  // ── mDNS discovery ────────────────────────────────────────────────────────
+  fastify.get('/api/instances/discover', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const local = getLocalInstance();
+    const peers = await discoverPeers();
+    const knownUuids = new Set(peerQueries.getAll().map(p => p.peer_uuid));
+    const filtered = peers.filter(p => p.uuid !== local.uuid && !knownUuids.has(p.uuid));
+    return { peers: filtered };
+  });
+
+  // ── Pairing: list pending received requests (shown on B's UI) ─────────────
+  fastify.get('/api/instances/pair/pending', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    pairingQueries.cleanExpired();
+    const pending = pairingQueries.getPendingReceived().map(r => ({
+      id: r.id,
+      peer_uuid: r.peer_uuid,
+      peer_name: r.peer_name,
+      peer_url: r.peer_url,
+      local_code: r.local_code,
+      expires_at: r.expires_at,
+    }));
+    return { pending };
+  });
+
+  // ── Pairing: initiate (A contacts B) ──────────────────────────────────────
+  fastify.post('/api/instances/pair/initiate', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+
+    const { url } = request.body as { url?: string };
+    if (!url || typeof url !== 'string') {
+      return reply.status(400).send({ error: 'Missing peer URL' });
+    }
+
+    const local = getLocalInstance();
+    const sharedSecret = generateSecret();
+    const localCode = sixDigitCode();
+
+    const helloResult = await peerFetch<{
+      to_uuid: string;
+      to_name: string;
+      to_url: string | null;
+      ca: string | null;
+      local_code: string;
+    }>(url, '/api/instances/_peer/pair/hello', {
+      method: 'POST',
+      body: {
+        from_uuid: local.uuid,
+        from_name: local.name,
+        from_url: local.url,
+        local_code: localCode,
+        shared_secret: sharedSecret,
+      },
+    });
+
+    if (!helloResult.ok || !helloResult.data) {
+      return reply.status(502).send({ error: helloResult.error ?? 'Peer unreachable' });
+    }
+
+    const { to_uuid, to_name, to_url, ca: peerCa, local_code: remoteCode } = helloResult.data;
+
+    if (peerQueries.getByUuid(to_uuid)) {
+      return reply.status(409).send({ error: 'Cette instance est déjà appairée' });
+    }
+
+    const requestId = randomUUID();
+    pairingQueries.create({
+      id: requestId,
+      direction: 'initiated',
+      peer_uuid: to_uuid,
+      peer_name: to_name,
+      peer_url: to_url ?? url,
+      peer_ca: peerCa,
+      local_code: localCode,
+      remote_code: remoteCode,
+      shared_secret: sharedSecret,
+      expires_at: Date.now() + PAIRING_TTL_MS,
+    });
+
+    return {
+      request_id: requestId,
+      local_code: localCode,
+      remote_code: remoteCode,
+      peer_name: to_name,
+      peer_uuid: to_uuid,
+    };
+  });
+
+  // ── Pairing: confirm (A enters B's code, then calls B finalize) ───────────
+  fastify.post('/api/instances/pair/confirm', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+
+    const { request_id, entered_code } = request.body as { request_id?: string; entered_code?: string };
+    if (!request_id || !entered_code) {
+      return reply.status(400).send({ error: 'Missing request_id or entered_code' });
+    }
+
+    pairingQueries.cleanExpired();
+    const req = pairingQueries.getById(request_id);
+    if (!req || req.direction !== 'initiated') {
+      return reply.status(404).send({ error: 'Demande de pairing introuvable ou expirée' });
+    }
+    if (req.expires_at < Date.now()) {
+      pairingQueries.delete(request_id);
+      return reply.status(410).send({ error: 'Demande de pairing expirée' });
+    }
+    if (entered_code !== req.remote_code) {
+      return reply.status(400).send({ error: 'Code incorrect' });
+    }
+
+    const local = getLocalInstance();
+    const localCa = await loadLocalRootCa();
+
+    const finalizeResult = await peerFetch<{ success: boolean }>(
+      req.peer_url!,
+      '/api/instances/_peer/pair/finalize',
+      {
+        method: 'POST',
+        body: {
+          from_uuid: local.uuid,
+          local_code: req.local_code,
+          shared_secret: req.shared_secret,
+          ca: localCa,
+        },
+        peerCa: req.peer_ca,
+      }
+    );
+
+    if (!finalizeResult.ok) {
+      return reply.status(502).send({ error: finalizeResult.error ?? 'Finalisation échouée côté pair' });
+    }
+
+    peerQueries.create({
+      peer_uuid: req.peer_uuid!,
+      peer_name: req.peer_name!,
+      peer_url: req.peer_url!,
+      peer_ca: req.peer_ca,
+      shared_secret: req.shared_secret,
+      paired_at: Date.now(),
+    });
+    pairingQueries.delete(request_id);
+
+    return { success: true, peer_name: req.peer_name, peer_uuid: req.peer_uuid };
+  });
+
+  // ── Pairing: cancel a pending request ────────────────────────────────────
+  fastify.delete('/api/instances/pair/:id', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const { id } = request.params as { id: string };
+    pairingQueries.delete(id);
+    return { success: true };
+  });
+
+  // ── Unpair an existing peer ───────────────────────────────────────────────
+  fastify.delete('/api/instances/:uuid', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const { uuid } = request.params as { uuid: string };
+    const peer = peerQueries.getByUuid(uuid);
+    if (!peer) return reply.status(404).send({ error: 'Pair introuvable' });
+
+    const local = getLocalInstance();
+    await peerFetch(peer.peer_url, '/api/instances/_peer/unpair', {
+      method: 'POST',
+      body: { from_uuid: local.uuid },
+      peerCa: peer.peer_ca,
+      sharedSecret: peer.shared_secret,
+      timeoutMs: 5000,
+    }).catch(() => {});
+
+    peerQueries.delete(uuid);
+    return { success: true };
+  });
+
+  // ── Peer-to-peer: hello (B receives handshake from A) ────────────────────
+  fastify.post('/api/instances/_peer/pair/hello', async (request, reply) => {
+    const body = request.body as {
+      from_uuid?: string;
+      from_name?: string;
+      from_url?: string | null;
+      local_code?: string;
+      shared_secret?: string;
+    };
+
+    if (!body.from_uuid || !body.from_name || !body.local_code || !body.shared_secret) {
+      return reply.status(400).send({ error: 'Missing required fields' });
+    }
+
+    if (peerQueries.getByUuid(body.from_uuid)) {
+      return reply.status(409).send({ error: 'Already paired' });
+    }
+
+    const localCode = sixDigitCode();
+    const requestId = randomUUID();
+    pairingQueries.cleanExpired();
+    pairingQueries.create({
+      id: requestId,
+      direction: 'received',
+      peer_uuid: body.from_uuid,
+      peer_name: body.from_name,
+      peer_url: body.from_url ?? null,
+      peer_ca: null,
+      local_code: localCode,
+      remote_code: body.local_code,
+      shared_secret: body.shared_secret,
+      expires_at: Date.now() + PAIRING_TTL_MS,
+    });
+
+    const local = getLocalInstance();
+    const ca = await loadLocalRootCa();
+    return {
+      to_uuid: local.uuid,
+      to_name: local.name,
+      to_url: local.url,
+      ca,
+      local_code: localCode,
+    };
+  });
+
+  // ── Peer-to-peer: finalize (B completes pairing after A's confirm) ────────
+  fastify.post('/api/instances/_peer/pair/finalize', async (request, reply) => {
+    const body = request.body as {
+      from_uuid?: string;
+      local_code?: string;
+      shared_secret?: string;
+      ca?: string | null;
+    };
+
+    if (!body.from_uuid || !body.local_code || !body.shared_secret) {
+      return reply.status(400).send({ error: 'Missing required fields' });
+    }
+
+    pairingQueries.cleanExpired();
+    const req = pairingQueries.getByPeerUuid(body.from_uuid);
+    if (!req || req.direction !== 'received') {
+      return reply.status(404).send({ error: 'No pending pairing request from this peer' });
+    }
+    if (body.local_code !== req.remote_code) {
+      return reply.status(400).send({ error: 'Code mismatch' });
+    }
+    if (body.shared_secret !== req.shared_secret) {
+      return reply.status(400).send({ error: 'Secret mismatch' });
+    }
+
+    peerQueries.create({
+      peer_uuid: body.from_uuid,
+      peer_name: req.peer_name!,
+      peer_url: req.peer_url!,
+      peer_ca: body.ca ?? null,
+      shared_secret: req.shared_secret,
+      paired_at: Date.now(),
+    });
+    pairingQueries.delete(req.id);
+
+    return { success: true };
+  });
+
+  // ── Peer-to-peer: unpair notification (HMAC auth) ─────────────────────────
+  fastify.post('/api/instances/_peer/unpair', async (request, reply) => {
+    const body = request.body as { from_uuid?: string };
+    if (!body.from_uuid) return reply.status(400).send({ error: 'Missing from_uuid' });
+
+    const peer = peerQueries.getByUuid(body.from_uuid);
+    if (!peer) return reply.status(404).send({ error: 'Unknown peer' });
+
+    if (!verifyPeerHmac(request, reply, peer.shared_secret)) return;
+
+    peerQueries.delete(body.from_uuid);
+    return { success: true };
+  });
+}

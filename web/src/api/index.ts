@@ -367,6 +367,34 @@ export const api = {
     reload: () => request<{ success: boolean; error?: string }>('/proxy/reload', { method: 'POST' }),
   },
 
+  instances: {
+    self: () => request<LocalInstanceInfo>('/instances/self'),
+    list: () => request<{ peers: PeerInstance[] }>('/instances'),
+    discover: () => request<{ peers: DiscoveredPeer[] }>('/instances/discover'),
+    pendingPairings: () => request<{ pending: Array<{
+      id: string;
+      peer_uuid: string | null;
+      peer_name: string | null;
+      peer_url: string | null;
+      local_code: string;
+      expires_at: number;
+    }> }>('/instances/pair/pending'),
+    initiatePairing: (url: string) => request<{
+      request_id: string;
+      local_code: string;
+      remote_code: string;
+      peer_name: string;
+      peer_uuid: string;
+    }>('/instances/pair/initiate', { method: 'POST', body: JSON.stringify({ url }) }),
+    confirmPairing: (request_id: string, entered_code: string) => request<{
+      success: boolean;
+      peer_name: string | null;
+      peer_uuid: string | null;
+    }>('/instances/pair/confirm', { method: 'POST', body: JSON.stringify({ request_id, entered_code }) }),
+    cancelPairing: (id: string) => request<{ success: boolean }>(`/instances/pair/${id}`, { method: 'DELETE' }),
+    unpair: (uuid: string) => request<{ success: boolean }>(`/instances/${uuid}`, { method: 'DELETE' }),
+  },
+
   import: {
     parseRunCommand: (command: string) =>
       request<{ service: ParsedService; compose: string; envContent: string; warnings: ParseWarnings }>('/import/parse', {
@@ -518,6 +546,32 @@ export interface ImageInfo {
   created: string;
   used?: boolean;
   projects?: string[];
+}
+
+export interface LocalInstanceInfo {
+  uuid: string;
+  name: string;
+  version: string;
+  url: string | null;
+}
+
+export interface PeerInstance {
+  uuid: string;
+  name: string;
+  url: string;
+  status: 'online' | 'offline' | 'unreachable';
+  paired_at: number;
+  last_seen: number | null;
+}
+
+export interface DiscoveredPeer {
+  uuid: string;
+  name: string;
+  version: string;
+  url: string;
+  hostname: string;
+  address: string;
+  port: number;
 }
 
 export { ApiError };

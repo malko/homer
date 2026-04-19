@@ -84,6 +84,22 @@ function ProxyIcon() {
   );
 }
 
+function InstancesIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="19" cy="5" r="2" />
+      <circle cx="5" cy="19" r="2" />
+      <circle cx="19" cy="19" r="2" />
+      <line x1="12" y1="12" x2="5" y2="5" />
+      <line x1="12" y1="12" x2="19" y2="5" />
+      <line x1="12" y1="12" x2="5" y2="19" />
+      <line x1="12" y1="12" x2="19" y2="19" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -243,6 +259,16 @@ export function NavSidebar() {
         >
           <span className="nav-sidebar-icon"><ProxyIcon /></span>
           <span className="nav-sidebar-label">Proxy</span>
+        </NavLink>
+
+        <NavLink
+          to="/instances"
+          className={({ isActive }) =>
+            'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')
+          }
+        >
+          <span className="nav-sidebar-icon"><InstancesIcon /></span>
+          <span className="nav-sidebar-label">Fédération</span>
         </NavLink>
 
         {/* Spacer */}

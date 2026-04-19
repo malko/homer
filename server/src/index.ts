@@ -18,6 +18,8 @@ import { importRoutes } from './routes/import.js';
 import { homeRoutes } from './routes/home.js';
 import { systemRoutes } from './routes/system.js';
 import { proxyRoutes } from './routes/proxy.js';
+import { instancesRoutes } from './routes/instances.js';
+import { getLocalInstance } from './services/instance.js';
 import { setupWebSocket } from './websocket/index.js';
 import { watcher } from './services/watcher.js';
 import { waitForDb, settingQueries, projectQueries } from './db/index.js';
@@ -48,6 +50,7 @@ fastify.register(importRoutes);
 fastify.register(homeRoutes);
 fastify.register(systemRoutes);
 fastify.register(proxyRoutes);
+fastify.register(instancesRoutes);
 
 fastify.get('/api/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
@@ -85,7 +88,10 @@ const start = async () => {
     console.log('[Server] Waiting for database...');
     await waitForDb();
     console.log('[Server] Database ready');
-    
+
+    const instance = getLocalInstance();
+    console.log(`[Server] Instance ${instance.name} (${instance.uuid})`);
+
     watcher.initialize();
 
     // Push Caddy config on startup (non-blocking if Caddy is unavailable)

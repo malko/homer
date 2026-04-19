@@ -98,17 +98,30 @@ async function detectHostIp(): Promise<string> {
   return cachedHostIp;
 }
 
-async function writeConfig(domains: Array<{ domain: string; ip: string }>): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(CONFIG_PATH, JSON.stringify({ domains }, null, 2), 'utf-8');
+interface MdnsService {
+  type: string;
+  name: string;
+  port: number;
+  txt: string[];
 }
 
-async function readConfig(): Promise<Array<{ domain: string; ip: string }>> {
+interface MdnsConfig {
+  domains: Array<{ domain: string; ip: string }>;
+  services?: MdnsService[];
+}
+
+async function writeConfig(config: MdnsConfig): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+async function readConfig(): Promise<MdnsConfig> {
   try {
     const raw = await fs.readFile(CONFIG_PATH, 'utf-8');
-    return JSON.parse(raw).domains || [];
+    const parsed = JSON.parse(raw);
+    return { domains: parsed.domains || [], services: parsed.services || [] };
   } catch {
-    return [];
+    return { domains: [], services: [] };
   }
 }
 
@@ -185,19 +198,41 @@ export async function getMdnsStatus(): Promise<MdnsStatus> {
   return { available: true, enabled: true };
 }
 
+async function buildSelfServiceAsync(): Promise<MdnsService | null> {
+  try {
+    const { getLocalInstance } = await import('./instance.js');
+    const instance = getLocalInstance();
+    const port = parseInt(process.env.HOMER_PUBLIC_PORT || '443', 10);
+    const txt = [
+      `uuid=${instance.uuid}`,
+      `name=${instance.name}`,
+      `version=${instance.version}`,
+    ];
+    if (instance.url) txt.push(`url=${instance.url}`);
+    return {
+      type: '_homer._tcp',
+      name: `HOMER ${instance.name}`,
+      port,
+      txt,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function publishIfEnabled(domain: string): Promise<boolean> {
   const status = await getMdnsStatus();
   if (!status.available || !status.enabled) return false;
 
   const ip = await detectHostIp();
-  const domains = await readConfig();
-  const existing = domains.find(d => d.domain === domain);
+  const config = await readConfig();
+  const existing = config.domains.find(d => d.domain === domain);
   if (existing) {
     existing.ip = ip;
   } else {
-    domains.push({ domain, ip });
+    config.domains.push({ domain, ip });
   }
-  await writeConfig(domains);
+  await writeConfig(config);
 
   if (!await ensureContainerRunning()) return false;
   await reloadContainer();
@@ -205,12 +240,13 @@ export async function publishIfEnabled(domain: string): Promise<boolean> {
 }
 
 export async function unpublishIfEnabled(domain: string): Promise<boolean> {
-  const domains = await readConfig();
-  const filtered = domains.filter(d => d.domain !== domain);
-  await writeConfig(filtered);
+  const config = await readConfig();
+  config.domains = config.domains.filter(d => d.domain !== domain);
+  await writeConfig(config);
 
   if (await isContainerRunning()) {
-    if (filtered.length === 0) {
+    const hasAny = config.domains.length > 0 || (config.services && config.services.length > 0);
+    if (!hasAny) {
       try {
         await execAsync(`docker rm -f ${MDNS_CONTAINER}`, { timeout: 5000 });
       } catch {}
@@ -226,23 +262,23 @@ export async function republishAllMdnsHosts(): Promise<void> {
   if (!status.available || !status.enabled) return;
 
   const { proxyHostQueries } = await import('../db/index.js');
+  const { selfDomain } = await import('./instance.js');
   const hosts = proxyHostQueries.getAll();
   const ip = await detectHostIp();
 
   const domains: Array<{ domain: string; ip: string }> = [];
+  const selfD = selfDomain();
+  domains.push({ domain: selfD, ip });
   for (const host of hosts) {
-    if (host.enabled && host.mdns_enabled) {
+    if (host.enabled && host.mdns_enabled && host.domain !== selfD) {
       domains.push({ domain: host.domain, ip });
     }
   }
-  await writeConfig(domains);
 
-  if (domains.length === 0) {
-    try {
-      await execAsync(`docker rm -f ${MDNS_CONTAINER} 2>/dev/null || true`, { timeout: 5000 });
-    } catch {}
-    return;
-  }
+  const selfService = await buildSelfServiceAsync();
+  const services: MdnsService[] = selfService ? [selfService] : [];
+
+  await writeConfig({ domains, services });
 
   if (!await ensureContainerRunning()) return;
   await reloadContainer();
@@ -252,4 +288,59 @@ export async function cleanupMdns(): Promise<void> {
   try {
     await execAsync(`docker rm -f ${MDNS_CONTAINER} 2>/dev/null || true`, { timeout: 5000 });
   } catch {}
+}
+
+export interface DiscoveredPeer {
+  uuid: string;
+  name: string;
+  version: string;
+  url: string;
+  hostname: string;
+  address: string;
+  port: number;
+}
+
+export async function discoverPeers(): Promise<DiscoveredPeer[]> {
+  if (!await isContainerRunning()) return [];
+  try {
+    const { stdout } = await execAsync(
+      `docker exec ${MDNS_CONTAINER} avahi-browse -prkt _homer._tcp`,
+      { timeout: 8000 }
+    );
+    return parseAvahiBrowse(stdout);
+  } catch (err) {
+    console.error('[mDNS] discover failed:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+function parseAvahiBrowse(output: string): DiscoveredPeer[] {
+  const peers: DiscoveredPeer[] = [];
+  const seen = new Set<string>();
+  for (const line of output.split('\n')) {
+    if (!line.startsWith('=')) continue;
+    const parts = line.split(';');
+    if (parts.length < 10) continue;
+    const [, , , rawName, , , hostname, address, portStr, ...rest] = parts;
+    const port = parseInt(portStr, 10);
+    if (!Number.isFinite(port)) continue;
+    const txtBlob = rest.join(';');
+    const txt: Record<string, string> = {};
+    for (const match of txtBlob.matchAll(/"([^"=]+)=([^"]*)"/g)) {
+      txt[match[1]] = match[2];
+    }
+    const uuid = txt.uuid;
+    if (!uuid || seen.has(uuid)) continue;
+    seen.add(uuid);
+    peers.push({
+      uuid,
+      name: txt.name || rawName.replace(/\\032/g, ' ').replace(/\\\\/g, '\\'),
+      version: txt.version || '',
+      url: txt.url || '',
+      hostname,
+      address,
+      port,
+    });
+  }
+  return peers;
 }

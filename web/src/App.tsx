@@ -14,11 +14,13 @@ import { NetworksPage } from './pages/NetworksPage';
 import { ImagesPage } from './pages/ImagesPage';
 import { AllContainersPage } from './pages/AllContainersPage';
 import { ProxyPage } from './pages/ProxyPage';
+import { InstancesPage } from './pages/InstancesPage';
 import { UpdateBanner } from './components/UpdateBanner';
 import { NavSidebar } from './components/NavSidebar';
 import { UpdatesModal } from './components/UpdatesModal';
 import { AppHeader } from './components/AppHeader';
 import './styles/updates.css';
+import './styles/instances.css';
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -207,6 +209,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <ProxyPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/instances"
+        element={
+          <ProtectedRoute>
+            <InstancesPage />
           </ProtectedRoute>
         }
       />
