@@ -133,6 +133,8 @@ async function initDb() {
   )`); } catch {}
 
   try { db.run('ALTER TABLE users ADD COLUMN home_instance_uuid TEXT'); } catch {}
+  try { db.run('ALTER TABLE users ADD COLUMN cached_password_hash TEXT'); } catch {}
+  try { db.run('ALTER TABLE users ADD COLUMN cached_hash_expires_at INTEGER'); } catch {}
   try { db.run(`CREATE TABLE IF NOT EXISTS peer_instances (
     peer_uuid TEXT PRIMARY KEY,
     peer_name TEXT NOT NULL,
@@ -182,6 +184,8 @@ export interface User {
   password_hash: string;
   must_change_password: number;
   home_instance_uuid: string | null;
+  cached_password_hash: string | null;
+  cached_hash_expires_at: number | null;
   created_at: string;
 }
 
@@ -271,6 +275,17 @@ export const userQueries = {
     const result = db.exec('SELECT last_insert_rowid() as id');
     saveDb();
     return { lastInsertRowid: result[0].values[0][0] };
+  },
+  createFederated: (username: string, homeInstanceUuid: string, cachedHash: string, cachedHashExpiresAt: number) => {
+    db.run(
+      'INSERT INTO users (username, password_hash, home_instance_uuid, cached_password_hash, cached_hash_expires_at) VALUES (?, ?, ?, ?, ?)',
+      [username, '', homeInstanceUuid, cachedHash, cachedHashExpiresAt]
+    );
+    saveDb();
+  },
+  setCachedHash: (username: string, hash: string, expiresAt: number) => {
+    db.run('UPDATE users SET cached_password_hash = ?, cached_hash_expires_at = ? WHERE username = ?', [hash, expiresAt, username]);
+    saveDb();
   },
   updatePassword: (passwordHash: string, id: number) => {
     db.run('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?', [passwordHash, id]);
@@ -602,6 +617,17 @@ export const peerQueries = {
     db.run(
       'INSERT INTO peer_instances (peer_uuid, peer_name, peer_url, peer_ca, shared_secret, paired_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [peer.peer_uuid, peer.peer_name, peer.peer_url, peer.peer_ca, peer.shared_secret, peer.paired_at, peer.status ?? 'offline']
+    );
+    saveDb();
+  },
+  upsert: (peer: Omit<PeerInstance, 'created_at' | 'last_seen'> & { status?: string }) => {
+    db.run(
+      `INSERT INTO peer_instances (peer_uuid, peer_name, peer_url, peer_ca, shared_secret, paired_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(peer_uuid) DO UPDATE SET
+         peer_name = excluded.peer_name, peer_url = excluded.peer_url, peer_ca = excluded.peer_ca,
+         shared_secret = excluded.shared_secret, paired_at = excluded.paired_at, status = excluded.status`,
+      [peer.peer_uuid, peer.peer_name, peer.peer_url, peer.peer_ca ?? null, peer.shared_secret, peer.paired_at, peer.status ?? 'offline']
     );
     saveDb();
   },

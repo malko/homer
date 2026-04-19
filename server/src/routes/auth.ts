@@ -1,7 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { userQueries, sessionQueries, settingQueries } from '../db/index.js';
+import { userQueries, sessionQueries, settingQueries, peerQueries } from '../db/index.js';
+import { peerFetch, generateSecret, loadLocalRootCa } from '../services/peers.js';
+import { getLocalInstance } from '../services/instance.js';
 
 const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
 
@@ -79,14 +81,117 @@ export async function authRoutes(fastify: FastifyInstance) {
     };
   });
 
+  fastify.post('/api/auth/setup-federation', async (request, reply) => {
+    const count = userQueries.count();
+    if (count['count(*)'] > 0) {
+      return reply.status(403).send({ error: 'Setup already completed' });
+    }
+
+    const body = z.object({
+      peer_url: z.string().url(),
+      username: z.string().min(1),
+      password: z.string().min(1),
+    }).parse(request.body);
+
+    // 1. Fetch remote instance identity (TOFU TLS)
+    const selfResult = await peerFetch<{ uuid: string; name: string }>(body.peer_url, '/api/instances/self', { peerCa: null });
+    if (!selfResult.ok || !selfResult.data?.uuid) {
+      return reply.status(502).send({ error: selfResult.error ?? 'Cannot reach remote instance' });
+    }
+    const remoteUuid = selfResult.data.uuid;
+    const remoteName = selfResult.data.name ?? 'remote';
+
+    // 2. Verify credentials against remote instance
+    const loginResult = await peerFetch<{ token: string }>(body.peer_url, '/api/auth/login', {
+      method: 'POST',
+      body: { username: body.username, password: body.password },
+      peerCa: null,
+      timeoutMs: 10_000,
+    });
+    if (!loginResult.ok || !loginResult.data?.token) {
+      return reply.status(401).send({ error: 'Invalid credentials on remote instance' });
+    }
+
+    // Best-effort logout on remote
+    peerFetch(body.peer_url, '/api/auth/logout', { method: 'POST', peerCa: null }).catch(() => {});
+
+    // 3. Fetch remote CA for future TLS (best effort)
+    const caResult = await peerFetch<string>(body.peer_url, '/api/proxy/root-ca', { peerCa: null }).catch(() => null);
+    const peerCa = typeof caResult?.data === 'string' ? caResult.data : await loadLocalRootCa();
+
+    // 4. Store a peer entry for the home instance so login delegation knows the URL
+    peerQueries.upsert({
+      peer_uuid: remoteUuid,
+      peer_name: remoteName,
+      peer_url: body.peer_url,
+      peer_ca: peerCa,
+      shared_secret: generateSecret(),
+      paired_at: Date.now(),
+      status: 'online',
+    });
+
+    // 5. Create local federated user with cached hash (for offline fallback)
+    const cachedHash = await bcrypt.hash(body.password, 10);
+    const cachedHashExpiresAt = Date.now() + 24 * 3600 * 1000;
+    userQueries.createFederated(body.username, remoteUuid, cachedHash, cachedHashExpiresAt);
+
+    // 6. Create local session
+    const token = crypto.randomUUID();
+    sessionQueries.create(token, body.username);
+
+    return { token, username: body.username, mustChangePassword: false };
+  });
+
   fastify.post('/api/auth/login', async (request, reply) => {
     const body = loginSchema.parse(request.body);
-    
+
     const user = userQueries.getByUsername(body.username);
     if (!user) {
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
+    const localUuid = getLocalInstance().uuid;
+
+    if (user.home_instance_uuid && user.home_instance_uuid !== localUuid) {
+      // Federated user — delegate to home instance
+      let authenticated = false;
+      const peer = peerQueries.getByUuid(user.home_instance_uuid);
+
+      if (peer) {
+        const r = await peerFetch<{ token: string }>(peer.peer_url, '/api/auth/login', {
+          method: 'POST',
+          body: { username: body.username, password: body.password },
+          peerCa: peer.peer_ca,
+          timeoutMs: 10_000,
+        });
+        if (r.ok && r.data?.token) {
+          authenticated = true;
+          // Refresh cached hash so offline fallback stays current
+          const cachedHash = await bcrypt.hash(body.password, 10);
+          userQueries.setCachedHash(user.username, cachedHash, Date.now() + 24 * 3600 * 1000);
+          // Best-effort logout of the remote session we just created
+          peerFetch(peer.peer_url, '/api/auth/logout', { method: 'POST', peerCa: peer.peer_ca }).catch(() => {});
+        }
+      }
+
+      if (!authenticated) {
+        // Fallback: cached hash (works when home instance is unreachable)
+        if (user.cached_password_hash && user.cached_hash_expires_at && user.cached_hash_expires_at > Date.now()) {
+          const valid = await bcrypt.compare(body.password, user.cached_password_hash);
+          if (valid) authenticated = true;
+        }
+      }
+
+      if (!authenticated) {
+        return reply.status(401).send({ error: 'Invalid credentials' });
+      }
+
+      const token = crypto.randomUUID();
+      sessionQueries.create(token, user.username);
+      return { token, username: user.username, mustChangePassword: user.must_change_password === 1 };
+    }
+
+    // Local user — normal bcrypt check
     const valid = await bcrypt.compare(body.password, user.password_hash);
     if (!valid) {
       return reply.status(401).send({ error: 'Invalid credentials' });
@@ -94,7 +199,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     const token = crypto.randomUUID();
     sessionQueries.create(token, user.username);
-    
+
     return {
       token,
       username: user.username,

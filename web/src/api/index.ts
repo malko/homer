@@ -174,6 +174,11 @@ export const api = {
       }),
     logout: () =>
       request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+    setupFederation: (peer_url: string, username: string, password: string) =>
+      request<LoginResponse>('/auth/setup-federation', {
+        method: 'POST',
+        body: JSON.stringify({ peer_url, username, password }),
+      }),
   },
 
   projects: {

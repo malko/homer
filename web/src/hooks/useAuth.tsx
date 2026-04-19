@@ -7,6 +7,7 @@ interface AuthContextType {
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
   setup: (username: string, password: string) => Promise<void>;
+  setupFederation: (peerUrl: string, username: string, password: string) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   logout: () => void;
 }
@@ -69,6 +70,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setupFederation = async (peerUrl: string, username: string, password: string) => {
+    const response = await api.auth.setupFederation(peerUrl, username, password);
+    localStorage.setItem('token', response.token);
+    setStatus({
+      needsSetup: false,
+      mustChangePassword: false,
+      authenticated: true,
+      username: response.username,
+    });
+  };
+
   const changePassword = async (newPassword: string) => {
     await api.auth.changePassword(newPassword);
     setStatus((prev) => prev ? { ...prev, mustChangePassword: false } : null);
@@ -87,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ status, loading, error, login, setup, changePassword, logout }}>
+    <AuthContext.Provider value={{ status, loading, error, login, setup, setupFederation, changePassword, logout }}>
       {children}
     </AuthContext.Provider>
   );
