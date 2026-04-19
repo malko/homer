@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { userQueries, sessionQueries, settingQueries, peerQueries } from '../db/index.js';
 import { peerFetch, generateSecret, loadLocalRootCa } from '../services/peers.js';
 import { getLocalInstance } from '../services/instance.js';
+import { importCa } from '../services/caddy.js';
 
 const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
 
@@ -91,6 +92,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       peer_url: z.string().url(),
       username: z.string().min(1),
       password: z.string().min(1),
+      adopt_ca: z.boolean().optional().default(false),
     }).parse(request.body);
 
     // 1. Fetch remote instance identity (TOFU TLS)
@@ -114,6 +116,17 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     // Best-effort logout on remote
     peerFetch(body.peer_url, '/api/auth/logout', { method: 'POST', peerCa: null }).catch(() => {});
+
+    // Optionally adopt the remote CA so all instances share the same trust anchor
+    if (body.adopt_ca && loginResult.data?.token) {
+      const caExport = await peerFetch<{ cert: string; key: string }>(
+        body.peer_url, '/api/proxy/ca-export',
+        { peerCa: null, bearerToken: loginResult.data.token }
+      );
+      if (caExport.ok && caExport.data?.cert && caExport.data?.key) {
+        await importCa(caExport.data.cert, caExport.data.key).catch(() => {});
+      }
+    }
 
     // 3. Fetch remote CA for future TLS (best effort)
     const caResult = await peerFetch<string>(body.peer_url, '/api/proxy/root-ca', { peerCa: null }).catch(() => null);

@@ -62,15 +62,12 @@ fastify.get('/api/health', async () => {
 });
 
 fastify.get('/api/proxy/root-ca', async (_, reply) => {
-  const certPath = '/app/caddy-data/caddy/pki/authorities/local/root.crt';
-  try {
-    const cert = await readFile(certPath);
-    reply.header('Content-Type', 'application/x-pem-file');
-    reply.header('Content-Disposition', 'attachment; filename="homer-root-ca.crt"');
-    return reply.send(cert);
-  } catch {
-    return reply.status(404).send({ error: 'Certificat CA introuvable. Démarrez Caddy au moins une fois.' });
-  }
+  const { loadLocalRootCa } = await import('./services/peers.js');
+  const cert = await loadLocalRootCa();
+  if (!cert) return reply.status(404).send({ error: 'Certificat CA introuvable. Démarrez Caddy au moins une fois.' });
+  reply.header('Content-Type', 'application/x-pem-file');
+  reply.header('Content-Disposition', 'attachment; filename="homer-root-ca.crt"');
+  return reply.send(cert);
 });
 
 if (process.env.NODE_ENV === 'production') {

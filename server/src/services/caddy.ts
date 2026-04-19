@@ -1,11 +1,67 @@
 import bcrypt from 'bcryptjs';
 import http from 'http';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { proxyHostQueries, settingQueries } from '../db/index.js';
 import type { ProxyHost } from '../db/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const CADDY_ADMIN_URL = process.env.CADDY_ADMIN_URL || 'http://localhost:2019';
 const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
 const HOMER_PORT = process.env.PORT || '4000';
+
+// Data dir — same logic as db/index.ts
+const DATA_DIR = process.env.DATA_DIR ?? (process.env.NODE_ENV === 'production' ? '/app/data' : join(__dirname, '../../../data'));
+
+// Homer's writable path into Caddy's data directory (via ./data volume mount)
+const CADDY_DATA_WRITE = join(DATA_DIR, 'caddy/data');
+
+// Caddy's own view of its data directory (used inside the JSON config Caddy reads)
+const CADDY_DATA_CADDY = process.env.CADDY_DATA_CADDY || '/data';
+
+// Paths for the custom (imported) CA — Homer writes, Caddy reads
+const CUSTOM_CA_CERT_WRITE = join(CADDY_DATA_WRITE, 'custom-ca/root.crt');
+const CUSTOM_CA_KEY_WRITE  = join(CADDY_DATA_WRITE, 'custom-ca/root.key');
+const CUSTOM_CA_CERT_CADDY = `${CADDY_DATA_CADDY}/custom-ca/root.crt`;
+const CUSTOM_CA_KEY_CADDY  = `${CADDY_DATA_CADDY}/custom-ca/root.key`;
+
+// Read-only view from Homer (the :ro mount)
+const CADDY_RO = process.env.NODE_ENV === 'production' ? '/app/caddy-data' : CADDY_DATA_WRITE;
+const DEFAULT_CA_CERT_RO  = join(CADDY_RO, 'caddy/pki/authorities/local/root.crt');
+const DEFAULT_CA_KEY_WRITE = join(CADDY_DATA_WRITE, 'caddy/pki/authorities/local/root.key');
+
+export function hasCustomCa(): boolean {
+  return existsSync(CUSTOM_CA_CERT_WRITE) && existsSync(CUSTOM_CA_KEY_WRITE);
+}
+
+export async function exportLocalCa(): Promise<{ cert: string; key: string } | null> {
+  const certPath = hasCustomCa() ? CUSTOM_CA_CERT_WRITE : DEFAULT_CA_CERT_RO;
+  const keyPath  = hasCustomCa() ? CUSTOM_CA_KEY_WRITE  : DEFAULT_CA_KEY_WRITE;
+  try {
+    const [cert, key] = await Promise.all([readFile(certPath, 'utf-8'), readFile(keyPath, 'utf-8')]);
+    return { cert, key };
+  } catch {
+    return null;
+  }
+}
+
+export async function importCa(cert: string, key: string): Promise<{ success: boolean; error?: string }> {
+  if (!cert.includes('-----BEGIN CERTIFICATE-----') || !key.includes('-----BEGIN')) {
+    return { success: false, error: 'Invalid PEM format' };
+  }
+  try {
+    const dir = join(CADDY_DATA_WRITE, 'custom-ca');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(CUSTOM_CA_CERT_WRITE, cert);
+    writeFileSync(CUSTOM_CA_KEY_WRITE, key);
+    return await pushConfig();
+  } catch (err) {
+    return { success: false, error: `${err}` };
+  }
+}
 
 const RFC1918_RANGES = ['192.168.0.0/16', '10.0.0.0/8', '172.16.0.0/12', '127.0.0.1/8', '::1'];
 
@@ -159,6 +215,7 @@ export function buildCaddyConfig(): Record<string, unknown> {
     servers.srv_https = {
       listen: [':443'],
       routes: httpsRoutes,
+      automatic_https: { disable_redirects: true },
     };
     servers.srv_http = {
       listen: [':80'],
@@ -174,23 +231,21 @@ export function buildCaddyConfig(): Record<string, unknown> {
     };
   }
 
-  const config: Record<string, unknown> = {
-    admin: {
-      listen: '0.0.0.0:2019',
-      origins: [CADDY_ADMIN_URL],
-    },
-    apps: {
-      http: {
-        servers,
+  const apps: Record<string, unknown> = { http: { servers } };
+  if (hasTls) {
+    apps.tls = { automation: { policies: tlsPolicies } };
+  }
+  if (hasCustomCa()) {
+    apps.pki = {
+      certificate_authorities: {
+        local: { root: { certificate: CUSTOM_CA_CERT_CADDY, private_key: CUSTOM_CA_KEY_CADDY } },
       },
-      ...(hasTls ? {
-        tls: {
-          automation: {
-            policies: tlsPolicies,
-          },
-        },
-      } : {}),
-    },
+    };
+  }
+
+  const config: Record<string, unknown> = {
+    admin: { listen: '0.0.0.0:2019', origins: [CADDY_ADMIN_URL] },
+    apps,
   };
 
   return config;

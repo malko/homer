@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sessionQueries, proxyHostQueries } from '../db/index.js';
-import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig } from '../services/caddy.js';
+import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig, exportLocalCa, importCa } from '../services/caddy.js';
 import { publishIfEnabled, unpublishIfEnabled, getMdnsStatus } from '../services/mdns.js';
 
 const coerceBool = z.union([z.boolean(), z.number()]).transform(v => !!v);
@@ -229,5 +229,21 @@ export async function proxyRoutes(fastify: FastifyInstance) {
   // MDNS status
   fastify.get('/api/proxy/mdns', async () => {
     return getMdnsStatus();
+  });
+
+  // Export local CA cert + private key (admin only — the key is sensitive)
+  fastify.get('/api/proxy/ca-export', async (request, reply) => {
+    const ca = await exportLocalCa();
+    if (!ca) return reply.status(503).send({ error: 'CA unavailable — start Caddy first' });
+    return ca;
+  });
+
+  // Import an external CA cert + private key and reconfigure Caddy to use it
+  fastify.post('/api/proxy/ca-import', async (request, reply) => {
+    const { cert, key } = request.body as { cert?: string; key?: string };
+    if (!cert || !key) return reply.status(400).send({ error: 'cert and key are required' });
+    const result = await importCa(cert, key);
+    if (!result.success) return reply.status(500).send({ error: result.error });
+    return { success: true };
   });
 }

@@ -16,6 +16,7 @@ import {
   loadLocalRootCa,
   peerFetch,
 } from '../services/peers.js';
+import { exportLocalCa, importCa } from '../services/caddy.js';
 
 const PAIRING_TTL_MS = 5 * 60 * 1000;
 
@@ -52,7 +53,11 @@ async function finalizePairing(
   });
   pairingQueries.delete(req.id);
 
-  return { success: true, peer_name: req.peer_name, peer_uuid: req.peer_uuid };
+  const peerCa = req.peer_ca?.trim() ?? null;
+  const localCaStr = localCa?.trim() ?? null;
+  const ca_same = !!peerCa && !!localCaStr && peerCa === localCaStr;
+
+  return { success: true, peer_name: req.peer_name, peer_uuid: req.peer_uuid, ca_same };
 }
 
 function requireAuth(request: FastifyRequest, reply: FastifyReply): boolean {
@@ -453,6 +458,41 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     if (!verifyPeerHmac(request, reply, peer.shared_secret)) return;
 
     peerQueries.delete(body.from_uuid);
+    return { success: true };
+  });
+
+  // ── Peer-to-peer: export local CA cert + key (HMAC auth) ─────────────────
+  fastify.post('/api/instances/_peer/ca-export', async (request, reply) => {
+    const peerUuid = request.headers['x-peer-uuid'] as string | undefined;
+    const peer = peerQueries.getByUuid(peerUuid ?? '');
+    if (!peer || !verifyPeerHmac(request, reply, peer.shared_secret)) return;
+
+    const ca = await exportLocalCa();
+    if (!ca) return reply.status(503).send({ error: 'CA unavailable' });
+    return ca;
+  });
+
+  // ── Adopt a paired peer's CA on this instance ─────────────────────────────
+  fastify.post('/api/instances/pair/adopt-ca', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+    const { peer_uuid } = request.body as { peer_uuid?: string };
+    if (!peer_uuid) return reply.status(400).send({ error: 'peer_uuid required' });
+
+    const peer = peerQueries.getByUuid(peer_uuid);
+    if (!peer) return reply.status(404).send({ error: 'Peer not found' });
+
+    const local = getLocalInstance();
+    const caResult = await peerFetch<{ cert: string; key: string }>(
+      peer.peer_url, '/api/instances/_peer/ca-export',
+      { method: 'POST', body: {}, peerCa: peer.peer_ca, sharedSecret: peer.shared_secret, senderUuid: local.uuid }
+    );
+
+    if (!caResult.ok || !caResult.data?.cert || !caResult.data?.key) {
+      return reply.status(502).send({ error: caResult.error ?? 'Could not fetch peer CA' });
+    }
+
+    const result = await importCa(caResult.data.cert, caResult.data.key);
+    if (!result.success) return reply.status(500).send({ error: result.error });
     return { success: true };
   });
 }

@@ -1,10 +1,21 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import { readFile } from 'fs/promises';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import * as https from 'https';
 import * as http from 'http';
 import { URL } from 'url';
 
-const CA_PATH = '/app/caddy-data/caddy/pki/authorities/local/root.crt';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CADDY_RO = process.env.NODE_ENV === 'production'
+  ? '/app/caddy-data'
+  : join(__dirname, '../../../data/caddy/data');
+
+const CA_PATHS = [
+  join(CADDY_RO, 'custom-ca/root.crt'),
+  join(CADDY_RO, 'caddy/pki/authorities/local/root.crt'),
+];
+
 const SIGNATURE_MAX_SKEW_MS = 60_000;
 
 export function sixDigitCode(): string {
@@ -30,12 +41,12 @@ export function verifySignature(secret: string, body: string, timestamp: number,
 }
 
 export async function loadLocalRootCa(): Promise<string | null> {
-  try {
-    const buf = await readFile(CA_PATH);
-    return buf.toString('utf-8');
-  } catch {
-    return null;
+  for (const path of CA_PATHS) {
+    try {
+      return (await readFile(path)).toString('utf-8');
+    } catch {}
   }
+  return null;
 }
 
 export interface PeerFetchOptions {
@@ -45,6 +56,7 @@ export interface PeerFetchOptions {
   sharedSecret?: string | null;
   senderUuid?: string | null;
   timeoutMs?: number;
+  bearerToken?: string | null;
 }
 
 export interface PeerFetchResult<T = unknown> {
@@ -68,6 +80,10 @@ export async function peerFetch<T = unknown>(
   if (bodyString) {
     reqHeaders['Content-Type'] = 'application/json';
     reqHeaders['Content-Length'] = String(Buffer.byteLength(bodyString));
+  }
+
+  if (options.bearerToken) {
+    reqHeaders['Authorization'] = `Bearer ${options.bearerToken}`;
   }
 
   if (options.senderUuid) {

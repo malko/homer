@@ -7,6 +7,7 @@ interface PairingData {
   local_code: string;
   remote_code: string;
   peer_name: string;
+  peer_uuid: string;
 }
 
 interface ConflictResolution {
@@ -22,7 +23,7 @@ type PairingStep =
   | ({ type: 'confirming' } & PairingData)
   | ({ type: 'conflicts' } & PairingData & { conflicts: string[] })
   | ({ type: 'resolving' } & PairingData & { conflicts: string[] })
-  | { type: 'done'; peer_name: string };
+  | { type: 'done'; peer_name: string; peer_uuid: string; ca_same: boolean };
 
 interface PendingRequest {
   id: string;
@@ -47,6 +48,9 @@ export function InstancesPage() {
   const [enteredCode, setEnteredCode] = useState('');
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [conflictResolutions, setConflictResolutions] = useState<ConflictResolution[]>([]);
+  const [caAdopting, setCaAdopting] = useState(false);
+  const [caAdoptResult, setCaAdoptResult] = useState<'adopted' | 'skipped' | null>(null);
+  const [caAdoptError, setCaAdoptError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -92,6 +96,7 @@ export function InstancesPage() {
         local_code: result.local_code,
         remote_code: result.remote_code,
         peer_name: result.peer_name,
+        peer_uuid: result.peer_uuid,
       });
       setPeerUrl('');
     } catch (err) {
@@ -106,6 +111,7 @@ export function InstancesPage() {
       local_code: pairingStep.local_code,
       remote_code: pairingStep.remote_code,
       peer_name: pairingStep.peer_name,
+      peer_uuid: pairingStep.peer_uuid,
     };
     setPairingError(null);
     setPairingStep({ type: 'confirming', ...data });
@@ -116,7 +122,7 @@ export function InstancesPage() {
         setPairingStep({ type: 'conflicts', ...data, conflicts: result.conflicts });
         setEnteredCode('');
       } else {
-        setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name });
+        setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name, peer_uuid: result.peer_uuid ?? data.peer_uuid, ca_same: result.ca_same ?? true });
         setEnteredCode('');
         await loadData();
       }
@@ -133,12 +139,13 @@ export function InstancesPage() {
       local_code: pairingStep.local_code,
       remote_code: pairingStep.remote_code,
       peer_name: pairingStep.peer_name,
+      peer_uuid: pairingStep.peer_uuid,
     };
     setPairingError(null);
     setPairingStep({ type: 'resolving', ...data, conflicts: pairingStep.conflicts });
     try {
       const result = await api.instances.resolvePairing(data.request_id, conflictResolutions);
-      setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name });
+      setPairingStep({ type: 'done', peer_name: result.peer_name ?? data.peer_name, peer_uuid: result.peer_uuid ?? data.peer_uuid, ca_same: result.ca_same ?? true });
       setConflictResolutions([]);
       await loadData();
     } catch (err) {
@@ -163,6 +170,19 @@ export function InstancesPage() {
       setPeers(prev => prev.filter(p => p.uuid !== uuid));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Désappairage échoué');
+    }
+  };
+
+  const handleAdoptPeerCa = async (peerUuid: string) => {
+    setCaAdopting(true);
+    setCaAdoptError(null);
+    try {
+      await api.instances.adoptPeerCa(peerUuid);
+      setCaAdoptResult('adopted');
+    } catch (err) {
+      setCaAdoptError(err instanceof ApiError ? err.message : 'Adoption de CA échouée');
+    } finally {
+      setCaAdopting(false);
     }
   };
 
@@ -425,10 +445,40 @@ export function InstancesPage() {
               <div className="message message--success">
                 ✓ Instance "{pairingStep.peer_name}" appairée avec succès.
               </div>
+              {!pairingStep.ca_same && caAdoptResult === null && (
+                <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Autorités de certification différentes</p>
+                  <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                    Les deux instances utilisent des CA distinctes. Adopter la CA de l'instance distante permet de partager la même autorité dans tout le homelab.
+                  </p>
+                  {caAdoptError && <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: 'var(--color-danger)' }}>{caAdoptError}</p>}
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      className="btn btn-primary"
+                      disabled={caAdopting}
+                      onClick={() => handleAdoptPeerCa(pairingStep.peer_uuid)}
+                    >
+                      {caAdopting ? 'Adoption…' : 'Adopter la CA distante'}
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={caAdopting}
+                      onClick={() => setCaAdoptResult('skipped')}
+                    >
+                      Garder les CA séparées
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!pairingStep.ca_same && caAdoptResult === 'adopted' && (
+                <div className="message message--success" style={{ marginTop: '0.75rem' }}>
+                  ✓ CA adoptée — redémarrez Caddy pour appliquer les changements.
+                </div>
+              )}
               <button
                 className="btn"
                 style={{ marginTop: '0.75rem' }}
-                onClick={() => setPairingStep({ type: 'idle' })}
+                onClick={() => { setPairingStep({ type: 'idle' }); setCaAdoptResult(null); setCaAdoptError(null); }}
               >
                 Fermer
               </button>

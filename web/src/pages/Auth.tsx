@@ -17,6 +17,7 @@ export function SetupPage() {
   const [fedPeerUrl, setFedPeerUrl] = useState('');
   const [fedUsername, setFedUsername] = useState('');
   const [fedPassword, setFedPassword] = useState('');
+  const [fedAdoptCa, setFedAdoptCa] = useState(true);
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,7 +43,7 @@ export function SetupPage() {
     setError('');
     setLoading(true);
     try {
-      await setupFederation(fedPeerUrl.trim(), fedUsername.trim(), fedPassword);
+      await setupFederation(fedPeerUrl.trim(), fedUsername.trim(), fedPassword, fedAdoptCa);
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not join federation');
@@ -118,6 +119,10 @@ export function SetupPage() {
                 <input type="password" className={`input ${error ? 'input-error' : ''}`} value={fedPassword}
                   onChange={(e) => setFedPassword(e.target.value)} placeholder="••••••••" required />
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.75rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={fedAdoptCa} onChange={e => setFedAdoptCa(e.target.checked)} />
+                Use remote instance's certificate authority (shared CA for the whole homelab)
+              </label>
               {error && <p className="error-text">{error}</p>}
               <div className="form-actions">
                 <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1 }}>

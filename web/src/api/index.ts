@@ -174,10 +174,10 @@ export const api = {
       }),
     logout: () =>
       request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
-    setupFederation: (peer_url: string, username: string, password: string) =>
+    setupFederation: (peer_url: string, username: string, password: string, adopt_ca = false) =>
       request<LoginResponse>('/auth/setup-federation', {
         method: 'POST',
-        body: JSON.stringify({ peer_url, username, password }),
+        body: JSON.stringify({ peer_url, username, password, adopt_ca }),
       }),
   },
 
@@ -386,6 +386,9 @@ export const api = {
       }),
     getStatus: () => request<{ running: boolean; error?: string }>('/proxy/status'),
     reload: () => request<{ success: boolean; error?: string }>('/proxy/reload', { method: 'POST' }),
+    exportCa: () => request<{ cert: string; key: string }>('/proxy/ca-export'),
+    importCa: (cert: string, key: string) =>
+      request<{ success: boolean }>('/proxy/ca-import', { method: 'POST', body: JSON.stringify({ cert, key }) }),
   },
 
   instances: {
@@ -413,12 +416,15 @@ export const api = {
       peer_uuid?: string | null;
       conflicts?: string[];
       request_id?: string;
+      ca_same?: boolean;
     }>('/instances/pair/confirm', { method: 'POST', body: JSON.stringify({ request_id, entered_code }) }),
     resolvePairing: (request_id: string, resolutions: Array<{ username: string; password_local: string; password_remote: string }>) =>
-      request<{ success: boolean; peer_name: string | null; peer_uuid: string | null }>(
+      request<{ success: boolean; peer_name: string | null; peer_uuid: string | null; ca_same?: boolean }>(
         '/instances/pair/resolve',
         { method: 'POST', body: JSON.stringify({ request_id, resolutions }) }
       ),
+    adoptPeerCa: (peer_uuid: string) =>
+      request<{ success: boolean }>('/instances/pair/adopt-ca', { method: 'POST', body: JSON.stringify({ peer_uuid }) }),
     cancelPairing: (id: string) => request<{ success: boolean }>(`/instances/pair/${id}`, { method: 'DELETE' }),
     unpair: (uuid: string) => request<{ success: boolean }>(`/instances/${uuid}`, { method: 'DELETE' }),
   },

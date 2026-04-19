@@ -7,7 +7,7 @@ interface AuthContextType {
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
   setup: (username: string, password: string) => Promise<void>;
-  setupFederation: (peerUrl: string, username: string, password: string) => Promise<void>;
+  setupFederation: (peerUrl: string, username: string, password: string, adoptCa?: boolean) => Promise<void>;
   changePassword: (newPassword: string) => Promise<void>;
   logout: () => void;
 }
@@ -70,8 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const setupFederation = async (peerUrl: string, username: string, password: string) => {
-    const response = await api.auth.setupFederation(peerUrl, username, password);
+  const setupFederation = async (peerUrl: string, username: string, password: string, adoptCa = false) => {
+    const response = await api.auth.setupFederation(peerUrl, username, password, adoptCa);
     localStorage.setItem('token', response.token);
     setStatus({
       needsSetup: false,
