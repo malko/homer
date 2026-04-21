@@ -13,7 +13,7 @@ fi
 
 NEW_VERSION=$(npm version "$TYPE" --no-git-tag-version 2>/dev/null | grep -oP '\d+\.\d+\.\d+')
 
-git add package.json
+git add package.json package-lock.json
 git commit -m "🔖 Bump version to $NEW_VERSION"
 git tag "v$NEW_VERSION"
 

@@ -14,7 +14,7 @@ services:
         EOF
         caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     ports:
-      - "${HOMER_DEV_PORT:-8080}:80"
+      - "${HOMER_DEV_PORT:-8090}:80"
     volumes:
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config

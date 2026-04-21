@@ -303,6 +303,8 @@ export const api = {
       }),
     update: () =>
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
+    restart: () =>
+      request<{ success: boolean }>('/system/restart', { method: 'POST' }),
     getContainers: () => request<Container[]>('/system/containers'),
     getAllContainers: (options?: { search?: string; project?: string; hasUpdate?: boolean; includeUpdates?: boolean; state?: string }) => {
       const params = new URLSearchParams();

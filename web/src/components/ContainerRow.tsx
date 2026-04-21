@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, Container } from '../api';
+import { api, getActivePeer, Container } from '../api';
 import { ContainerMenu } from './ContainerMenu';
 import {
   FolderIcon, ImageIcon, UpdateIcon,
@@ -113,14 +113,22 @@ export function ContainerRow({
       <div className="resource-actions">
           <button
             className="btn btn-sm btn-secondary large-display-only"
-            onClick={() => window.open(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes')}
+            onClick={() => {
+              const peer = getActivePeer();
+              const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
+              window.open(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
+            }}
             title="Voir les logs"
           >
             <FileTextIcon size={12} />
           </button>
           <button
             className="btn btn-sm btn-secondary large-display-only"
-            onClick={() => window.open(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes')}
+            onClick={() => {
+              const peer = getActivePeer();
+              const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
+              window.open(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
+            }}
             disabled={!isRunning}
             title={isRunning ? 'Ouvrir le terminal' : 'Container arrêté'}
           >

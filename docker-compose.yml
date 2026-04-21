@@ -40,9 +40,6 @@ services:
       - HOST=0.0.0.0
       - CADDY_ADMIN_URL=http://caddy:2019
       - HOMER_DOMAIN=${HOMER_DOMAIN:-$(uname -n).local}
-      - HOMER_GITHUB_REPO=malko/homer
-      - HOMER_IMAGE=ghcr.io/malko/homer:${HOMER_VERSION:-latest}
-      - HOMER_COMPOSE_FILE=/host/path/to/docker-compose.yml
       - AVAHI_ENABLED=${AVAHI_ENABLED:-auto}
       - HOST_IP=${HOST_IP:-}
       - MDNS_IMAGE=ghcr.io/malko/homer:${HOMER_VERSION:-latest}

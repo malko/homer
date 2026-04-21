@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { sessionQueries, settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
-import { checkForUpdate, performUpdate } from '../services/updater.js';
+import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
@@ -74,6 +74,16 @@ export async function systemRoutes(fastify: FastifyInstance) {
       (line) => fastify.broadcast({ type: 'update_output', line }),
       () => fastify.broadcast({ type: 'update_pull_done' }),
       (message) => fastify.broadcast({ type: 'update_error', message }),
+    );
+  });
+
+  fastify.post('/api/system/restart', async (_, reply) => {
+    reply.status(202).send({ success: true });
+
+    restartInstance(
+      (line) => fastify.broadcast({ type: 'restart_output', line }),
+      () => fastify.broadcast({ type: 'restart_done' }),
+      (message) => fastify.broadcast({ type: 'restart_error', message }),
     );
   });
 

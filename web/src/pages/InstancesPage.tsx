@@ -270,11 +270,11 @@ const handleAdoptPeerCa = async (peerUuid: string) => {
   return (
     <div className="page-container">
       <AppHeader title="Fédération" />
-      <div className="page-content">
+      <div className="page-content instances-page-content">
         {error && <div className="message message--error">{error}</div>}
 
         {activePeer && (
-          <div className="message" style={{ background: 'rgba(74, 158, 255, 0.1)', border: '1px solid rgba(74, 158, 255, 0.25)', color: 'var(--text-primary)', marginBottom: '1rem' }}>
+          <div className="message" style={{ background: 'rgba(74, 158, 255, 0.1)', border: '1px solid rgba(74, 158, 255, 0.25)', marginBottom: '1.5rem' }}>
             Cette page affiche les informations de l'<strong>instance locale</strong>, indépendamment de l'instance sélectionnée dans la barre de navigation.
           </div>
         )}
@@ -414,64 +414,16 @@ const handleAdoptPeerCa = async (peerUuid: string) => {
           </section>
         )}
 
-        {/* Gestion du CA */}
-        <section className="instances-section">
-          <h2>Autorité de certification</h2>
-          <div className="instances-card">
-
-            {/* Export */}
-            <p className="instances-label" style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Exporter</p>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-              <a className="btn btn-sm" href="/api/proxy/root-ca" download="homer-root-ca.crt">
-                Télécharger le certificat (.crt)
-              </a>
-              <button className="btn btn-sm" onClick={handleExportCa}>
-                Exporter cert + clé (.crt + .key)
-              </button>
-            </div>
-            {caExportError && <div className="message message--error" style={{ marginBottom: '0.75rem', fontSize: '0.8rem' }}>{caExportError}</div>}
-            <p className="instances-label" style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
-              Le certificat seul sert à installer la CA dans le navigateur. L'export cert + clé permet de migrer ce CA sur un autre nœud manuellement (attention : la clé privée est sensible).
-            </p>
-
-            {/* Import */}
-            <p className="instances-label" style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Importer un CA personnalisé</p>
-            <p className="instances-label" style={{ marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-              Remplace le CA Caddy par votre propre autorité. Tous les certificats seront régénérés.
-            </p>
-            {caImportError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{caImportError}</div>}
-            {caImportSuccess && <div className="message message--success" style={{ marginBottom: '0.5rem' }}>✓ CA importé — les certificats sont en cours de régénération.</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label className="instances-label">
-                Certificat (.crt / .pem) :
-                <input ref={certInputRef} type="file" accept=".crt,.pem,.cer" style={{ marginLeft: '0.5rem' }} />
-              </label>
-              <label className="instances-label">
-                Clé privée (.key / .pem) :
-                <input ref={keyInputRef} type="file" accept=".key,.pem" style={{ marginLeft: '0.5rem' }} />
-              </label>
-              <button
-                className="btn btn-primary"
-                style={{ alignSelf: 'flex-start' }}
-                onClick={handleImportCaFile}
-                disabled={caImporting}
-              >
-                {caImporting ? 'Import en cours…' : 'Importer le CA'}
-              </button>
-            </div>
-          </div>
-        </section>
-
         {/* Initier un appairage */}
         <section className="instances-section">
-          <div className="instances-section-header">
             <h2>Appairer une instance</h2>
             {pairingStep.type === 'idle' && (
-              <button className="btn btn-primary" onClick={() => { setPairingStep({ type: 'form' }); setPairingError(null); }}>
-                Appairer
-              </button>
+              <div className="instances-card" style={{textAlign:'right'}}>
+                <button className="btn btn-primary" onClick={() => { setPairingStep({ type: 'form' }); setPairingError(null); }}>
+                  Appairer
+                </button>
+              </div>
             )}
-          </div>
 
           {pairingError && pairingStep.type === 'idle' && (
             <div className="message message--error">{pairingError}</div>
@@ -480,33 +432,33 @@ const handleAdoptPeerCa = async (peerUuid: string) => {
           {pairingStep.type === 'form' && (
             <div className="instances-card">
               {pairingError && <div className="message message--error" style={{ marginBottom: '0.75rem' }}>{pairingError}</div>}
-              <label className="instances-label" style={{ display: 'block', marginBottom: '0.5rem' }}>
-                URL de l'instance distante
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  className="form-input"
-                  type="url"
-                  placeholder="https://homer-b.local"
-                  value={peerUrl}
-                  onChange={e => setPeerUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && peerUrl.trim() && handleInitiate()}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={handleInitiate}
-                  disabled={!peerUrl.trim()}
-                >
-                  Initier
-                </button>
-                <button className="btn" onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); }}>
-                  Annuler
-                </button>
+              <div className="input-group">
+                <label className="input-label">URL de l'instance distante</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    className="input"
+                    type="url"
+                    placeholder="https://homer-b.local"
+                    value={peerUrl}
+                    onChange={e => setPeerUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && peerUrl.trim() && handleInitiate()}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleInitiate}
+                    disabled={!peerUrl.trim()}
+                  >
+                    Initier
+                  </button>
+                  <button className="btn" onClick={() => { setPairingStep({ type: 'idle' }); setPairingError(null); }}>
+                    Annuler
+                  </button>
+                </div>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.75rem', cursor: 'pointer' }}>
+              <label className="instances-checkbox">
                 <input type="checkbox" checked={adoptCaAfterPairing} onChange={e => setAdoptCaAfterPairing(e.target.checked)} />
-                Adopter le CA de l'instance distante après l'appairage
+                <span>Adopter le CA de l'instance distante après l'appairage</span>
               </label>
             </div>
           )}
@@ -544,7 +496,7 @@ const handleAdoptPeerCa = async (peerUuid: string) => {
               {!pairingStep.ca_same && caAdoptResult === null && (
                 <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
                   <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Autorités de certification différentes</p>
-                  <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
                     Les deux instances utilisent des CA distinctes. Adopter la CA de l'instance distante permet de partager la même autorité dans tout le homelab.
                   </p>
                   {caAdoptError && <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: 'var(--color-danger)' }}>{caAdoptError}</p>}
@@ -576,6 +528,52 @@ const handleAdoptPeerCa = async (peerUuid: string) => {
               </button>
             </div>
           )}
+        </section>
+
+        {/* Gestion du CA */}
+        <section className="instances-section">
+          <h2>Autorité de certification</h2>
+          <div className="instances-ca-card">
+            {/* Export */}
+            <p className="instances-ca-section-title">Exporter</p>
+            <div className="instances-ca-actions">
+              <a className="btn btn-sm" href="/api/proxy/root-ca" download="homer-root-ca.crt">
+                Télécharger le certificat (.crt)
+              </a>
+              <button className="btn btn-sm" onClick={handleExportCa}>
+                Exporter cert + clé (.crt + .key)
+              </button>
+            </div>
+            {caExportError && <div className="message message--error" style={{ marginBottom: '0.75rem', fontSize: '0.8rem' }}>{caExportError}</div>}
+            <p className="instances-ca-help">
+              Le certificat seul sert à installer la CA dans le navigateur. L'export cert + clé permet de migrer ce CA sur un autre nœud manuellement (attention : la clé privée est sensible).
+            </p>
+
+            {/* Import */}
+            <p className="instances-ca-section-title">Importer un CA personnalisé</p>
+            <p className="instances-ca-help">
+              Remplace le CA Caddy par votre propre autorité. Tous les certificats seront régénérés.
+            </p>
+            {caImportError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{caImportError}</div>}
+            {caImportSuccess && <div className="message message--success" style={{ marginBottom: '0.5rem' }}>✓ CA importé — les certificats sont en cours de régénération.</div>}
+            <div className="instances-ca-input-row">
+              <label>
+                Certificat (.crt / .pem)
+                <input ref={certInputRef} type="file" accept=".crt,.pem,.cer" />
+              </label>
+              <label>
+                Clé privée (.key / .pem)
+                <input ref={keyInputRef} type="file" accept=".key,.pem" />
+              </label>
+              <button
+                className="btn btn-primary"
+                onClick={handleImportCaFile}
+                disabled={caImporting}
+              >
+                {caImporting ? 'Import en cours…' : 'Importer le CA'}
+              </button>
+            </div>
+          </div>
         </section>
       </div>
     </div>

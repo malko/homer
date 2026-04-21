@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { usePeer } from '../hooks/usePeer';
 import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
@@ -602,6 +603,7 @@ export function ProjectsPage() {
   const [filter, setFilter] = useState<'all' | 'running' | 'stopped' | 'updatable'>('all');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const { status } = useAuth();
+  const { activePeer } = usePeer();
 
   const dismissToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -617,6 +619,14 @@ export function ProjectsPage() {
 
   useWebSocket((message) => {
     if (message.type === 'containers_updated' || message.type === 'project_updated') {
+      refetch();
+    }
+    // peer_heartbeat: triggered when remote sends us its container list (new code deployed on both sides)
+    if (message.type === 'peer_heartbeat' && message.peer_uuid === activePeer?.uuid) {
+      refetch();
+    }
+    // heartbeat fallback: use local 10s heartbeat to poll remote data when connected to a peer
+    if (message.type === 'heartbeat' && activePeer) {
       refetch();
     }
   });

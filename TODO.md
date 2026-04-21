@@ -1,53 +1,61 @@
 # TODO
 
-- [ ] Vérification des mises à jour
-    - [x] revoir système de vérification des mises à jour des containers qui ne fonctionne pas. Implémenter un système de vérification du qui va se connecter directement aux hubs (Open Container Initiative) par api pour récuperer le digest de la dernière version (utilisation de fecth pas de libs). Récupération du digest actuel via commande docker inspect ou autre.
-    - [x] Ajouter une option sur les projets pour mises à jour automatiques => possibilité de bloqué sur version mineure / majeure (à voir comment on peut le faire)
-    - [x] Ajout d'une tache chronique pour vérifier les mises à jour plus options dans les paramètres pour le délai de vérification des mises à jour
-    - [x] Ajouter la possibilité d'avoir des web notifs quand un service possède une mise à jour (voir ensuite proposer notif telegram ou autre)
-    - [x] Quand des mises à jour sont disponibles afficher un badge dans le header, un clic sur le badge ouvre une modal avec la liste des mises à jour disponibles.
-    - [x] Ajouter des tests unitaires pour qu'on puisse modifier à l'avenir en vérifiant qu'on a rien cassé
-- [ ] Update
-    - [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées, vérifier que ça fonctionne ou corriger
-- [x] Moniteur système
-    - [x] Ajouter une page moniteur avec:
-        - nombre de containers running / nombre de containers
-        - occupation RAM / CPU avec graphique
-- [ ] Revue Page Projets
-    - [x] Réordonner les onglets: Overview, compose, env, terminal, logs, proxy
-    - [x] revoir le display des containers, ajouter plus d'infos (masqué par défaut) comme id de l'image, update disponible, version actuelle
-- [ ] Genéral:
-    - [x] Ajout d'une section volumes listant tout les volumes des projets
-    - [x] Ajout d'une section networks 
-    - [x] Ajout d'une section Images  (possibilité de prune tout les images inutilisées, une seule)
-    - [x] Ajout d'une section Containers (voir les status et la dispo de mises à jour) (réutiliser les composants container existants)
-    - [x] Déplacer la section proxy hosts et caddy de la section paramètres à une nouvelle section Proxy accessibles du menu principal
-- [ ] UI/UX
-    - [x] Gérer des paramètres dans l'url pour pouvoir revenir à l'écran en cours directement (par exemple au rechargement mais aussi bookmark d'une page en particulier)
-    - [x] Ajouter titre des pages dans le header
-    - [x] Revoir le menu pour qu'il ne se déplie pas au survol mais sur l'appuie d'un bouton avec setting conservé plié/étendue
-    - [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
-    - [x] Déplacer l'entrée de menu paramètres vers le bas du menu
-    - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
-    - [ ] internationnalisation
-- [ ] Accès distant
-    - Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
-- [ ] PAAS
-    - [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence.
-        -  [ ] les builds pour les projets devront être exécutés dans des conteneurs isolés et jetables pour éviter de compromettre le système hote si les dépendances sont compromises. 
-- [ ] Template system:
-    - [ ] Regarder les templates proposer par d'autres solutions commes dokploy, casaos etc... et voir comment on pourrait permettre d'importer des templates depuis ces différentes sources.
-        - [ ] nécessité de pouvoir gérer des fichiers d'initialisation en plus du simple docker compose
-        - [ ] avoir des générateurs types mot de passe, nom de domaine etc pour pouvoir utiliser des templates types dokploy
-        - [ ] définir notre propre système de template pour qu'il soit le plus simple à unifier avec les autres systemes (Volonté de créer ensuite un standard ?)
-        - [ ] permettre de récupérer un template à partir d'un dépot git
-- [ ] Backup:
-    - [ ] implement differents backups systems: network share, s3, nas system... 
-    - [ ] propose different strategies for backup:
-        - config only, db only volumes ?
-        - how many backups should be kept, when to run incremental vs full backup, password protection for backups etc...
-        - backup strategies for the db and global conf should go to global settings, details of what needs to be backup for projects should be set in projects
-    - [ ] Once we have backup added to the UI and the backend we need to implement restore from backup
-        - Backup listing from global settings and from projects
-        - Restore button to restore to a particular backup
-        - delete button to delete some past backup
+## Vérification des mises à jour
+- [ ] revoir les web notifs qui popent trop souvent et qui reste même quand le container est updater
+
+## Update
+* [ ] Revoir le système d'update des containers avec relance des services et possibilité de nettoyer les images inutilisées, vérifier que ça fonctionne ou corriger
+
+## Moniteur système
+- [ ] revoir le design des graphiques
+
+## Page Projets
+
+## UI/UX
+- [ ] modifier avec le design créer pour
+- [x] revoir la page fédération pour qu'elle soit plus dans le ton du reste
+- [ ] Déplacer la page fédération dans settings
+- [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
+- [ ] revoir navigation de la page projet => le menu sur la gauche c'est pas beau avec le menu principal ça fait double menu c'est moche
+- [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
+- [ ] internationnalisation
+- [ ] Ajouter une note sur le rechargement du navigateur lors de l'appairage (vérifier si c'est déjà fait)
+- [ ] Ajouter un bouton pour redémarrer l'instance dans les settings
+
+## Fédération
+- [ ] Au moment de l'appairage avec un noeud on devrait ajouter tout les noeud de la fédération automatiquement (j'appaire une fois pour toute la fédération)
+
+## Accès distant
+- Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
+
+## PAAS
+- [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence.
+    -  [ ] les builds pour les projets devront être exécutés dans des conteneurs isolés et jetables pour éviter de compromettre le système hote si les dépendances sont compromises. 
+
+## Template system (docker compose):
+- [ ] Regarder les templates proposer par d'autres solutions commes dokploy, casaos etc... et voir comment on pourrait permettre d'importer des templates depuis ces différentes sources.
+    - [ ] nécessité de pouvoir gérer des fichiers d'initialisation en plus du simple docker compose
+    - [ ] avoir des générateurs types mot de passe, nom de domaine etc pour pouvoir utiliser des templates types dokploy
+    - [ ] définir notre propre système de template pour qu'il soit le plus simple à unifier avec les autres systemes (Volonté de créer ensuite un standard ?)
+    - [ ] permettre de récupérer un template à partir d'un dépot git
+
+## Backup:
+- [ ] implement differents backups systems: network share, s3, nas system... 
+- [ ] propose different strategies for backup:
+    - config only, db only volumes ?
+    - how many backups should be kept, when to run incremental vs full backup, password protection for backups etc...
+    - backup strategies for the db and global conf should go to global settings, details of what needs to be backup for projects should be set in projects
+- [ ] Once we have backup added to the UI and the backend we need to implement restore from backup
+    - Backup listing from global settings and from projects
+    - Restore button to restore to a particular backup
+    - delete button to delete some past backup
+
+## Security:
+- [ ] revoir et traité les points du plan [security-fix.md](plans/security-fix.md)
+
+## Bugs: 
+- [ ] terminal en distant ne fonctionne toujours pas
+- [ ] start / stop compose en distant ne fonctionne pas en distant
+- [ ] connexion websocket pour notifs en temps réel du status distant ne fonctionne pas on fallback sur 10secondes polling
+    => et si on autorisait le cross origin pour les instances et qu'on se connectait directement à l'autre backend ?
+- [ ] demande de restart ne fonctionne pas ni local ni distant

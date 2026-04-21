@@ -308,3 +308,44 @@
   gap: 0.5rem;
   margin-top: 0.25rem;
 }
+
+/* ─── Instance Card ─────────────────────────────────────────────────────────── */
+
+.instance-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.instance-version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.instance-version-row span:first-child {
+  color: var(--color-text-muted);
+}
+
+.version-badge {
+  padding: 0.125rem 0.5rem;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-family: monospace;
+}
+
+.version-badge-new {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.instance-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
