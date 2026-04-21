@@ -78,17 +78,28 @@ class PeerWsConnection {
     this.ws = null;
   }
 
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === Ws.OPEN;
+  }
+
   private send(data: string) {
     if (this.ws && this.ws.readyState === Ws.OPEN) {
-      try { this.ws.send(data); } catch {}
+      try { this.ws.send(data); } catch (e) { console.error('[peer-ws] send error:', e); }
     }
+  }
+
+  sendRaw(data: string): boolean {
+    if (this.ws && this.ws.readyState === Ws.OPEN) {
+      try { this.ws.send(data); return true; } catch (e) { console.error('[peer-ws] sendRaw error:', e); return false; }
+    }
+    return false;
   }
 
   private connect() {
     if (this.closed || this.connecting) return;
     this.connecting = true;
 
-    const wsBase = this.peer.peer_url.replace(/^https?/, p => p === 'https' ? 'wss' : 'ws');
+    const wsBase = this.peer.peer_url.replace(/^https?/, p => p === 'https' ? 'wss' : 'ws').replace(/\/$/, '');
     const timestamp = Date.now();
     const sig = signPayload(this.peer.shared_secret, '', timestamp);
     const url = `${wsBase}/api/peer-events?peer_uuid=${encodeURIComponent(this.localUuid)}&timestamp=${timestamp}&signature=${encodeURIComponent(sig)}`;
@@ -97,10 +108,12 @@ class PeerWsConnection {
       ? { ca: this.peer.peer_ca }
       : { rejectUnauthorized: false };
 
+    console.log(`[peer-ws] Connecting to ${this.peer.peer_name} (${wsBase}/api/peer-events ...)`);
     const ws = new Ws(url, tlsOpts);
     this.ws = ws;
 
     ws.on('open', () => {
+      console.log(`[peer-ws] Connected to ${this.peer.peer_name} (${this.peer.peer_uuid})`);
       this.connecting = false;
       this.backoff = 1_000;
       this.subs.forEach(sub => this.send(sub.subMsg));
@@ -110,21 +123,25 @@ class PeerWsConnection {
       try {
         const event = JSON.parse(String(data)) as Record<string, unknown>;
         this.subs.forEach(sub => {
-          try { sub.callback(event); } catch {}
+          try { sub.callback(event); } catch (e) { console.error('[peer-ws] callback error:', e); }
         });
-      } catch {}
+      } catch (e) { console.error('[peer-ws] message parse error:', e); }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
+      console.log(`[peer-ws] Disconnected from ${this.peer.peer_name} (${this.peer.peer_uuid}) code=${code}`);
       this.connecting = false;
       this.ws = null;
       if (!this.closed && this.subs.size > 0) {
+        console.log(`[peer-ws] Reconnecting to ${this.peer.peer_name} in ${this.backoff}ms (${this.subs.size} subs)`);
         setTimeout(() => this.connect(), this.backoff);
         this.backoff = Math.min(this.backoff * 2, 30_000);
       }
     });
 
-    ws.on('error', () => {});
+    ws.on('error', (err: Error) => {
+      console.error(`[peer-ws] Connection error to ${this.peer.peer_name} (${this.peer.peer_uuid}):`, err.message);
+    });
   }
 }
 
@@ -139,7 +156,10 @@ class PeerWsManager {
     unsubMsg: unknown,
   ): boolean {
     const peer = peerQueries.getByUuid(peerUuid);
-    if (!peer) return false;
+    if (!peer) {
+      console.error(`[peer-ws] subscribe: peer not found: ${peerUuid}`);
+      return false;
+    }
 
     let conn = this.connections.get(peerUuid);
     if (!conn) {
@@ -161,14 +181,25 @@ class PeerWsManager {
     }
   }
 
-  cleanupClient(clientId: string) {
+  cleanupClient(clientPrefix: string) {
     this.connections.forEach((conn, peerUuid) => {
-      conn.removeSubsForClient(clientId + ':');
+      conn.removeSubsForClient(clientPrefix + ':');
       if (!conn.hasSubscriptions()) {
         conn.close();
         this.connections.delete(peerUuid);
       }
     });
+  }
+
+  send(peerUuid: string, message: unknown): boolean {
+    const conn = this.connections.get(peerUuid);
+    if (!conn) return false;
+    return conn.sendRaw(JSON.stringify(message));
+  }
+
+  isPeerConnected(peerUuid: string): boolean {
+    const conn = this.connections.get(peerUuid);
+    return conn !== undefined && conn.isConnected();
   }
 
   closeAll() {

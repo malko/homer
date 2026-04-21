@@ -35,7 +35,55 @@ const deployStreamers = new Map<string, () => void>();
 const downStreamers = new Map<string, () => void>();
 
 const PEER_HEARTBEAT_INTERVAL_MS = 30_000;
+const PEER_CONTAINER_HEARTBEAT_SUB = '__heartbeat__';
+const PEER_CONTAINERS_SUB = '__containers__';
 let peerHeartbeatTimer: NodeJS.Timeout | null = null;
+
+function startPeerContainerHeartbeats(broadcast: (event: BroadcastEvent) => void) {
+  const peers = peerQueries.getAll();
+  for (const peer of peers) {
+    const subKey = `${PEER_CONTAINER_HEARTBEAT_SUB}:${peer.peer_uuid}`;
+    peerWsManager.subscribe(peer.peer_uuid, subKey,
+      (event) => {
+        if (event['type'] === 'heartbeat') {
+          broadcast({ type: 'peer_heartbeat', peer_uuid: peer.peer_uuid, containers: event['containers'] });
+        }
+      },
+      { type: 'subscribe_heartbeat' },
+      { type: 'unsubscribe_heartbeat' },
+    );
+  }
+}
+
+function startPeerContainerUpdates(broadcast: (event: BroadcastEvent) => void) {
+  const peers = peerQueries.getAll();
+  for (const peer of peers) {
+    const subKey = `${PEER_CONTAINERS_SUB}:${peer.peer_uuid}`;
+    peerWsManager.subscribe(peer.peer_uuid, subKey,
+      (event) => {
+        if (event['type'] === 'containers_updated') {
+          broadcast({ type: 'peer_heartbeat', peer_uuid: peer.peer_uuid, containers: event['containers'] });
+        }
+      },
+      { type: 'subscribe_containers' },
+      { type: 'unsubscribe_containers' },
+    );
+  }
+}
+
+function stopPeerContainerHeartbeats() {
+  const peers = peerQueries.getAll();
+  for (const peer of peers) {
+    peerWsManager.unsubscribe(peer.peer_uuid, `${PEER_CONTAINER_HEARTBEAT_SUB}:${peer.peer_uuid}`);
+  }
+}
+
+function stopPeerContainerUpdates() {
+  const peers = peerQueries.getAll();
+  for (const peer of peers) {
+    peerWsManager.unsubscribe(peer.peer_uuid, `${PEER_CONTAINERS_SUB}:${peer.peer_uuid}`);
+  }
+}
 
 function startPeerHeartbeat(broadcast: (event: BroadcastEvent) => void) {
   if (peerHeartbeatTimer) return;
@@ -77,7 +125,11 @@ export function setupWebSocket(fastify: FastifyInstance) {
 
       const clientId = crypto.randomUUID();
       instance.wsClients.set(clientId, socket);
-      if (instance.wsClients.size === 1) startPeerHeartbeat(fastify.broadcast);
+      if (instance.wsClients.size === 1) {
+        startPeerHeartbeat(fastify.broadcast);
+        startPeerContainerHeartbeats(fastify.broadcast);
+        startPeerContainerUpdates(fastify.broadcast);
+      }
 
       socket.send(JSON.stringify({ type: 'connected', clientId }));
 
@@ -91,7 +143,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
             const local = getLocalInstance();
             if (peerUuid && peerUuid !== local.uuid) {
               const subKey = `${clientId}:${containerId}`;
-              peerWsManager.subscribe(peerUuid, subKey,
+              const ok = peerWsManager.subscribe(peerUuid, subKey,
                 (event) => {
                   if (event['type'] === 'log_line' && event['containerId'] === containerId) {
                     try { socket.send(JSON.stringify(event)); } catch {}
@@ -100,6 +152,9 @@ export function setupWebSocket(fastify: FastifyInstance) {
                 { type: 'subscribe_logs', containerId },
                 { type: 'unsubscribe_logs', containerId },
               );
+              if (!ok) {
+                try { socket.send(JSON.stringify({ type: 'error', message: `Peer ${peerUuid} not available` })); } catch {}
+              }
             } else {
               const stopStreaming = await streamLogs(containerId, (line) => {
                 try {
@@ -128,69 +183,112 @@ export function setupWebSocket(fastify: FastifyInstance) {
 
           if (message.type === 'subscribe_terminal' && message.containerId) {
             const containerId = String(message.containerId);
-            const key = `${clientId}:terminal:${containerId}`;
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
 
-            // Kill existing session if any
-            const existing = terminalSessions.get(key);
-            if (existing) { try { existing.kill(); } catch {} terminalSessions.delete(key); }
+            if (peerUuid && peerUuid !== local.uuid) {
+              const subKey = `${clientId}:terminal:${containerId}`;
+              const ok = peerWsManager.subscribe(peerUuid, subKey,
+                (event) => {
+                  if ((event['type'] === 'terminal_output' || event['type'] === 'terminal_exit') && event['containerId'] === containerId) {
+                    try { socket.send(JSON.stringify(event)); } catch {}
+                  }
+                },
+                { type: 'subscribe_terminal', containerId, cols: message.cols, rows: message.rows },
+                { type: 'unsubscribe_terminal', containerId },
+              );
+              if (!ok) {
+                try { socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: 1 })); } catch {}
+              }
+            } else {
+              const key = `${clientId}:terminal:${containerId}`;
 
-            const cols = Number(message.cols) || 80;
-            const rows = Number(message.rows) || 24;
+              // Kill existing session if any
+              const existing = terminalSessions.get(key);
+              if (existing) { try { existing.kill(); } catch {} terminalSessions.delete(key); }
 
-            // Prefer bash (readline + completion); fall back to sh (busybox ash) if unavailable.
-            // dash (Debian/Ubuntu /bin/sh) has no readline at all, hence no tab completion.
-            const ptyProcess = pty.spawn('docker', ['exec', '-it', containerId,
-              '/bin/sh', '-c', 'exec $(command -v bash || command -v sh)'], {
-              name: 'xterm-256color',
-              cols,
-              rows,
-              cwd: process.env.HOME ?? '/',
-              env: { ...process.env, TERM: 'xterm-256color' },
-            });
-            terminalSessions.set(key, ptyProcess);
+              const cols = Number(message.cols) || 80;
+              const rows = Number(message.rows) || 24;
 
-            ptyProcess.onData((data: string) => {
-              try {
-                socket.send(JSON.stringify({
-                  type: 'terminal_output',
-                  containerId,
-                  // Encode as base64 to safely transmit raw binary PTY data
-                  data: Buffer.from(data, 'binary').toString('base64'),
-                }));
-              } catch {}
-            });
+              // Prefer bash (readline + completion); fall back to sh (busybox ash) if unavailable.
+              // dash (Debian/Ubuntu /bin/sh) has no readline at all, hence no tab completion.
+              const ptyProcess = pty.spawn('docker', ['exec', '-it', containerId,
+                '/bin/sh', '-c', 'exec $(command -v bash || command -v sh)'], {
+                name: 'xterm-256color',
+                cols,
+                rows,
+                cwd: process.env.HOME ?? '/',
+                env: { ...process.env, TERM: 'xterm-256color' },
+              });
+              terminalSessions.set(key, ptyProcess);
 
-            ptyProcess.onExit(({ exitCode }) => {
-              terminalSessions.delete(key);
-              try {
-                socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: exitCode }));
-              } catch {}
-            });
+              ptyProcess.onData((data: string) => {
+                try {
+                  socket.send(JSON.stringify({
+                    type: 'terminal_output',
+                    containerId,
+                    // Encode as base64 to safely transmit raw binary PTY data
+                    data: Buffer.from(data, 'binary').toString('base64'),
+                  }));
+                } catch {}
+              });
+
+              ptyProcess.onExit(({ exitCode }) => {
+                terminalSessions.delete(key);
+                try {
+                  socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: exitCode }));
+                } catch {}
+              });
+            }
           }
 
           if (message.type === 'terminal_input' && message.containerId && message.data) {
-            const key = `${clientId}:terminal:${String(message.containerId)}`;
-            const ptyProcess = terminalSessions.get(key);
-            if (ptyProcess) {
-              // data is a raw binary string (not base64) sent directly by xterm.js onData
-              ptyProcess.write(String(message.data));
+            const containerId = String(message.containerId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.send(peerUuid, { type: 'terminal_input', containerId, data: message.data });
+            } else {
+              const key = `${clientId}:terminal:${containerId}`;
+              const ptyProcess = terminalSessions.get(key);
+              if (ptyProcess) {
+                // data is a raw binary string (not base64) sent directly by xterm.js onData
+                ptyProcess.write(String(message.data));
+              }
             }
           }
 
           if (message.type === 'terminal_resize' && message.containerId) {
-            const key = `${clientId}:terminal:${String(message.containerId)}`;
-            const ptyProcess = terminalSessions.get(key);
-            const cols = Number(message.cols);
-            const rows = Number(message.rows);
-            if (ptyProcess && cols > 0 && rows > 0) {
-              try { ptyProcess.resize(cols, rows); } catch {}
+            const containerId = String(message.containerId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.send(peerUuid, { type: 'terminal_resize', containerId, cols: message.cols, rows: message.rows });
+            } else {
+              const key = `${clientId}:terminal:${containerId}`;
+              const ptyProcess = terminalSessions.get(key);
+              const cols = Number(message.cols);
+              const rows = Number(message.rows);
+              if (ptyProcess && cols > 0 && rows > 0) {
+                try { ptyProcess.resize(cols, rows); } catch {}
+              }
             }
           }
 
           if (message.type === 'unsubscribe_terminal' && message.containerId) {
-            const key = `${clientId}:terminal:${String(message.containerId)}`;
-            const ptyProcess = terminalSessions.get(key);
-            if (ptyProcess) { try { ptyProcess.kill(); } catch {} terminalSessions.delete(key); }
+            const containerId = String(message.containerId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.unsubscribe(peerUuid, `${clientId}:terminal:${containerId}`);
+            } else {
+              const key = `${clientId}:terminal:${containerId}`;
+              const ptyProcess = terminalSessions.get(key);
+              if (ptyProcess) { try { ptyProcess.kill(); } catch {} terminalSessions.delete(key); }
+            }
           }
 
           if (message.type === 'subscribe_deploy' && message.projectId) {
@@ -199,7 +297,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
             const local = getLocalInstance();
             if (peerUuid && peerUuid !== local.uuid) {
               const subKey = `${clientId}:deploy:${projectId}`;
-              peerWsManager.subscribe(peerUuid, subKey,
+              const ok = peerWsManager.subscribe(peerUuid, subKey,
                 (event) => {
                   if ((event['type'] === 'deploy_output' || event['type'] === 'deploy_done') && event['projectId'] === projectId) {
                     try { socket.send(JSON.stringify(event)); } catch {}
@@ -208,6 +306,10 @@ export function setupWebSocket(fastify: FastifyInstance) {
                 { type: 'subscribe_deploy', projectId },
                 { type: 'abort_deploy', projectId },
               );
+              if (!ok) {
+                try { socket.send(JSON.stringify({ type: 'deploy_output', projectId, line: `Error: Peer ${peerUuid} not available` })); } catch {}
+                try { socket.send(JSON.stringify({ type: 'deploy_done', projectId, success: false })); } catch {}
+              }
             } else {
               const key = `${clientId}:deploy:${projectId}`;
               const existing = deployStreamers.get(key);
@@ -246,7 +348,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
             const local = getLocalInstance();
             if (peerUuid && peerUuid !== local.uuid) {
               const subKey = `${clientId}:down:${projectId}`;
-              peerWsManager.subscribe(peerUuid, subKey,
+              const ok = peerWsManager.subscribe(peerUuid, subKey,
                 (event) => {
                   if ((event['type'] === 'down_output' || event['type'] === 'down_done') && event['projectId'] === projectId) {
                     try { socket.send(JSON.stringify(event)); } catch {}
@@ -255,6 +357,10 @@ export function setupWebSocket(fastify: FastifyInstance) {
                 { type: 'subscribe_down', projectId },
                 { type: 'abort_down', projectId },
               );
+              if (!ok) {
+                try { socket.send(JSON.stringify({ type: 'down_output', projectId, line: `Error: Peer ${peerUuid} not available` })); } catch {}
+                try { socket.send(JSON.stringify({ type: 'down_done', projectId, success: false })); } catch {}
+              }
             } else {
               const key = `${clientId}:down:${projectId}`;
               const existing = downStreamers.get(key);
@@ -309,7 +415,11 @@ export function setupWebSocket(fastify: FastifyInstance) {
         termKeysToDelete.forEach(key => terminalSessions.delete(key));
         peerWsManager.cleanupClient(clientId);
         instance.wsClients.delete(clientId);
-        if (instance.wsClients.size === 0) stopPeerHeartbeat();
+        if (instance.wsClients.size === 0) {
+          stopPeerHeartbeat();
+          stopPeerContainerHeartbeats();
+          stopPeerContainerUpdates();
+        }
       });
 
       socket.on('error', () => {

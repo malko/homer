@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, getActivePeer } from '../api';
+import { api, getActivePeer, setActivePeer } from '../api';
 import { useAuth } from '../hooks/useAuth';
 import { parseAnsiSegments } from '../utils/ansi';
 
@@ -27,7 +27,13 @@ export function LogsPage() {
   const [searchParams] = useSearchParams();
   const containerId = searchParams.get('containerId') ?? '';
   const containerName = searchParams.get('containerName') ?? containerId;
+  const peerUuid = searchParams.get('peer_uuid') ?? null;
   const { status } = useAuth();
+
+  // Set active peer from URL param so HTTP API calls include X-Peer-Uuid header
+  useEffect(() => {
+    setActivePeer(peerUuid);
+  }, [peerUuid]);
 
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +71,7 @@ export function LogsPage() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe_logs', containerId, peer_uuid: getActivePeer() }));
+      ws.send(JSON.stringify({ type: 'subscribe_logs', containerId, peer_uuid: peerUuid }));
       setWsConnected(true);
     };
 
@@ -81,7 +87,7 @@ export function LogsPage() {
     ws.onclose = () => setWsConnected(false);
 
     return () => {
-      try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId })); } catch {}
+      try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId, peer_uuid: peerUuid })); } catch {}
       ws.close();
     };
   }, [containerId, status?.authenticated]);

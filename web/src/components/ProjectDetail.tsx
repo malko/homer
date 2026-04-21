@@ -286,7 +286,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       if (terminalWsRef.current) {
         const ws = terminalWsRef.current;
         terminalWsRef.current = null;
-        try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId })); } catch {}
+        try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId, peer_uuid: getActivePeer() })); } catch {}
         ws.close();
         setTerminalConnected(false);
       }
@@ -303,7 +303,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       const cols = terminalHandle.current?.getDimensions().cols ?? 80;
       const rows = terminalHandle.current?.getDimensions().rows ?? 24;
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId: terminalContainerId, cols, rows }));
+        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId: terminalContainerId, cols, rows, peer_uuid: getActivePeer() }));
       }
       setTerminalConnected(true);
       terminalHandle.current?.focus();
@@ -324,15 +324,18 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           terminalHandle.current?.writeB64(msg.data as string);
         } else if (msg.type === 'terminal_exit' && msg.containerId === terminalContainerId) {
           setTerminalConnected(false);
+        } else if (msg.type === 'error') {
+          console.error('[terminal] WebSocket error:', msg.message);
+          setTerminalConnected(false);
         }
       } catch {}
     };
     ws.onclose = () => { if (terminalWsRef.current) setTerminalConnected(false); };
-    ws.onerror = () => ws.close();
+    ws.onerror = () => { console.error('[terminal] WebSocket connection error'); ws.close(); };
 
     return () => {
       terminalWsRef.current = null;
-      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId })); } catch {}
+      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId, peer_uuid: getActivePeer() })); } catch {}
       ws.close();
       setTerminalConnected(false);
     };
@@ -369,6 +372,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       type: 'terminal_input',
       containerId: terminalContainerId,
       data,
+      peer_uuid: getActivePeer(),
     }));
   }, [terminalConnected, terminalContainerId]);
 
@@ -380,6 +384,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       containerId: terminalContainerId,
       cols,
       rows,
+      peer_uuid: getActivePeer(),
     }));
   }, [terminalContainerId]);
 
@@ -387,7 +392,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     const container = project.containers.find(c => c.id === terminalContainerId);
     if (!container) return;
     const { cols, rows } = terminalHandle.current?.getDimensions() ?? { cols: 80, rows: 24 };
-    const url = `/terminal?containerId=${encodeURIComponent(container.id)}&containerName=${encodeURIComponent(container.name)}&cols=${cols}&rows=${rows}`;
+    const peer = getActivePeer();
+    const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
+    const url = `/terminal?containerId=${encodeURIComponent(container.id)}&containerName=${encodeURIComponent(container.name)}&cols=${cols}&rows=${rows}${peerParam}`;
     const win = window.open(url, '_blank', 'width=960,height=640');
     if (win) terminalWindowRef.current = win;
   };
@@ -396,7 +403,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     if (terminalWsRef.current) {
       const ws = terminalWsRef.current;
       terminalWsRef.current = null;
-      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId })); } catch {}
+      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId: terminalContainerId, peer_uuid: getActivePeer() })); } catch {}
       ws.close();
     }
     terminalHistoryRef.current = '';
@@ -457,6 +464,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           } else {
             addToast('error', 'Deploy failed — see output for details');
           }
+        } else if (msg.type === 'error') {
+          addToast('error', msg.message || 'WebSocket error');
+          setDeployRunning(false);
+          ws.close();
+          deployWsRef.current = null;
         }
       } catch {}
     };
@@ -470,7 +482,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const handleAbortDeploy = () => {
     if (deployWsRef.current) {
       try {
-        deployWsRef.current.send(JSON.stringify({ type: 'abort_deploy', projectId: project.id }));
+        deployWsRef.current.send(JSON.stringify({ type: 'abort_deploy', projectId: project.id, peer_uuid: getActivePeer() }));
       } catch {}
       deployWsRef.current.close();
       deployWsRef.current = null;
@@ -521,6 +533,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           } else {
             addToast('error', 'Stop failed — see output for details');
           }
+        } else if (msg.type === 'error') {
+          addToast('error', msg.message || 'WebSocket error');
+          setDownRunning(false);
+          ws.close();
+          downWsRef.current = null;
         }
       } catch {}
     };
@@ -534,7 +551,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const handleAbortDown = () => {
     if (downWsRef.current) {
       try {
-        downWsRef.current.send(JSON.stringify({ type: 'abort_down', projectId: project.id }));
+        downWsRef.current.send(JSON.stringify({ type: 'abort_down', projectId: project.id, peer_uuid: getActivePeer() }));
       } catch {}
       downWsRef.current.close();
       downWsRef.current = null;
@@ -732,9 +749,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning} title={runningCount > 0 ? 'docker compose down' : 'docker compose up -d'}>
             {deployRunning || downRunning ? (runningCount > 0 ? 'Stopping...' : 'Starting...') : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
-          <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating} title="docker compose pull && docker compose up -d">
-            {updating ? 'Updating...' : 'Update Images'}
-          </button>
+          {project.update_available && (
+            <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating} title="docker compose pull && docker compose up -d">
+              {updating ? 'Updating...' : 'Update Images'}
+            </button>
+          )}
           <button className="btn btn-sm btn-secondary" onClick={handleCheckUpdates} disabled={checkingUpdates} title="Vérifier les mises à jour d'images">
             {checkingUpdates ? '...' : 'Check Updates'}
           </button>

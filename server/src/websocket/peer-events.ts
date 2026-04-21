@@ -1,7 +1,23 @@
 import { FastifyInstance } from 'fastify';
+import { createRequire } from 'module';
 import { peerQueries } from '../db/index.js';
 import { verifySignature } from '../services/peers.js';
-import { streamLogs, deployProjectStream, downProjectStream } from '../services/docker.js';
+import { streamLogs, deployProjectStream, downProjectStream, listContainers } from '../services/docker.js';
+
+interface IPty {
+  onData: (cb: (data: string) => void) => void;
+  onExit: (cb: (e: { exitCode: number }) => void) => void;
+  write: (data: string) => void;
+  resize: (cols: number, rows: number) => void;
+  kill: (signal?: string) => void;
+}
+interface PtyModule {
+  spawn: (file: string, args: string[], options: {
+    name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv;
+  }) => IPty;
+}
+const require = createRequire(import.meta.url);
+const pty = require('node-pty') as PtyModule;
 
 export function setupPeerEventsWs(fastify: FastifyInstance) {
   fastify.register(async (instance) => {
@@ -25,10 +41,56 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
       const logStreamers = new Map<string, () => void>();
       const deployStreamers = new Map<string, () => void>();
       const downStreamers = new Map<string, () => void>();
+      const terminalSessions = new Map<string, IPty>();
+      let heartbeatTimer: NodeJS.Timeout | null = null;
+      let containersCheckTimer: NodeJS.Timeout | null = null;
+      let containersSubscribed = false;
+      let lastContainersJson = '';
 
       socket.on('message', async (data: Buffer | string) => {
         try {
           const message = JSON.parse(data.toString());
+
+          if (message.type === 'subscribe_heartbeat') {
+            if (heartbeatTimer) return;
+            // Send immediately, then every 10s
+            const sendHeartbeat = async () => {
+              try {
+                const containers = await listContainers();
+                socket.send(JSON.stringify({ type: 'heartbeat', containers }));
+              } catch {}
+            };
+            sendHeartbeat();
+            heartbeatTimer = setInterval(sendHeartbeat, 10_000);
+          }
+
+          if (message.type === 'unsubscribe_heartbeat') {
+            if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+          }
+
+          if (message.type === 'subscribe_containers') {
+            containersSubscribed = true;
+            if (!containersCheckTimer) {
+              const checkContainers = async () => {
+                try {
+                  const containers = await listContainers();
+                  const json = JSON.stringify(containers);
+                  if (json !== lastContainersJson) {
+                    lastContainersJson = json;
+                    socket.send(JSON.stringify({ type: 'containers_updated', containers }));
+                  }
+                } catch {}
+              };
+              checkContainers();
+              containersCheckTimer = setInterval(checkContainers, 2_000);
+            }
+          }
+
+          if (message.type === 'unsubscribe_containers') {
+            containersSubscribed = false;
+            if (containersCheckTimer) { clearInterval(containersCheckTimer); containersCheckTimer = null; }
+            lastContainersJson = '';
+          }
 
           if (message.type === 'subscribe_logs' && message.containerId) {
             const containerId = String(message.containerId);
@@ -96,16 +158,78 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
             const stop = downStreamers.get(key);
             if (stop) { stop(); downStreamers.delete(key); }
           }
+
+          if (message.type === 'subscribe_terminal' && message.containerId) {
+            const containerId = String(message.containerId);
+            const key = `${clientId}:terminal:${containerId}`;
+            const existing = terminalSessions.get(key);
+            if (existing) { try { existing.kill(); } catch {} terminalSessions.delete(key); }
+
+            const cols = Number(message.cols) || 80;
+            const rows = Number(message.rows) || 24;
+
+            const ptyProcess = pty.spawn('docker', ['exec', '-it', containerId,
+              '/bin/sh', '-c', 'exec $(command -v bash || command -v sh)'], {
+              name: 'xterm-256color',
+              cols,
+              rows,
+              cwd: process.env.HOME ?? '/',
+              env: { ...process.env, TERM: 'xterm-256color' },
+            });
+            terminalSessions.set(key, ptyProcess);
+
+            ptyProcess.onData((data: string) => {
+              try {
+                socket.send(JSON.stringify({
+                  type: 'terminal_output',
+                  containerId,
+                  data: Buffer.from(data, 'binary').toString('base64'),
+                }));
+              } catch {}
+            });
+
+            ptyProcess.onExit(({ exitCode }) => {
+              terminalSessions.delete(key);
+              try { socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: exitCode })); } catch {}
+            });
+          }
+
+          if (message.type === 'terminal_input' && message.containerId && message.data) {
+            const key = `${clientId}:terminal:${String(message.containerId)}`;
+            const ptyProcess = terminalSessions.get(key);
+            if (ptyProcess) ptyProcess.write(String(message.data));
+          }
+
+          if (message.type === 'terminal_resize' && message.containerId) {
+            const key = `${clientId}:terminal:${String(message.containerId)}`;
+            const ptyProcess = terminalSessions.get(key);
+            const cols = Number(message.cols);
+            const rows = Number(message.rows);
+            if (ptyProcess && cols > 0 && rows > 0) {
+              try { ptyProcess.resize(cols, rows); } catch {}
+            }
+          }
+
+          if (message.type === 'unsubscribe_terminal' && message.containerId) {
+            const key = `${clientId}:terminal:${String(message.containerId)}`;
+            const ptyProcess = terminalSessions.get(key);
+            if (ptyProcess) { try { ptyProcess.kill(); } catch {} terminalSessions.delete(key); }
+          }
         } catch {}
       });
 
       socket.on('close', () => {
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        if (containersCheckTimer) { clearInterval(containersCheckTimer); containersCheckTimer = null; }
         logStreamers.forEach(stop => stop());
         deployStreamers.forEach(stop => stop());
         downStreamers.forEach(stop => stop());
+        terminalSessions.forEach(proc => { try { proc.kill(); } catch {} });
       });
 
-      socket.on('error', () => {});
+      socket.on('error', (err: Error) => {
+        console.error(`[peer-events] WebSocket error from peer ${peer.peer_name}:`, err.message);
+      });
     });
   });
 }

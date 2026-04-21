@@ -7,6 +7,7 @@ export function TerminalPage() {
   const [searchParams] = useSearchParams();
   const containerId = searchParams.get('containerId') ?? '';
   const containerName = searchParams.get('containerName') ?? containerId;
+  const peerUuid = searchParams.get('peer_uuid') ?? null;
   const initCols = Number(searchParams.get('cols')) || 80;
   const initRows = Number(searchParams.get('rows')) || 24;
 
@@ -51,7 +52,7 @@ export function TerminalPage() {
       const cols = terminalHandle.current?.getDimensions().cols ?? initCols;
       const rows = terminalHandle.current?.getDimensions().rows ?? initRows;
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId, cols, rows }));
+        ws.send(JSON.stringify({ type: 'subscribe_terminal', containerId, cols, rows, peer_uuid: peerUuid }));
       }
       setConnected(true);
       terminalHandle.current?.focus();
@@ -70,28 +71,31 @@ export function TerminalPage() {
           terminalHandle.current?.writeB64(msg.data as string);
         } else if (msg.type === 'terminal_exit' && msg.containerId === containerId) {
           setConnected(false);
+        } else if (msg.type === 'error') {
+          console.error('[terminal] WebSocket error:', msg.message);
+          setConnected(false);
         }
       } catch {}
     };
     ws.onclose = () => setConnected(false);
-    ws.onerror = () => ws.close();
+    ws.onerror = () => { console.error('[terminal] WebSocket connection error'); ws.close(); };
 
     return () => {
       wsRef.current = null;
-      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId })); } catch {}
+      try { ws.send(JSON.stringify({ type: 'unsubscribe_terminal', containerId, peer_uuid: peerUuid })); } catch {}
       ws.close();
     };
   }, [containerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleData = useCallback((data: string) => {
     if (!wsRef.current || !connected) return;
-    wsRef.current.send(JSON.stringify({ type: 'terminal_input', containerId, data }));
-  }, [connected, containerId]);
+    wsRef.current.send(JSON.stringify({ type: 'terminal_input', containerId, data, peer_uuid: peerUuid }));
+  }, [connected, containerId, peerUuid]);
 
   const handleResize = useCallback((cols: number, rows: number) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: 'terminal_resize', containerId, cols, rows }));
-  }, [containerId]);
+    wsRef.current.send(JSON.stringify({ type: 'terminal_resize', containerId, cols, rows, peer_uuid: peerUuid }));
+  }, [containerId, peerUuid]);
 
   const handleMoveBack = () => {
     if (window.opener && !window.opener.closed) {
