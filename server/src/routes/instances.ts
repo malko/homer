@@ -282,6 +282,8 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       expires_at: Date.now() + PAIRING_TTL_MS,
     });
 
+    (fastify as any).broadcast?.({ type: 'pairing_request', peer_name: body.from_name, peer_uuid: body.from_uuid, peer_url: body.from_url ?? null });
+
     const local = getLocalInstance();
     const ca = await loadLocalRootCa();
     return {
@@ -340,9 +342,24 @@ export async function instancesRoutes(fastify: FastifyInstance) {
 
   // ── Peer-to-peer: new instance registers itself via federation setup flow ───
   fastify.post('/api/instances/_peer/federation-join', async (request, reply) => {
+    // Accept either bearer token auth or HMAC peer auth
     const token = request.headers.authorization?.replace('Bearer ', '');
     const session = token ? sessionQueries.getByToken(token) : null;
-    if (!session) return reply.status(401).send({ error: 'Unauthorized' });
+    const peerUuid = request.headers['x-peer-uuid'] as string | undefined;
+    const peerEntry = peerUuid ? peerQueries.getByUuid(peerUuid) : null;
+    const timestamp = Number(request.headers['x-peer-timestamp']);
+    const signature = request.headers['x-peer-signature'] as string | undefined;
+
+    let authenticated = false;
+    if (session) {
+      authenticated = true;
+    } else if (peerEntry && signature && verifySignature(peerEntry.shared_secret, JSON.stringify(request.body) ?? '', timestamp, signature)) {
+      authenticated = true;
+    }
+
+    if (!authenticated) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
 
     const body = (request.body as {
       peer_uuid?: string;
@@ -365,7 +382,16 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       status: 'online',
     });
 
-    return { success: true };
+    // Return our peer list so the newcomer can register with all of them
+    const ourPeers = peerQueries.getAll().map(p => ({
+      peer_uuid: p.peer_uuid,
+      peer_name: p.peer_name,
+      peer_url: p.peer_url,
+      peer_ca: p.peer_ca,
+      shared_secret: p.shared_secret,
+    }));
+
+    return { success: true, peers: ourPeers };
   });
 
   // ── Adopt a paired peer's CA on this instance ─────────────────────────────
@@ -401,6 +427,27 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       status: peer.status ?? 'online',
     });
 
+    return { success: true };
+  });
+
+  // ── Leave federation (unpair from all peers, become independent again) ─────
+  fastify.post('/api/instances/leave', async (request, reply) => {
+    if (!requireAuth(request, reply)) return;
+
+    const peers = peerQueries.getAll();
+    const local = getLocalInstance();
+
+    for (const peer of peers) {
+      await peerFetch(peer.peer_url, '/api/instances/_peer/unpair', {
+        method: 'POST',
+        body: { from_uuid: local.uuid },
+        peerCa: peer.peer_ca,
+        sharedSecret: peer.shared_secret,
+        timeoutMs: 5000,
+      }).catch(() => {});
+    }
+
+    peerQueries.deleteAll();
     return { success: true };
   });
 }

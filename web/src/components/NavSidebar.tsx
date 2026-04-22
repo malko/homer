@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../hooks/useAuth';
+import { usePeer } from '../hooks/usePeer';
 import { useMobileSidebar, useIsMobile } from '../hooks/useMobileSidebar';
 import bigiconImage from '@assets/bigicon.png';
 
@@ -150,6 +151,7 @@ function MenuCloseIcon() {
 
 export function NavSidebar() {
   const { logout, status } = useAuth();
+  const { pendingPairingCount } = usePeer();
   const { isOpen: mobileOpen, close: closeMobileMenu } = useMobileSidebar();
   const [expanded, setExpanded] = useState(() => {
     return localStorage.getItem('nav-sidebar-expanded') === 'true';
@@ -271,10 +273,6 @@ export function NavSidebar() {
             <span className="nav-sidebar-icon"><ProxyIcon /></span>
             <span className="nav-sidebar-label">Proxy</span>
           </NavLink>
-          <NavLink to="/instances" className={({ isActive }) => 'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')} onClick={closeMobileMenu}>
-            <span className="nav-sidebar-icon"><InstancesIcon /></span>
-            <span className="nav-sidebar-label">Fédération</span>
-          </NavLink>
 
           <div style={{ flex: 1 }} />
 
@@ -293,10 +291,15 @@ export function NavSidebar() {
         </div>
 
         <div className="nav-sidebar-bottom">
-          <NavLink to="/settings" className={({ isActive }) => 'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')} onClick={closeMobileMenu}>
+          <NavLink to="/settings" className={() => 'nav-sidebar-item' + (location.pathname.startsWith('/settings') && !location.pathname.startsWith('/settings/federation') ? ' nav-sidebar-item--active' : '')} onClick={closeMobileMenu}>
             <span className="nav-sidebar-icon"><SettingsIcon /></span>
             <span className="nav-sidebar-label">Paramètres</span>
           </NavLink>
+          {/* <NavLink to="/settings/federation" className={({ isActive }) => 'nav-sidebar-item' + (isActive ? ' nav-sidebar-item--active' : '')} onClick={closeMobileMenu}>
+            <span className="nav-sidebar-icon"><InstancesIcon /></span>
+            <span className="nav-sidebar-label">Fédération</span>
+            {pendingPairingCount > 0 && <span className="nav-sidebar-badge">{pendingPairingCount}</span>}
+          </NavLink> */}
 
           <div className="nav-sidebar-user-wrap">
             <button

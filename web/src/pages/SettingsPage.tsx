@@ -1,41 +1,64 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
 import { api, Container, SystemSettings, LocalInstanceInfo } from '../api';
 import { ContainerRow } from '../components/ContainerRow';
 import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
+import { FederationSettings } from './FederationSettings';
 import '../styles/settings.css';
 
-type SettingsTab = 'general' | 'containers';
+type SettingsTab = 'overview' | 'containers' | 'federation';
 
-interface SettingsPageProps {
-  initialTab?: SettingsTab;
-}
+const TAB_PATHS: Record<SettingsTab, string> = {
+  overview: '/settings',
+  containers: '/settings/containers',
+  federation: '/settings/federation',
+};
 
-export function SettingsPage({ initialTab }: SettingsPageProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? 'general');
+const PATH_TABS: Record<string, SettingsTab> = {
+  '/settings': 'overview',
+  '/settings/containers': 'containers',
+  '/settings/federation': 'federation',
+};
+
+export function SettingsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = PATH_TABS[location.pathname] ?? 'overview';
+
+  const switchTab = (tab: SettingsTab) => {
+    navigate(TAB_PATHS[tab]);
+  };
 
   return (
     <div className="settings-page">
       <AppHeader title="Paramètres" />
       <div className="settings-tabs">
         <button
-          className={`settings-tab ${activeTab === 'general' ? 'settings-tab-active' : ''}`}
-          onClick={() => setActiveTab('general')}
+          className={`settings-tab ${activeTab === 'overview' ? 'settings-tab-active' : ''}`}
+          onClick={() => switchTab('overview')}
         >
           Général
         </button>
         <button
           className={`settings-tab ${activeTab === 'containers' ? 'settings-tab-active' : ''}`}
-          onClick={() => setActiveTab('containers')}
+          onClick={() => switchTab('containers')}
         >
           Containers
+        </button>
+        <button
+          className={`settings-tab ${activeTab === 'federation' ? 'settings-tab-active' : ''}`}
+          onClick={() => switchTab('federation')}
+        >
+          Federation
         </button>
       </div>
 
       <div className={`settings-content${activeTab === 'containers' ? ' settings-content--fill' : ''}`}>
-        {activeTab === 'general' && <GeneralSettings />}
+        {activeTab === 'overview' && <GeneralSettings />}
         {activeTab === 'containers' && <ContainersSettings />}
+        {activeTab === 'federation' && <FederationSettings />}
       </div>
     </div>
   );
@@ -186,7 +209,7 @@ function GeneralSettings() {
         </div>
         <div className="toggle-row" style={{ marginTop: '0.75rem' }}>
           <label className="toggle-label">
-            <span>Mises à jour app automatiques</span>
+            <span>Mises à jour auto</span>
             <span className="form-help">Installer automatiquement les nouvelles versions de HOMER</span>
           </label>
           <button
@@ -414,7 +437,6 @@ function InstanceSettings() {
 
     try {
       const res = await api.system.restart();
-      // 202 = accepted, async restart started
       if (isLocal) {
         startRestartPolling();
       } else {

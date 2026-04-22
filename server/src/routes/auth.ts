@@ -134,10 +134,10 @@ export async function authRoutes(fastify: FastifyInstance) {
     // 5. Generate the shared secret once — used on BOTH sides for HMAC
     const sharedSecret = generateSecret();
 
-    // 6. Register this new instance as a peer on the home instance (best-effort)
+    // 6. Register this new instance as a peer on the home instance
     const local = getLocalInstance();
     const localCa = await loadLocalRootCa();
-    peerFetch(body.peer_url, '/api/instances/_peer/federation-join', {
+    const joinResult = await peerFetch<{ success: boolean; peers?: Array<{ peer_uuid: string; peer_name: string; peer_url: string; peer_ca: string | null; shared_secret: string }> }>(body.peer_url, '/api/instances/_peer/federation-join', {
       method: 'POST',
       peerCa: null,
       bearerToken: loginToken,
@@ -148,12 +148,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         peer_ca: localCa,
         shared_secret: sharedSecret,
       },
-    }).catch(() => {});
+    });
 
     // Best-effort logout on remote (after all token-authenticated calls)
     peerFetch(body.peer_url, '/api/auth/logout', { method: 'POST', peerCa: null }).catch(() => {});
 
-    // 7. Store a peer entry for the home instance so login delegation knows the URL
+    // 7. Store a peer entry for the home instance
     peerQueries.upsert({
       peer_uuid: remoteUuid,
       peer_name: remoteName,
@@ -164,7 +164,47 @@ export async function authRoutes(fastify: FastifyInstance) {
       status: 'online',
     });
 
-    // 5. Create local federated user with cached hash (for offline fallback)
+    // 8. Discover and register with all other peers in the federation
+    if (joinResult.ok && joinResult.data?.peers) {
+      for (const peer of joinResult.data.peers) {
+        // Skip ourselves and the home instance (already stored above)
+        if (peer.peer_uuid === local.uuid || peer.peer_uuid === remoteUuid) continue;
+
+        // Generate a unique shared secret for each peer relationship
+        const peerSecret = generateSecret();
+
+        // Register with this peer using HMAC auth
+        // We borrow the home instance's identity (senderUuid: remoteUuid) because
+        // the peer trusts the home instance, so the home instance vouches for us
+        const peerJoinResult = await peerFetch<{ success: boolean }>(peer.peer_url, '/api/instances/_peer/federation-join', {
+          method: 'POST',
+          peerCa: peer.peer_ca,
+          sharedSecret: peer.shared_secret,
+          senderUuid: remoteUuid,
+          body: {
+            peer_uuid: local.uuid,
+            peer_name: local.name,
+            peer_url: local.url,
+            peer_ca: localCa,
+            shared_secret: peerSecret,
+          },
+          timeoutMs: 5000,
+        }).catch(() => null);
+
+        // Store this peer locally (even if registration failed, keep entry for retry)
+        peerQueries.upsert({
+          peer_uuid: peer.peer_uuid,
+          peer_name: peer.peer_name,
+          peer_url: peer.peer_url,
+          peer_ca: peer.peer_ca,
+          shared_secret: peerSecret,
+          paired_at: Date.now(),
+          status: peerJoinResult?.ok ? 'online' : 'offline',
+        });
+      }
+    }
+
+    // Create local federated user with cached hash (for offline fallback)
     const cachedHash = await bcrypt.hash(body.password, 10);
     const cachedHashExpiresAt = Date.now() + 24 * 3600 * 1000;
     userQueries.createFederated(body.username, remoteUuid, cachedHash, cachedHashExpiresAt);

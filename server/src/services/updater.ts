@@ -38,22 +38,13 @@ async function detectFromContainer(): Promise<ContainerConfig | null> {
 async function getConfig(): Promise<ContainerConfig> {
   if (_cachedConfig) return _cachedConfig;
 
-  if (process.env.HOMER_IMAGE && process.env.HOMER_COMPOSE_FILE) {
-    _cachedConfig = { image: process.env.HOMER_IMAGE, composeFile: process.env.HOMER_COMPOSE_FILE };
-    return _cachedConfig;
-  }
-
   const detected = await detectFromContainer();
   if (detected) {
     _cachedConfig = detected;
     return _cachedConfig;
   }
 
-  _cachedConfig = {
-    image: process.env.HOMER_IMAGE || '',
-    composeFile: process.env.HOMER_COMPOSE_FILE || '',
-  };
-  return _cachedConfig;
+  return { image: '', composeFile: '' };
 }
 
 export async function isConfigured(): Promise<boolean> {

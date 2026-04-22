@@ -16,7 +16,6 @@ import { NetworksPage } from './pages/NetworksPage';
 import { ImagesPage } from './pages/ImagesPage';
 import { AllContainersPage } from './pages/AllContainersPage';
 import { ProxyPage } from './pages/ProxyPage';
-import { InstancesPage } from './pages/InstancesPage';
 import { UpdateBanner } from './components/UpdateBanner';
 import { NavSidebar } from './components/NavSidebar';
 import { UpdatesModal } from './components/UpdatesModal';
@@ -151,7 +150,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
+<Route
         path="/settings"
         element={
           <ProtectedRoute>
@@ -160,10 +159,18 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/settings/system-containers"
+        path="/settings/containers"
         element={
           <ProtectedRoute>
-            <SettingsPage initialTab="containers" />
+            <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings/federation"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
           </ProtectedRoute>
         }
       />
@@ -216,14 +223,6 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/instances"
-        element={
-          <ProtectedRoute>
-            <InstancesPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/terminal"
         element={
           <ProtectedRoute noLayout>
@@ -238,6 +237,14 @@ function AppRoutes() {
             <LogsPage />
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/instances"
+        element={<Navigate to="/settings/federation" replace />}
+      />
+      <Route
+        path="/settings/system-containers"
+        element={<Navigate to="/settings/containers" replace />}
       />
       <Route
         path="/*"

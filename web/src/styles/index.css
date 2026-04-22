@@ -2351,6 +2351,7 @@ body {
 }
 
 .nav-sidebar-item {
+  position: relative;
   height: 38px;
   display: flex;
   align-items: center;
@@ -2398,6 +2399,22 @@ body {
 
 .nav-sidebar--expanded .nav-sidebar-label {
   opacity: 1;
+}
+
+.nav-sidebar-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
 }
 
 .nav-sidebar-toggle-btn:hover {

@@ -6,19 +6,24 @@ interface PeerContextValue {
   peers: PeerInstance[];
   activePeer: PeerInstance | null;
   selectPeer: (peer: PeerInstance | null) => void;
-  reloadPeers: () => void;
+  reloadPeers: () => Promise<void>;
+  pendingPairingCount: number;
+  setPendingPairingCount: (count: number) => void;
 }
 
 const PeerContext = createContext<PeerContextValue>({
   peers: [],
   activePeer: null,
   selectPeer: () => {},
-  reloadPeers: () => {},
+  reloadPeers: async () => {},
+  pendingPairingCount: 0,
+  setPendingPairingCount: () => {},
 });
 
 export function PeerProvider({ children }: { children: ReactNode }) {
   const [peers, setPeers] = useState<PeerInstance[]>([]);
   const [activePeer, setActivePeerState] = useState<PeerInstance | null>(null);
+  const [pendingPairingCount, setPendingPairingCount] = useState(0);
 
   const reloadPeers = () => {
     return api.instances.list()
@@ -37,13 +42,23 @@ export function PeerProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
   };
 
+  const loadPendingCount = useCallback(() => {
+    api.instances.pendingPairings()
+      .then(r => setPendingPairingCount(r.pending.length))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     reloadPeers();
-  }, []);
+    loadPendingCount();
+  }, [loadPendingCount]);
 
   const handleWsMessage = useCallback((msg: { type: string; [k: string]: unknown }) => {
     if (msg.type === 'peer_status_changed' && typeof msg.peer_uuid === 'string' && typeof msg.status === 'string') {
       setPeers(prev => prev.map(p => p.uuid === msg.peer_uuid ? { ...p, status: msg.status as PeerInstance['status'] } : p));
+    }
+    if (msg.type === 'pairing_request') {
+      setPendingPairingCount(prev => prev + 1);
     }
   }, []);
 
@@ -55,7 +70,7 @@ export function PeerProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <PeerContext.Provider value={{ peers, activePeer, selectPeer, reloadPeers }}>
+    <PeerContext.Provider value={{ peers, activePeer, selectPeer, reloadPeers, pendingPairingCount, setPendingPairingCount }}>
       {children}
     </PeerContext.Provider>
   );

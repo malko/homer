@@ -2,6 +2,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useProjectUpdates } from '../hooks/useProjectUpdates';
 import { useMobileSidebar, useIsMobile } from '../hooks/useMobileSidebar';
 import { PeerSelector } from './PeerSelector';
+import { PairingNotification } from './PairingNotification';
 
 function SunIcon() {
   return (
@@ -63,6 +64,7 @@ export function AppHeader({ title, stats, children }: AppHeaderProps) {
 
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <PeerSelector />
+        <PairingNotification />
         {children}
         {hasUpdates && (
           <button

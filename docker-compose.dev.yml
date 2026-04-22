@@ -45,7 +45,6 @@ services:
       - HOMER_DOMAIN=desk.local
       - AVAHI_ENABLED=${AVAHI_ENABLED:-auto}
       - HOST_IP=${HOST_IP:-}
-      - MDNS_IMAGE=homer:dev
     volumes:
       - ./data:/app/data
       - ./data/caddy/data:/app/caddy-data:ro

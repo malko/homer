@@ -424,6 +424,7 @@ export const api = {
       request<{ success: boolean }>('/instances/pair/adopt-ca', { method: 'POST', body: JSON.stringify({ peer_uuid }) }),
     cancelPairing: (id: string) => request<{ success: boolean }>(`/instances/pair/${id}`, { method: 'DELETE' }),
     unpair: (uuid: string) => request<{ success: boolean }>(`/instances/${uuid}`, { method: 'DELETE' }),
+    leave: () => request<{ success: boolean }>('/instances/leave', { method: 'POST' }),
   },
 
   import: {

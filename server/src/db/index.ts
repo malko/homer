@@ -639,6 +639,10 @@ export const peerQueries = {
     db.run('DELETE FROM peer_instances WHERE peer_uuid = ?', [uuid]);
     saveDb();
   },
+  deleteAll: () => {
+    db.run('DELETE FROM peer_instances', []);
+    saveDb();
+  },
 };
 
 export interface PairingRequest {

@@ -6,7 +6,6 @@ import path from 'path';
 const execAsync = promisify(exec);
 
 const AVAHI_ENABLED = process.env.AVAHI_ENABLED || 'auto';
-const MDNS_IMAGE = process.env.MDNS_IMAGE || '';
 const MDNS_CONTAINER = 'homer-mdns';
 const DATA_DIR = process.env.DATA_DIR || './data';
 const CONFIG_PATH = path.join(DATA_DIR, 'mdns.json');
@@ -53,10 +52,6 @@ async function getHostDataDir(): Promise<string> {
 
 async function getImage(): Promise<string> {
   if (cachedImage) return cachedImage;
-  if (MDNS_IMAGE) {
-    cachedImage = MDNS_IMAGE;
-    return cachedImage;
-  }
   try {
     const container = await getOwnContainerName();
     const { stdout } = await execAsync(`docker inspect --format='{{.Config.Image}}' ${container}`, { timeout: 5000 });
