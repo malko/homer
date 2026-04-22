@@ -51,6 +51,10 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
         try {
           const message = JSON.parse(data.toString());
 
+          if (message.type !== 'terminal_input' && message.type !== 'terminal_resize') {
+            console.log(`[peer-events] recv from ${peer.peer_name}: type=${message.type} ${message.containerId ? `container=${String(message.containerId).slice(0,12)}` : ''}${message.projectId ? ` projectId=${message.projectId}` : ''}`);
+          }
+
           if (message.type === 'subscribe_heartbeat') {
             if (heartbeatTimer) return;
             // Send immediately, then every 10s
@@ -116,18 +120,30 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
           if (message.type === 'subscribe_deploy' && message.projectId) {
             const projectId = Number(message.projectId);
             const key = `${clientId}:deploy:${projectId}`;
-            if (deployStreamers.has(key)) return;
-            const stop = deployProjectStream(
-              projectId,
-              (line) => {
-                try { socket.send(JSON.stringify({ type: 'deploy_output', projectId, line })); } catch {}
-              },
-              (success) => {
-                deployStreamers.delete(key);
-                try { socket.send(JSON.stringify({ type: 'deploy_done', projectId, success })); } catch {}
-              },
-            );
-            deployStreamers.set(key, stop);
+            if (deployStreamers.has(key)) {
+              console.log(`[peer-events] subscribe_deploy duplicate projectId=${projectId} — ignored`);
+              return;
+            }
+            try {
+              const stop = deployProjectStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'deploy_output', projectId, line })); } catch {}
+                },
+                (success) => {
+                  deployStreamers.delete(key);
+                  console.log(`[peer-events] deploy done projectId=${projectId} success=${success}`);
+                  try { socket.send(JSON.stringify({ type: 'deploy_done', projectId, success })); } catch {}
+                },
+              );
+              deployStreamers.set(key, stop);
+              console.log(`[peer-events] deploy started projectId=${projectId}`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[peer-events] deploy spawn FAILED projectId=${projectId}: ${msg}`);
+              try { socket.send(JSON.stringify({ type: 'deploy_output', projectId, line: `Error: ${msg}` })); } catch {}
+              try { socket.send(JSON.stringify({ type: 'deploy_done', projectId, success: false })); } catch {}
+            }
           }
 
           if (message.type === 'abort_deploy' && message.projectId) {
@@ -139,18 +155,30 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
           if (message.type === 'subscribe_down' && message.projectId) {
             const projectId = Number(message.projectId);
             const key = `${clientId}:down:${projectId}`;
-            if (downStreamers.has(key)) return;
-            const stop = downProjectStream(
-              projectId,
-              (line) => {
-                try { socket.send(JSON.stringify({ type: 'down_output', projectId, line })); } catch {}
-              },
-              (success) => {
-                downStreamers.delete(key);
-                try { socket.send(JSON.stringify({ type: 'down_done', projectId, success })); } catch {}
-              },
-            );
-            downStreamers.set(key, stop);
+            if (downStreamers.has(key)) {
+              console.log(`[peer-events] subscribe_down duplicate projectId=${projectId} — ignored`);
+              return;
+            }
+            try {
+              const stop = downProjectStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'down_output', projectId, line })); } catch {}
+                },
+                (success) => {
+                  downStreamers.delete(key);
+                  console.log(`[peer-events] down done projectId=${projectId} success=${success}`);
+                  try { socket.send(JSON.stringify({ type: 'down_done', projectId, success })); } catch {}
+                },
+              );
+              downStreamers.set(key, stop);
+              console.log(`[peer-events] down started projectId=${projectId}`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[peer-events] down spawn FAILED projectId=${projectId}: ${msg}`);
+              try { socket.send(JSON.stringify({ type: 'down_output', projectId, line: `Error: ${msg}` })); } catch {}
+              try { socket.send(JSON.stringify({ type: 'down_done', projectId, success: false })); } catch {}
+            }
           }
 
           if (message.type === 'abort_down' && message.projectId) {
@@ -168,30 +196,39 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
             const cols = Number(message.cols) || 80;
             const rows = Number(message.rows) || 24;
 
-            const ptyProcess = pty.spawn('docker', ['exec', '-it', containerId,
-              '/bin/sh', '-c', 'exec $(command -v bash || command -v sh)'], {
-              name: 'xterm-256color',
-              cols,
-              rows,
-              cwd: process.env.HOME ?? '/',
-              env: { ...process.env, TERM: 'xterm-256color' },
-            });
-            terminalSessions.set(key, ptyProcess);
+            try {
+              const ptyProcess = pty.spawn('docker', ['exec', '-it', containerId,
+                '/bin/sh', '-c', 'exec $(command -v bash || command -v sh)'], {
+                name: 'xterm-256color',
+                cols,
+                rows,
+                cwd: process.env.HOME ?? '/',
+                env: { ...process.env, TERM: 'xterm-256color' },
+              });
+              terminalSessions.set(key, ptyProcess);
+              console.log(`[peer-events] terminal PTY spawned for container=${containerId.slice(0,12)}`);
 
-            ptyProcess.onData((data: string) => {
-              try {
-                socket.send(JSON.stringify({
-                  type: 'terminal_output',
-                  containerId,
-                  data: Buffer.from(data, 'binary').toString('base64'),
-                }));
-              } catch {}
-            });
+              ptyProcess.onData((data: string) => {
+                try {
+                  socket.send(JSON.stringify({
+                    type: 'terminal_output',
+                    containerId,
+                    data: Buffer.from(data, 'binary').toString('base64'),
+                  }));
+                } catch {}
+              });
 
-            ptyProcess.onExit(({ exitCode }) => {
-              terminalSessions.delete(key);
-              try { socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: exitCode })); } catch {}
-            });
+              ptyProcess.onExit(({ exitCode }) => {
+                terminalSessions.delete(key);
+                console.log(`[peer-events] terminal PTY exit code=${exitCode} container=${containerId.slice(0,12)}`);
+                try { socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: exitCode })); } catch {}
+              });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[peer-events] terminal spawn FAILED for container=${containerId.slice(0,12)}: ${msg}`);
+              try { socket.send(JSON.stringify({ type: 'error', message: `Terminal spawn failed: ${msg}` })); } catch {}
+              try { socket.send(JSON.stringify({ type: 'terminal_exit', containerId, code: 1 })); } catch {}
+            }
           }
 
           if (message.type === 'terminal_input' && message.containerId && message.data) {
@@ -215,7 +252,11 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
             const ptyProcess = terminalSessions.get(key);
             if (ptyProcess) { try { ptyProcess.kill(); } catch {} terminalSessions.delete(key); }
           }
-        } catch {}
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[peer-events] message handler error from ${peer.peer_name}: ${msg}`);
+          try { socket.send(JSON.stringify({ type: 'error', message: `Peer handler error: ${msg}` })); } catch {}
+        }
       });
 
       socket.on('close', () => {

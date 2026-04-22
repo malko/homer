@@ -1,8 +1,9 @@
 import { createRequire } from 'module';
 import { EventEmitter } from 'events';
+import { URL } from 'url';
 import { getLocalInstance } from './instance.js';
 import { peerQueries, PeerInstance } from '../db/index.js';
-import { signPayload } from './peers.js';
+import { signPayload, resolveMdnsViaSupervisor } from './peers.js';
 
 const require = createRequire(import.meta.url);
 
@@ -42,7 +43,9 @@ class PeerWsConnection {
       subMsg: JSON.stringify(subMsg),
       unsubMsg: JSON.stringify(unsubMsg),
     });
-    if (this.ws && this.ws.readyState === Ws.OPEN) {
+    const readyState = this.ws?.readyState;
+    console.log(`[peer-ws] subscribe ${this.peer.peer_name} subKey=${subKey} wsReady=${readyState} subMsg=${JSON.stringify(subMsg)}`);
+    if (this.ws && readyState === Ws.OPEN) {
       this.send(JSON.stringify(subMsg));
     } else if (!this.connecting) {
       this.connect();
@@ -84,7 +87,12 @@ class PeerWsConnection {
 
   private send(data: string) {
     if (this.ws && this.ws.readyState === Ws.OPEN) {
-      try { this.ws.send(data); } catch (e) { console.error('[peer-ws] send error:', e); }
+      try {
+        this.ws.send(data);
+        console.log(`[peer-ws] send to ${this.peer.peer_name}: ${data.slice(0, 200)}`);
+      } catch (e) { console.error('[peer-ws] send error:', e); }
+    } else {
+      console.warn(`[peer-ws] send dropped (ws not open, readyState=${this.ws?.readyState}): ${data.slice(0, 200)}`);
     }
   }
 
@@ -95,21 +103,44 @@ class PeerWsConnection {
     return false;
   }
 
-  private connect() {
+  private async connect() {
     if (this.closed || this.connecting) return;
     this.connecting = true;
 
     const wsBase = this.peer.peer_url.replace(/^https?/, p => p === 'https' ? 'wss' : 'ws').replace(/\/$/, '');
     const timestamp = Date.now();
     const sig = signPayload(this.peer.shared_secret, '', timestamp);
-    const url = `${wsBase}/api/peer-events?peer_uuid=${encodeURIComponent(this.localUuid)}&timestamp=${timestamp}&signature=${encodeURIComponent(sig)}`;
+    const qs = `peer_uuid=${encodeURIComponent(this.localUuid)}&timestamp=${timestamp}&signature=${encodeURIComponent(sig)}`;
 
-    const tlsOpts: Record<string, unknown> = this.peer.peer_ca
+    // Resolve .local mDNS hostnames via the supervisor (same as peerFetch)
+    let connectUrl = `${wsBase}/api/peer-events?${qs}`;
+    const wsOpts: Record<string, unknown> = this.peer.peer_ca
       ? { ca: this.peer.peer_ca }
       : { rejectUnauthorized: false };
 
+    try {
+      const parsed = new URL(`${wsBase}/api/peer-events`);
+      if (parsed.hostname.endsWith('.local')) {
+        const ip = await resolveMdnsViaSupervisor(parsed.hostname, 5000);
+        const originalHost = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+        connectUrl = `${parsed.protocol}//${ip}${parsed.port ? `:${parsed.port}` : ''}${parsed.pathname}?${qs}`;
+        wsOpts['servername'] = parsed.hostname;
+        wsOpts['headers'] = { Host: originalHost };
+        console.log(`[peer-ws] Resolved ${parsed.hostname} → ${ip} for ${this.peer.peer_name}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[peer-ws] mDNS resolution failed for ${this.peer.peer_name}: ${msg}`);
+      this.connecting = false;
+      if (!this.closed && this.subs.size > 0) {
+        setTimeout(() => this.connect(), this.backoff);
+        this.backoff = Math.min(this.backoff * 2, 30_000);
+      }
+      return;
+    }
+
     console.log(`[peer-ws] Connecting to ${this.peer.peer_name} (${wsBase}/api/peer-events ...)`);
-    const ws = new Ws(url, tlsOpts);
+    const ws = new Ws(connectUrl, wsOpts);
     this.ws = ws;
 
     ws.on('open', () => {
@@ -122,6 +153,10 @@ class PeerWsConnection {
     ws.on('message', (data: unknown) => {
       try {
         const event = JSON.parse(String(data)) as Record<string, unknown>;
+        const t = event['type'];
+        if (t !== 'heartbeat' && t !== 'containers_updated') {
+          console.log(`[peer-ws] recv from ${this.peer.peer_name}: type=${String(t)} subs=${this.subs.size}`);
+        }
         this.subs.forEach(sub => {
           try { sub.callback(event); } catch (e) { console.error('[peer-ws] callback error:', e); }
         });

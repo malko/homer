@@ -13,7 +13,6 @@ stop_all() {
 cleanup() {
   log "Shutting down"
   stop_all
-  [ -n "$RESOLVER_PID" ] && kill "$RESOLVER_PID" 2>/dev/null
   exit 0
 }
 
@@ -72,25 +71,7 @@ sync_config() {
   return 0
 }
 
-resolver_loop() {
-  while true; do
-    for reqfile in /data/mdns-resolve-*.request; do
-      [ -f "$reqfile" ] || continue
-      hostname=$(cat "$reqfile" 2>/dev/null)
-      id="${reqfile#/data/mdns-resolve-}"
-      id="${id%.request}"
-      rm -f "$reqfile"
-      [ -z "$hostname" ] && continue
-      ip=$(DBUS_SYSTEM_BUS_ADDRESS="$DBUS_ADDR" avahi-resolve -4 --name "$hostname" 2>/dev/null | awk '{print $2; exit}')
-      printf '%s\n' "${ip:-}" > "/data/mdns-resolve-${id}.result"
-    done
-    sleep 0.3
-  done
-}
-
 log "Starting"
-resolver_loop &
-RESOLVER_PID=$!
 sync_config
 last_hash=$(get_hash "$CONFIG")
 

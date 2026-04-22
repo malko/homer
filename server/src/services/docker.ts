@@ -582,8 +582,15 @@ export function deployProjectStream(
   child.stdout?.on('data', handleData);
   child.stderr?.on('data', handleData);
 
+  let errored = false;
+  child.on('error', (err) => {
+    errored = true;
+    onLine(`spawn error: ${err.message} (cwd=${projectDir}, file=${project.path})`);
+    onDone(false);
+  });
+
   child.on('close', (code) => {
-    onDone(code === 0);
+    if (!errored) onDone(code === 0);
   });
 
   return () => {
@@ -621,8 +628,15 @@ export function downProjectStream(
   child.stdout?.on('data', handleData);
   child.stderr?.on('data', handleData);
 
+  let errored = false;
+  child.on('error', (err) => {
+    errored = true;
+    onLine(`spawn error: ${err.message} (cwd=${projectDir}, file=${project.path})`);
+    onDone(false);
+  });
+
   child.on('close', (code) => {
-    onDone(code === 0);
+    if (!errored) onDone(code === 0);
   });
 
   return () => {

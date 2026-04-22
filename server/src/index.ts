@@ -100,9 +100,11 @@ const start = async () => {
     initCaddyConfig().catch((err) => console.error('[Caddy] Failed to push config:', err));
 
     // Publish mDNS records for all enabled hosts (non-blocking if Avahi unavailable)
-    import('./services/mdns.js').then(({ republishAllMdnsHosts }) => 
-      republishAllMdnsHosts().catch((err) => console.error('[mDNS] Failed to publish:', err))
-    );
+    // Force supervisor recreation so the updated script is picked up
+    import('./services/mdns.js').then(async ({ cleanupMdns, republishAllMdnsHosts }) => {
+      await cleanupMdns().catch(() => {});
+      return republishAllMdnsHosts().catch((err) => console.error('[mDNS] Failed to publish:', err));
+    });
 
     const port = parseInt(process.env.PORT || '4000');
     const host = process.env.HOST || '0.0.0.0';

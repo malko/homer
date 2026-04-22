@@ -137,6 +137,10 @@ export function setupWebSocket(fastify: FastifyInstance) {
         try {
           const message = JSON.parse(data.toString());
 
+          if (message.type !== 'terminal_input' && message.type !== 'terminal_resize') {
+            console.log(`[ws] client=${clientId.slice(0,8)} recv type=${message.type} peer_uuid=${message.peer_uuid ?? '(local)'} ${message.containerId ? `container=${String(message.containerId).slice(0,12)}` : ''}${message.projectId ? ` projectId=${message.projectId}` : ''}`);
+          }
+
           if (message.type === 'subscribe_logs' && message.containerId) {
             const containerId = String(message.containerId);
             const peerUuid = message.peer_uuid as string | undefined;

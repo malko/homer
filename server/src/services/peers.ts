@@ -1,15 +1,17 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'crypto';
-import { readFile, writeFile, unlink } from 'fs/promises';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { readFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import * as https from 'https';
 import * as http from 'http';
 import { URL } from 'url';
 
+const execFileAsync = promisify(execFile);
+const MDNS_CONTAINER = 'homer-mdns';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.NODE_ENV === 'production'
-  ? '/app/data'
-  : join(__dirname, '../../../data');
 const CADDY_RO = process.env.NODE_ENV === 'production'
   ? '/app/caddy-data'
   : join(__dirname, '../../../data/caddy/data');
@@ -20,35 +22,24 @@ const CA_PATHS = [
 
 const SIGNATURE_MAX_SKEW_MS = 60_000;
 
-// Resolve .local hostnames via the mDNS supervisor container (which runs with --network host
-// and talks to the host's Avahi daemon via D-Bus). Communication is file-based IPC through
-// the shared data volume. Falls back silently if the supervisor is not running.
-async function resolveMdnsViaSupervisor(hostname: string, timeoutMs = 5000): Promise<string> {
-  const id = randomBytes(4).toString('hex');
-  const reqFile = join(DATA_DIR, `mdns-resolve-${id}.request`);
-  const resFile = join(DATA_DIR, `mdns-resolve-${id}.result`);
-
-  await writeFile(reqFile, hostname, 'utf-8');
-
-  const deadline = Date.now() + timeoutMs;
+export async function resolveMdnsViaSupervisor(hostname: string, timeoutMs = 5000): Promise<string> {
   try {
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 300));
-      try {
-        const ip = (await readFile(resFile, 'utf-8')).trim();
-        await unlink(resFile).catch(() => {});
-        if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
-        if (ip) throw new Error(`mDNS returned non-IPv4 address for ${hostname}: ${ip}`);
-        throw new Error(`Could not resolve ${hostname} via mDNS`);
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-      }
-    }
-  } finally {
-    await unlink(reqFile).catch(() => {});
-    await unlink(resFile).catch(() => {});
+    const { stdout } = await execFileAsync(
+      'docker',
+      [
+        'exec', '-e', 'DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket',
+        MDNS_CONTAINER, 'avahi-resolve', '-4', '--name', hostname,
+      ],
+      { timeout: timeoutMs }
+    );
+    const ip = stdout.trim().split(/\s+/)[1] ?? '';
+    if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+    if (ip) throw new Error(`mDNS returned non-IPv4 address for ${hostname}: ${ip}`);
+    throw new Error(`Could not resolve ${hostname} via mDNS`);
+  } catch (e) {
+    if ((e as { killed?: boolean }).killed) throw new Error(`mDNS resolution timeout for ${hostname}`);
+    throw e;
   }
-  throw new Error(`mDNS resolution timeout for ${hostname}`);
 }
 
 export function sixDigitCode(): string {
