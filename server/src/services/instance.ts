@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { hostname } from 'os';
 import { settingQueries } from '../db/index.js';
+import { getRunningVersion, loadVersion as loadVersionFromModule } from './version.js';
 
 export interface LocalInstance {
   uuid: string;
@@ -17,7 +18,11 @@ const SETTING_NAME = 'instance_name';
 let cached: LocalInstance | null = null;
 
 function readVersion(): string {
-  return process.env.HOMER_VERSION || process.env.npm_package_version || 'dev';
+  return getRunningVersion();
+}
+
+export function loadVersion(): void {
+  loadVersionFromModule();
 }
 
 function defaultInstanceName(): string {

@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { getRunningVersionAsync } from './version.js';
 
 const GITHUB_REPO = process.env.HOMER_GITHUB_REPO || 'malko/homer';
 
@@ -60,8 +61,8 @@ export async function isConfigured(): Promise<boolean> {
   return !!(GITHUB_REPO && config.image && config.composeFile);
 }
 
-export function getCurrentVersion(): string {
-  return process.env.BUILD_VERSION || 'dev';
+export async function getCurrentVersion(): Promise<string> {
+  return getRunningVersionAsync();
 }
 
 export async function getLatestVersion(): Promise<string | null> {
@@ -91,7 +92,7 @@ export async function checkForUpdate(): Promise<{
   updateAvailable: boolean;
   configured: boolean;
 }> {
-  const currentVersion = getCurrentVersion();
+  const currentVersion = await getCurrentVersion();
   const configured = await isConfigured();
   if (!configured) {
     return { currentVersion, latestVersion: null, updateAvailable: false, configured: false };

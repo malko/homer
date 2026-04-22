@@ -68,6 +68,9 @@ npm run preview  # Preview production build
 
 ## Code Style Guidelines
 
+- **DRY Principle:** The project adheres to the DRY (Don't Repeat Yourself) principle, with shared logic abstracted into utility functions and modules to avoid code duplication.
+- **English only:** For code, comments and documentation
+
 ### TypeScript
 
 - **Strict typing**: Always use explicit types; avoid `any`

@@ -94,6 +94,8 @@ const start = async () => {
     const instance = getLocalInstance();
     console.log(`[Server] Instance ${instance.name} (${instance.uuid})`);
 
+    import('./services/instance.js').then(({ loadVersion }) => loadVersion()).catch(() => {});
+
     watcher.initialize();
 
     // Push Caddy config on startup (non-blocking if Caddy is unavailable)

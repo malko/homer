@@ -32,7 +32,7 @@ services:
       start_period: 10s
 
   homer:
-    image: ghcr.io/malko/homer:${HOMER_VERSION:-latest}
+    image: ghcr.io/malko/homer:latest
     container_name: homer
     environment:
       - NODE_ENV=production
@@ -42,7 +42,7 @@ services:
       - HOMER_DOMAIN=${HOMER_DOMAIN:-$(uname -n).local}
       - AVAHI_ENABLED=${AVAHI_ENABLED:-auto}
       - HOST_IP=${HOST_IP:-}
-      - MDNS_IMAGE=ghcr.io/malko/homer:${HOMER_VERSION:-latest}
+      - MDNS_IMAGE=ghcr.io/malko/homer:latest
     volumes:
       - ./data:/app/data
       - ./data/caddy/data:/app/caddy-data:ro

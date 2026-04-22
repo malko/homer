@@ -39,8 +39,6 @@ COPY package.json ./
 
 RUN mkdir -p data
 
-ARG BUILD_VERSION=dev
-ENV BUILD_VERSION=$BUILD_VERSION
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0

@@ -54,8 +54,8 @@
 - [ ] revoir et traité les points du plan [security-fix.md](plans/security-fix.md)
 
 ## Bugs: 
-- [ ] terminal en distant ne fonctionne toujours pas
-- [ ] start / stop compose en distant ne fonctionne pas en distant
-- [ ] connexion websocket pour notifs en temps réel du status distant ne fonctionne pas on fallback sur 10secondes polling
+- [x] terminal en distant ne fonctionne toujours pas
+- [x] start / stop compose en distant ne fonctionne pas en distant
+- [x] connexion websocket pour notifs en temps réel du status distant ne fonctionne pas on fallback sur 10secondes polling
     => et si on autorisait le cross origin pour les instances et qu'on se connectait directement à l'autre backend ?
 - [ ] demande de restart ne fonctionne pas ni local ni distant
