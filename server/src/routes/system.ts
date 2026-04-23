@@ -25,7 +25,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     const domainSuffix = settingQueries.get('caddy_domain_suffix') || '';
     const extraHostname = settingQueries.get('caddy_extra_hostname') || '';
     const raw = settingQueries.get('update_check_interval');
-    const updateCheckInterval = raw ? parseInt(raw, 10) : 360;
+    const updateCheckInterval = raw ? parseInt(raw, 10) : 10080;
     const rawCertLifetime = settingQueries.get('caddy_cert_lifetime');
     const certLifetime = rawCertLifetime ? parseInt(rawCertLifetime, 10) : 10080;
     return {
@@ -55,8 +55,8 @@ export async function systemRoutes(fastify: FastifyInstance) {
       settingQueries.set('caddy_extra_hostname', body.extraHostname);
     }
     if (body.updateCheckInterval !== undefined) {
-      // Clamp to sensible range: 30 min – 7 days
-      const minutes = Math.max(30, Math.min(10080, Math.round(body.updateCheckInterval)));
+      // Clamp to sensible range: 30 min – 30 days
+      const minutes = Math.max(30, Math.min(43200, Math.round(body.updateCheckInterval)));
       settingQueries.set('update_check_interval', String(minutes));
     }
     if (body.certLifetime !== undefined) {

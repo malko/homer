@@ -122,6 +122,15 @@ function LogoutIcon() {
   );
 }
 
+function UserIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 function MenuExpandIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -212,8 +221,15 @@ export function NavSidebar() {
     mobileOpen && 'nav-sidebar--open',
   ].filter(Boolean).join(' ');
 
+  const navigate = useNavigate();
+
   const userMenuPortal = showUserMenu && menuPos ? createPortal(
     <div className="nav-sidebar-user-menu-portal" ref={userMenuRef} style={{ top: menuPos.top - 4, left: menuPos.left + 4 }}>
+      <button className="nav-sidebar-user-menu-item" onClick={() => { navigate('/account'); setShowUserMenu(false); closeMobileMenu(); }}>
+        <UserIcon />
+        <span>Mon compte</span>
+      </button>
+      <div className="nav-sidebar-user-menu-separator" />
       <button className="nav-sidebar-user-menu-item" onClick={() => { logout(); setShowUserMenu(false); closeMobileMenu(); }}>
         <LogoutIcon />
         <span>Déconnexion</span>

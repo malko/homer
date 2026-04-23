@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppHeader } from '../components/AppHeader';
-import { api, ProxyHost, ProxyHostInput } from '../api';
+import { api, ProxyHost, ProxyHostInput, ApiError } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyHostForm } from '../components/ProxyHostForm';
@@ -8,8 +8,9 @@ import { ProxyHostList } from '../components/ProxyHostList';
 import { JsonEditor } from '../components/JsonEditor';
 import '../styles/settings.css';
 import '../styles/proxy.css';
+import '../styles/instances.css';
 
-type ProxyTab = 'hosts' | 'caddy';
+type ProxyTab = 'hosts' | 'caddy' | 'ca';
 
 function CodeBlock({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
@@ -52,11 +53,18 @@ export function ProxyPage() {
         >
           Caddy
         </button>
+        <button
+          className={`settings-tab ${activeTab === 'ca' ? 'settings-tab-active' : ''}`}
+          onClick={() => setActiveTab('ca')}
+        >
+          CA
+        </button>
       </div>
 
       <div className="settings-content">
         {activeTab === 'hosts' && <ProxyHostsTab />}
         {activeTab === 'caddy' && <CaddyTab />}
+        {activeTab === 'ca' && <CaTab />}
       </div>
     </div>
   );
@@ -307,7 +315,7 @@ function CaddyTab() {
   };
 
   return (
-    <div className="settings-section">
+    <div className="settings-section" style={{ maxWidth: 900 }}>
       <div className="caddy-tab-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <h2 style={{ margin: 0 }}>Configuration Caddy</h2>
@@ -353,6 +361,140 @@ function CaddyTab() {
             {pushMessage}
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CA Tab ──────────────────────────────────────────────────────────────────
+
+function CaTab() {
+  const [caExportError, setCaExportError] = useState<string | null>(null);
+  const [caImporting, setCaImporting] = useState(false);
+  const [caImportError, setCaImportError] = useState<string | null>(null);
+  const [caImportSuccess, setCaImportSuccess] = useState(false);
+  const certInputRef = useRef<HTMLInputElement>(null);
+  const keyInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportCa = async () => {
+    setCaExportError(null);
+    try {
+      const ca = await api.proxy.exportCa();
+      const triggerDownload = (content: string, filename: string) => {
+        const blob = new Blob([content], { type: 'application/x-pem-file' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+      triggerDownload(ca.cert, 'homer-ca.crt');
+      triggerDownload(ca.key, 'homer-ca.key');
+    } catch (err) {
+      setCaExportError(err instanceof ApiError ? err.message : 'Export de CA échoué');
+    }
+  };
+
+  const handleImportCaFile = async () => {
+    const certFile = certInputRef.current?.files?.[0];
+    const keyFile = keyInputRef.current?.files?.[0];
+    if (!certFile || !keyFile) {
+      setCaImportError('Veuillez sélectionner le certificat et la clé privée.');
+      return;
+    }
+    setCaImporting(true);
+    setCaImportError(null);
+    setCaImportSuccess(false);
+    try {
+      const readText = (f: File) => new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = e => res(e.target!.result as string);
+        r.onerror = () => rej(new Error('Erreur de lecture'));
+        r.readAsText(f);
+      });
+      const [cert, key] = await Promise.all([readText(certFile), readText(keyFile)]);
+      await api.proxy.importCa(cert, key);
+      setCaImportSuccess(true);
+      if (certInputRef.current) certInputRef.current.value = '';
+      if (keyInputRef.current) keyInputRef.current.value = '';
+    } catch (err) {
+      setCaImportError(err instanceof ApiError ? err.message : 'Import de CA échoué');
+    } finally {
+      setCaImporting(false);
+    }
+  };
+
+  return (
+    <div className="settings-section">
+      <h2>Autorité de certification</h2>
+
+      <div className="settings-card">
+        <h3>Exporter</h3>
+        <p className="form-help" style={{ marginBottom: '0.875rem' }}>
+          Le certificat seul sert à installer la CA dans le navigateur. L'export cert + clé permet de migrer ce CA sur un autre nœud manuellement (attention : la clé privée est sensible).
+        </p>
+        <div className="instances-ca-actions">
+          <a className="btn btn-sm" href="/api/proxy/root-ca" download="homer-root-ca.crt">
+            Télécharger le certificat (.crt)
+          </a>
+          <button className="btn btn-sm" onClick={handleExportCa}>
+            Exporter cert + clé (.crt + .key)
+          </button>
+        </div>
+        {caExportError && <div className="message message--error" style={{ marginTop: '0.75rem', fontSize: '0.8rem' }}>{caExportError}</div>}
+
+        <details className="ca-instructions" style={{ marginTop: '0.875rem' }}>
+          <summary>Instructions d'installation navigateur</summary>
+          <div className="ca-instructions-content">
+            <p className="ca-instructions-section-title">Magasin système</p>
+            <div className="ca-instructions-os">
+              <strong>Linux (Debian / Ubuntu)</strong>
+              <CodeBlock>{`sudo cp homer-root-ca.crt /usr/local/share/ca-certificates/homer-root-ca.crt\nsudo update-ca-certificates`}</CodeBlock>
+            </div>
+            <div className="ca-instructions-os">
+              <strong>Linux (Fedora / RHEL / Arch)</strong>
+              <CodeBlock>{`sudo cp homer-root-ca.crt /etc/pki/ca-trust/source/anchors/homer-root-ca.crt\nsudo update-ca-trust`}</CodeBlock>
+            </div>
+            <div className="ca-instructions-os">
+              <strong>macOS</strong>
+              <CodeBlock>{`sudo security add-trusted-cert -d -r trustRoot \\\n  -k /Library/Keychains/System.keychain homer-root-ca.crt`}</CodeBlock>
+            </div>
+            <div className="ca-instructions-os">
+              <strong>Windows</strong>
+              <CodeBlock>{`certutil -addstore -f "ROOT" homer-root-ca.crt`}</CodeBlock>
+            </div>
+            <p className="ca-instructions-note form-help">
+              Après installation, redémarrez votre navigateur pour que les changements prennent effet.
+            </p>
+          </div>
+        </details>
+      </div>
+
+      <div className="settings-card">
+        <h3>Importer un CA personnalisé</h3>
+        <p className="form-help" style={{ marginBottom: '0.875rem' }}>
+          Remplace le CA Caddy par votre propre autorité. Tous les certificats seront régénérés.
+        </p>
+        {caImportError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{caImportError}</div>}
+        {caImportSuccess && <div className="message message--success" style={{ marginBottom: '0.5rem' }}>CA importé — les certificats sont en cours de régénération.</div>}
+        <div className="instances-ca-input-row">
+          <label>
+            Certificat (.crt / .pem)
+            <input ref={certInputRef} type="file" accept=".crt,.pem,.cer" />
+          </label>
+          <label>
+            Clé privée (.key / .pem)
+            <input ref={keyInputRef} type="file" accept=".key,.pem" />
+          </label>
+          <button
+            className="btn btn-primary"
+            onClick={handleImportCaFile}
+            disabled={caImporting}
+          >
+            {caImporting ? 'Import en cours…' : 'Importer le CA'}
+          </button>
+        </div>
       </div>
     </div>
   );

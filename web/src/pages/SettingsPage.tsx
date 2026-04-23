@@ -39,7 +39,7 @@ export function SettingsPage() {
           className={`settings-tab ${activeTab === 'overview' ? 'settings-tab-active' : ''}`}
           onClick={() => switchTab('overview')}
         >
-          Général
+          Système
         </button>
         <button
           className={`settings-tab ${activeTab === 'containers' ? 'settings-tab-active' : ''}`}
@@ -51,12 +51,12 @@ export function SettingsPage() {
           className={`settings-tab ${activeTab === 'federation' ? 'settings-tab-active' : ''}`}
           onClick={() => switchTab('federation')}
         >
-          Federation
+          Fédération
         </button>
       </div>
 
       <div className={`settings-content${activeTab === 'containers' ? ' settings-content--fill' : ''}`}>
-        {activeTab === 'overview' && <GeneralSettings />}
+        {activeTab === 'overview' && <SystemSettings />}
         {activeTab === 'containers' && <ContainersSettings />}
         {activeTab === 'federation' && <FederationSettings />}
       </div>
@@ -64,21 +64,14 @@ export function SettingsPage() {
   );
 }
 
-// ─── General Settings ────────────────────────────────────────────────────────
+// ─── System Settings ─────────────────────────────────────────────────────────
 
-function GeneralSettings() {
+function SystemSettings() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  // Password change
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
+  const [checkingAllUpdates, setCheckingAllUpdates] = useState(false);
 
   useEffect(() => {
     api.system.getSettings().then(data => {
@@ -102,31 +95,16 @@ function GeneralSettings() {
     }
   };
 
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordError(null);
-    setPasswordSuccess(false);
-
-    if (newPassword.length < 8) {
-      setPasswordError('Le mot de passe doit contenir au moins 8 caractères');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('Les mots de passe ne correspondent pas');
-      return;
-    }
-
-    setChangingPassword(true);
+  const handleCheckAllUpdates = async () => {
+    setCheckingAllUpdates(true);
     try {
-      await api.auth.changePassword(newPassword, currentPassword);
-      setPasswordSuccess(true);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Erreur');
+      await api.system.checkAllUpdates();
+      setMessage('Vérification des mises à jour terminée');
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage('Erreur lors de la vérification');
     } finally {
-      setChangingPassword(false);
+      setCheckingAllUpdates(false);
     }
   };
 
@@ -135,7 +113,10 @@ function GeneralSettings() {
 
   return (
     <div className="settings-section">
-      <h2>Paramètres généraux</h2>
+      <h2>Paramètres système</h2>
+
+      {/* Instance HOMER — placed first */}
+      <InstanceSettings />
 
       <div className="settings-card">
         <h3>Domaine par défaut</h3>
@@ -190,7 +171,7 @@ function GeneralSettings() {
       <div className="settings-card">
         <h3>Mises à jour des containers</h3>
         <div className="settings-field">
-          <label htmlFor="update-interval">Intervalle de vérification</label>
+          <label htmlFor="update-interval">Intervalle de vérification automatique</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <input
               id="update-interval"
@@ -198,16 +179,25 @@ function GeneralSettings() {
               className="input"
               style={{ maxWidth: '100px' }}
               min={30}
-              max={10080}
+              max={43200}
               value={settings.updateCheckInterval}
-              onChange={e => setSettings({ ...settings, updateCheckInterval: parseInt(e.target.value) || 360 })}
+              onChange={e => setSettings({ ...settings, updateCheckInterval: parseInt(e.target.value) || 10080 })}
               onBlur={() => saveSettings({ updateCheckInterval: settings.updateCheckInterval })}
             />
             <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>minutes</span>
           </div>
-          <span className="form-help">Fréquence à laquelle les images Docker sont comparées au registre (min. 30 min). Redémarrage requis pour prendre effet.</span>
+          <span className="form-help">Fréquence à laquelle les images Docker sont comparées au registre (min. 30 min, défaut: 7 jours). Redémarrage requis pour prendre effet.</span>
         </div>
-        <div className="toggle-row" style={{ marginTop: '0.75rem' }}>
+        <div style={{ marginBottom: '0.75rem' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleCheckAllUpdates}
+            disabled={checkingAllUpdates}
+          >
+            {checkingAllUpdates ? 'Vérification en cours...' : 'Vérifier maintenant'}
+          </button>
+        </div>
+        <div className="toggle-row">
           <label className="toggle-label">
             <span>Mises à jour auto</span>
             <span className="form-help">Installer automatiquement les nouvelles versions de HOMER</span>
@@ -223,47 +213,11 @@ function GeneralSettings() {
         </div>
       </div>
 
-      <div className="settings-card">
-        <h3>Mot de passe administrateur</h3>
-        <form className="password-form" onSubmit={handlePasswordChange}>
-          <input
-            type="password"
-            className="input"
-            value={currentPassword}
-            onChange={e => setCurrentPassword(e.target.value)}
-            placeholder="Mot de passe actuel"
-          />
-          <input
-            type="password"
-            className="input"
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            placeholder="Nouveau mot de passe (min. 8 caractères)"
-          />
-          <input
-            type="password"
-            className="input"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            placeholder="Confirmer le nouveau mot de passe"
-          />
-          {passwordError && <div className="proxy-form-error">{passwordError}</div>}
-          {passwordSuccess && <div style={{ color: 'var(--color-success)', fontSize: '0.8125rem' }}>Mot de passe modifié avec succès</div>}
-          <div className="password-form-actions">
-            <button type="submit" className="btn btn-primary" disabled={changingPassword}>
-              {changingPassword ? 'Modification...' : 'Changer le mot de passe'}
-            </button>
-          </div>
-        </form>
-      </div>
-
       {message && (
         <div style={{ color: 'var(--color-success)', fontSize: '0.8125rem', textAlign: 'center', marginTop: '0.5rem' }}>
           {message}
         </div>
       )}
-
-      <InstanceSettings />
     </div>
   );
 }
@@ -283,8 +237,11 @@ function InstanceSettings() {
 
   const [version, setVersion] = useState<VersionInfo | null>(null);
   const [instanceInfo, setInstanceInfo] = useState<LocalInstanceInfo | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [updating, setUpdating] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -358,7 +315,6 @@ function InstanceSettings() {
           if (msg.type === 'update_pull_done') {
             setLogs(prev => [...prev, '--- Redémarrage du conteneur en cours... ---']);
             if (!activePeer) {
-              setUpdating(false);
               setRestarting(true);
               startRestartPolling();
             }
@@ -399,6 +355,21 @@ function InstanceSettings() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  const handleSaveName = async () => {
+    if (!nameValue.trim()) return;
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const updated = await api.instances.updateSelf(nameValue.trim());
+      setInstanceInfo(updated);
+      setEditingName(false);
+    } catch (err) {
+      setNameError(err instanceof Error ? err.message : 'Erreur');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   const handleCheckUpdate = async () => {
     setChecking(true);
     try {
@@ -436,7 +407,7 @@ function InstanceSettings() {
     setRestarting(true);
 
     try {
-      const res = await api.system.restart();
+      await api.system.restart();
       if (isLocal) {
         startRestartPolling();
       } else {
@@ -466,6 +437,41 @@ function InstanceSettings() {
       <div className="settings-card">
         <h3>Instance HOMER</h3>
         <div className="instance-info">
+          {instanceInfo && (
+            <>
+              <div className="instance-version-row">
+                <span>Id</span>
+                <span className="version-badge" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{instanceInfo.name}</span>
+              </div>
+              <div className="instance-version-row">
+                <span>Nom</span>
+                {editingName ? (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+                    <input
+                      className="input"
+                      style={{ width: 'auto', maxWidth: '14rem', padding: '0.25rem 0.5rem', fontSize: '0.875rem' }}
+                      value={nameValue}
+                      onChange={e => setNameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false); }}
+                      autoFocus
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={handleSaveName} disabled={savingName}>
+                      {savingName ? '...' : 'Enregistrer'}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setEditingName(false)}>Annuler</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <span className="version-badge">{instanceInfo.friendlyName}</span>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { setNameValue(instanceInfo.friendlyName); setEditingName(true); setNameError(null); }}>
+                      Modifier
+                    </button>
+                  </div>
+                )}
+              </div>
+              {nameError && <div className="proxy-form-error" style={{ marginTop: '0.25rem' }}>{nameError}</div>}
+            </>
+          )}
           {version?.configured ? (
             <>
               <div className="instance-version-row">
@@ -536,32 +542,64 @@ function InstanceSettings() {
 function ContainersSettings() {
   const [containers, setContainers] = useState<Container[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const loadContainers = async () => {
+    const data = await api.system.getContainers();
+    setContainers(data);
+  };
 
   useEffect(() => {
-    api.system.getContainers().then(data => {
-      setContainers(data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    loadContainers().catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const handleAction = async (action: 'start' | 'stop' | 'restart' | 'remove' | 'checkUpdate', containerId: string) => {
     try {
-      if (action === 'remove' || action === 'checkUpdate') return;
+      if (action === 'remove') return;
+      if (action === 'checkUpdate') {
+        await api.containers.checkUpdate(containerId);
+        await loadContainers();
+        return;
+      }
       await api.containers[action](containerId);
-      const updated = await api.system.getContainers();
-      setContainers(updated);
+      await loadContainers();
     } catch {}
+  };
+
+  const handleCheckAllUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      await api.system.checkAllUpdates();
+      await loadContainers();
+      setMessage('Vérification terminée');
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage('Erreur lors de la vérification');
+    } finally {
+      setCheckingUpdates(false);
+    }
   };
 
   if (loading) return <div className="settings-section"><div className="spinner" /></div>;
 
   return (
     <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
-      <div className="section-header">
-        <h2 className="section-title" style={{ margin: 0 }}>System Containers</h2>
+      <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2 className="section-title" style={{ margin: 0 }}>Containers système</h2>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {message && <span style={{ fontSize: '0.8125rem', color: 'var(--color-success)' }}>{message}</span>}
+          <button
+            className="btn btn-secondary"
+            onClick={handleCheckAllUpdates}
+            disabled={checkingUpdates}
+          >
+            {checkingUpdates ? 'Vérification...' : 'Vérifier les mises à jour'}
+          </button>
+        </div>
       </div>
       {containers.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No system containers found.</p>
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Aucun container système trouvé.</p>
       ) : (
         <div className="resource-list">
           {containers.map(c => (

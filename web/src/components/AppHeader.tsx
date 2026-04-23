@@ -45,7 +45,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ title, stats, children }: AppHeaderProps) {
-  const { resolvedTheme, toggleTheme } = useTheme();
+  const { resolvedDark, toggleTheme } = useTheme();
   const { hasUpdates, updates, setShowModal } = useProjectUpdates();
   const { open: openMobileSidebar } = useMobileSidebar();
   const isMobile = useIsMobile();
@@ -82,9 +82,9 @@ export function AppHeader({ title, stats, children }: AppHeaderProps) {
         <button
           className="header-theme-btn"
           onClick={toggleTheme}
-          title={resolvedTheme === 'dark' ? 'Mode clair' : 'Mode sombre'}
+          title={resolvedDark ? 'Mode clair' : 'Mode sombre'}
         >
-          {resolvedTheme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          {resolvedDark ? <SunIcon /> : <MoonIcon />}
         </button>
       </div>
     </header>

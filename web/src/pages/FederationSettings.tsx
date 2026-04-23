@@ -4,6 +4,7 @@ import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useWebSocket } from '../hooks/useWebSocket';
 import '../styles/instances.css';
+import '../styles/settings.css';
 
 interface PendingRequest {
   id: string;
@@ -47,15 +48,14 @@ export function FederationSettings() {
   const [peerCaAdoptSuccess, setPeerCaAdoptSuccess] = useState<string | null>(null);
   const [peerCaAdoptError, setPeerCaAdoptError] = useState<{ uuid: string; message: string } | null>(null);
 
-  const [caImporting, setCaImporting] = useState(false);
-  const [caImportError, setCaImportError] = useState<string | null>(null);
-  const [caImportSuccess, setCaImportSuccess] = useState(false);
-  const certInputRef = useRef<HTMLInputElement>(null);
-  const keyInputRef = useRef<HTMLInputElement>(null);
-
-  const [caExportError, setCaExportError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [leavingFederation, setLeavingFederation] = useState(false);
+
+  // Instance name editing
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -205,55 +205,6 @@ export function FederationSettings() {
     }
   };
 
-  const handleExportCa = async () => {
-    setCaExportError(null);
-    try {
-      const ca = await api.proxy.exportCa();
-      const triggerDownload = (content: string, filename: string) => {
-        const blob = new Blob([content], { type: 'application/x-pem-file' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      };
-      triggerDownload(ca.cert, 'homer-ca.crt');
-      triggerDownload(ca.key, 'homer-ca.key');
-    } catch (err) {
-      setCaExportError(err instanceof ApiError ? err.message : 'Export de CA échoué');
-    }
-  };
-
-  const handleImportCaFile = async () => {
-    const certFile = certInputRef.current?.files?.[0];
-    const keyFile = keyInputRef.current?.files?.[0];
-    if (!certFile || !keyFile) {
-      setCaImportError('Veuillez sélectionner le certificat et la clé privée.');
-      return;
-    }
-    setCaImporting(true);
-    setCaImportError(null);
-    setCaImportSuccess(false);
-    try {
-      const readText = (f: File) => new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = e => res(e.target!.result as string);
-        r.onerror = () => rej(new Error('Erreur de lecture'));
-        r.readAsText(f);
-      });
-      const [cert, key] = await Promise.all([readText(certFile), readText(keyFile)]);
-      await api.proxy.importCa(cert, key);
-      setCaImportSuccess(true);
-      if (certInputRef.current) certInputRef.current.value = '';
-      if (keyInputRef.current) keyInputRef.current.value = '';
-    } catch (err) {
-      setCaImportError(err instanceof ApiError ? err.message : 'Import de CA échoué');
-    } finally {
-      setCaImporting(false);
-    }
-  };
-
   const handleAdoptPeerCa = async (peerUuid: string) => {
     setCaAdopting(true);
     setCaAdoptError(null);
@@ -308,8 +259,71 @@ export function FederationSettings() {
         <div className="settings-card">
           <h3>Cette instance</h3>
           <div className="instances-row">
+            <span className="instances-label">Id</span>
+            <span className="instances-value instances-value--mono" style={{ fontSize: '0.82rem' }}>{self.name}</span>
+          </div>
+          <div className="instances-row" style={{ alignItems: 'flex-start' }}>
             <span className="instances-label">Nom</span>
-            <span className="instances-value">{self.name}</span>
+            {editingName ? (
+              <div style={{ display: 'flex', gap: '0.5rem', flex: 1, flexDirection: 'column', alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', width: '100%', justifyContent: 'flex-end' }}>
+                  <input
+                    className="input"
+                    style={{ maxWidth: '240px' }}
+                    value={nameValue}
+                    onChange={e => setNameValue(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter') {
+                        setSavingName(true);
+                        setNameError(null);
+                        try {
+                          const updated = await api.instances.updateSelf(nameValue);
+                          setSelf(updated);
+                          setEditingName(false);
+                        } catch (err) {
+                          setNameError(err instanceof ApiError ? err.message : 'Erreur');
+                        } finally {
+                          setSavingName(false);
+                        }
+                      }
+                      if (e.key === 'Escape') { setEditingName(false); setNameError(null); }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={savingName || !nameValue.trim()}
+                    onClick={async () => {
+                      setSavingName(true);
+                      setNameError(null);
+                      try {
+                        const updated = await api.instances.updateSelf(nameValue);
+                        setSelf(updated);
+                        setEditingName(false);
+                      } catch (err) {
+                        setNameError(err instanceof ApiError ? err.message : 'Erreur');
+                      } finally {
+                        setSavingName(false);
+                      }
+                    }}
+                  >
+                    {savingName ? '…' : 'Enregistrer'}
+                  </button>
+                  <button className="btn btn-sm" onClick={() => { setEditingName(false); setNameError(null); }}>Annuler</button>
+                </div>
+                {nameError && <span style={{ fontSize: '0.8rem', color: 'var(--color-danger)' }}>{nameError}</span>}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span className="instances-value">{self.friendlyName}</span>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => { setNameValue(self.friendlyName); setEditingName(true); setNameError(null); }}
+                >
+                  Modifier
+                </button>
+              </div>
+            )}
           </div>
           <div className="instances-row">
             <span className="instances-label">Version</span>
@@ -555,50 +569,6 @@ export function FederationSettings() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Gestion du CA */}
-      <div className="settings-card">
-        <h3>Autorité de certification</h3>
-        <div className="instances-ca-card">
-          <p className="instances-ca-section-title">Exporter</p>
-          <div className="instances-ca-actions">
-            <a className="btn btn-sm" href="/api/proxy/root-ca" download="homer-root-ca.crt">
-              Télécharger le certificat (.crt)
-            </a>
-            <button className="btn btn-sm" onClick={handleExportCa}>
-              Exporter cert + clé (.crt + .key)
-            </button>
-          </div>
-          {caExportError && <div className="message message--error" style={{ marginBottom: '0.75rem', fontSize: '0.8rem' }}>{caExportError}</div>}
-          <p className="instances-ca-help">
-            Le certificat seul sert à installer la CA dans le navigateur. L'export cert + clé permet de migrer ce CA sur un autre nœud manuellement (attention : la clé privée est sensible).
-          </p>
-
-          <p className="instances-ca-section-title">Importer un CA personnalisé</p>
-          <p className="instances-ca-help">
-            Remplace le CA Caddy par votre propre autorité. Tous les certificats seront régénérés.
-          </p>
-          {caImportError && <div className="message message--error" style={{ marginBottom: '0.5rem' }}>{caImportError}</div>}
-          {caImportSuccess && <div className="message message--success" style={{ marginBottom: '0.5rem' }}>CA importé — les certificats sont en cours de régénération.</div>}
-          <div className="instances-ca-input-row">
-            <label>
-              Certificat (.crt / .pem)
-              <input ref={certInputRef} type="file" accept=".crt,.pem,.cer" />
-            </label>
-            <label>
-              Clé privée (.key / .pem)
-              <input ref={keyInputRef} type="file" accept=".key,.pem" />
-            </label>
-            <button
-              className="btn btn-primary"
-              onClick={handleImportCaFile}
-              disabled={caImporting}
-            >
-              {caImporting ? 'Import en cours…' : 'Importer le CA'}
-            </button>
-          </div>
-        </div>
       </div>
 
       <ConfirmDialog />

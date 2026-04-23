@@ -1,0 +1,50 @@
+/* ─── Account Page ───────────────────────────────────────────────────────── */
+
+.account-theme-section {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.account-theme-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.account-theme-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.account-apply-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.account-apply-all input {
+  cursor: pointer;
+}
+
+/* ─── Notifications ──────────────────────────────────────────────────────── */
+
+.account-notif-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.account-notif-indicator--active {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}

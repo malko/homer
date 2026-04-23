@@ -73,7 +73,7 @@
 }
 
 .instances-value--mono {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
 }
 
@@ -129,7 +129,7 @@
 }
 
 .instances-code-display {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: 0.3em;
@@ -251,7 +251,7 @@
 }
 
 .instances-code {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: 0.2em;

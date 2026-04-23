@@ -395,6 +395,11 @@ export const api = {
 
   instances: {
     self: () => request<LocalInstanceInfo>('/instances/self'),
+    updateSelf: (friendlyName: string) =>
+      request<LocalInstanceInfo>('/instances/self', {
+        method: 'PUT',
+        body: JSON.stringify({ friendlyName }),
+      }),
     list: () => request<{ peers: PeerInstance[] }>('/instances'),
     pendingPairings: () => request<{ pending: Array<{
       id: string;
@@ -582,7 +587,8 @@ export interface ImageInfo {
 
 export interface LocalInstanceInfo {
   uuid: string;
-  name: string;
+  name: string;         // immutable federation identifier
+  friendlyName: string; // user-editable display name
   version: string;
   url: string | null;
 }

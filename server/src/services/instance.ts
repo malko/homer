@@ -5,7 +5,8 @@ import { getRunningVersion, loadVersion as loadVersionFromModule } from './versi
 
 export interface LocalInstance {
   uuid: string;
-  name: string;
+  name: string;         // immutable federation identifier (derived from hostname)
+  friendlyName: string; // user-editable display name
   apiKey: string;
   url: string | null;
   version: string;
@@ -14,6 +15,7 @@ export interface LocalInstance {
 const SETTING_UUID = 'instance_uuid';
 const SETTING_API_KEY = 'instance_api_key';
 const SETTING_NAME = 'instance_name';
+const SETTING_FRIENDLY_NAME = 'instance_friendly_name';
 
 let cached: LocalInstance | null = null;
 
@@ -25,7 +27,7 @@ export function loadVersion(): void {
   loadVersionFromModule();
 }
 
-function defaultInstanceName(): string {
+function defaultFederationName(): string {
   const envName = process.env.HOMER_INSTANCE_NAME;
   if (envName && envName.trim()) return envName.trim();
   try {
@@ -33,6 +35,18 @@ function defaultInstanceName(): string {
   } catch {
     return 'homer';
   }
+}
+
+function defaultFriendlyName(federationName: string): string {
+  const domain = process.env.HOMER_DOMAIN?.trim();
+  if (domain) {
+    try {
+      const url = domain.startsWith('http') ? domain : `https://${domain}`;
+      const host = new URL(url).hostname;
+      if (host) return host;
+    } catch {}
+  }
+  return federationName;
 }
 
 function publicUrl(): string | null {
@@ -68,13 +82,20 @@ export function getLocalInstance(): LocalInstance {
 
   let name = settingQueries.get(SETTING_NAME);
   if (!name) {
-    name = defaultInstanceName();
+    name = defaultFederationName();
     settingQueries.set(SETTING_NAME, name);
+  }
+
+  let friendlyName = settingQueries.get(SETTING_FRIENDLY_NAME);
+  if (!friendlyName) {
+    friendlyName = defaultFriendlyName(name);
+    settingQueries.set(SETTING_FRIENDLY_NAME, friendlyName);
   }
 
   cached = {
     uuid,
     name,
+    friendlyName,
     apiKey,
     url: publicUrl(),
     version: readVersion(),
@@ -82,11 +103,11 @@ export function getLocalInstance(): LocalInstance {
   return cached;
 }
 
-export function setInstanceName(name: string): LocalInstance {
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error('Instance name cannot be empty');
-  settingQueries.set(SETTING_NAME, trimmed);
-  if (cached) cached.name = trimmed;
+export function setFriendlyName(friendly: string): LocalInstance {
+  const trimmed = friendly.trim();
+  if (!trimmed) throw new Error('Name cannot be empty');
+  settingQueries.set(SETTING_FRIENDLY_NAME, trimmed);
+  if (cached) cached.friendlyName = trimmed;
   return getLocalInstance();
 }
 
