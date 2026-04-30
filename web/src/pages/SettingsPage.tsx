@@ -5,6 +5,7 @@ import { api, Container, SystemSettings, LocalInstanceInfo } from '../api';
 import { ContainerRow } from '../components/ContainerRow';
 import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
+import { useToast } from '../hooks/useToast';
 import { FederationSettings } from './FederationSettings';
 import '../styles/settings.css';
 
@@ -70,8 +71,8 @@ function SystemSettings() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [checkingAllUpdates, setCheckingAllUpdates] = useState(false);
+  const { addToast } = useToast();
 
   useEffect(() => {
     api.system.getSettings().then(data => {
@@ -82,14 +83,12 @@ function SystemSettings() {
 
   const saveSettings = async (updates: Partial<SystemSettings>) => {
     setSaving(true);
-    setMessage(null);
     try {
       await api.system.saveSettings(updates);
       setSettings(prev => prev ? { ...prev, ...updates } : null);
-      setMessage('Paramètres enregistrés');
-      setTimeout(() => setMessage(null), 3000);
+      addToast('success', 'Paramètres enregistrés');
     } catch {
-      setMessage('Erreur lors de la sauvegarde');
+      addToast('error', 'Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
     }
@@ -98,11 +97,10 @@ function SystemSettings() {
   const handleCheckAllUpdates = async () => {
     setCheckingAllUpdates(true);
     try {
-      await api.system.checkAllUpdates();
-      setMessage('Vérification des mises à jour terminée');
-      setTimeout(() => setMessage(null), 3000);
+      const result = await api.system.checkAllUpdates();
+      addToast('success', `${result.checked} container(s) vérifié(s)`);
     } catch {
-      setMessage('Erreur lors de la vérification');
+      addToast('error', 'Erreur lors de la vérification');
     } finally {
       setCheckingAllUpdates(false);
     }
@@ -212,12 +210,6 @@ function SystemSettings() {
           </button>
         </div>
       </div>
-
-      {message && (
-        <div style={{ color: 'var(--color-success)', fontSize: '0.8125rem', textAlign: 'center', marginTop: '0.5rem' }}>
-          {message}
-        </div>
-      )}
     </div>
   );
 }
@@ -234,6 +226,7 @@ interface VersionInfo {
 function InstanceSettings() {
   const { activePeer } = usePeer();
   const { confirm, ConfirmDialog } = useConfirm();
+  const { addToast } = useToast();
 
   const [version, setVersion] = useState<VersionInfo | null>(null);
   const [instanceInfo, setInstanceInfo] = useState<LocalInstanceInfo | null>(null);
@@ -373,7 +366,15 @@ function InstanceSettings() {
   const handleCheckUpdate = async () => {
     setChecking(true);
     try {
-      await fetchVersion();
+      const data = await api.system.getVersion();
+      setVersion(data);
+      if (data.updateAvailable) {
+        addToast('warning', `Mise à jour disponible : v${data.latestVersion}`);
+      } else {
+        addToast('success', 'Vous utilisez déjà la dernière version.');
+      }
+    } catch {
+      addToast('error', 'Erreur lors de la vérification');
     } finally {
       setChecking(false);
     }
@@ -543,7 +544,7 @@ function ContainersSettings() {
   const [containers, setContainers] = useState<Container[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const { addToast } = useToast();
 
   const loadContainers = async () => {
     const data = await api.system.getContainers();
@@ -570,12 +571,11 @@ function ContainersSettings() {
   const handleCheckAllUpdates = async () => {
     setCheckingUpdates(true);
     try {
-      await api.system.checkAllUpdates();
+      const result = await api.system.checkAllUpdates();
       await loadContainers();
-      setMessage('Vérification terminée');
-      setTimeout(() => setMessage(null), 3000);
+      addToast('success', `${result.checked} container(s) vérifié(s)`);
     } catch {
-      setMessage('Erreur lors de la vérification');
+      addToast('error', 'Erreur lors de la vérification');
     } finally {
       setCheckingUpdates(false);
     }
@@ -587,16 +587,13 @@ function ContainersSettings() {
     <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
       <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 className="section-title" style={{ margin: 0 }}>Containers système</h2>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {message && <span style={{ fontSize: '0.8125rem', color: 'var(--color-success)' }}>{message}</span>}
-          <button
-            className="btn btn-secondary"
-            onClick={handleCheckAllUpdates}
-            disabled={checkingUpdates}
-          >
-            {checkingUpdates ? 'Vérification...' : 'Vérifier les mises à jour'}
-          </button>
-        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={handleCheckAllUpdates}
+          disabled={checkingUpdates}
+        >
+          {checkingUpdates ? 'Vérification...' : 'Vérifier les mises à jour'}
+        </button>
       </div>
       {containers.length === 0 ? (
         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Aucun container système trouvé.</p>

@@ -5,6 +5,7 @@ import { ThemeProvider, applyInstanceTheme } from './hooks/useTheme';
 import { ProjectUpdatesProvider, useProjectUpdates } from './hooks/useProjectUpdates';
 import { PeerProvider, usePeer } from './hooks/usePeer';
 import { MobileSidebarProvider } from './hooks/useMobileSidebar';
+import { useToastContext } from './hooks/ToastContext';
 import { SetupPage, LoginPage, ChangePasswordPage } from './pages/Auth';
 import { ProjectsPage } from './pages/Projects';
 import { TerminalPage } from './pages/TerminalPage';
@@ -22,6 +23,7 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { useWebSocket } from './hooks/useWebSocket';
 import { NavSidebar } from './components/NavSidebar';
 import { UpdatesModal } from './components/UpdatesModal';
+import { ToastContainer } from './components/ToastContainer';
 import { AppHeader } from './components/AppHeader';
 import './styles/updates.css';
 import './styles/instances.css';
@@ -135,12 +137,14 @@ function InitialRoute() {
 
 function AppRoutes() {
   const { status } = useAuth();
+  const { toasts, dismissToast } = useToastContext();
 
   return (
     <>
       {status?.authenticated && !status?.mustChangePassword && <UpdateBanner />}
       {status?.authenticated && !status?.mustChangePassword && <NotificationManager />}
       <UpdatesModal />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <Routes>
       <Route path="/" element={<InitialRoute />} />
       <Route

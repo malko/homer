@@ -12,7 +12,7 @@
 ## Page Projets
 
 ## UI/UX
-- [ ] modifier avec le design créer pour
+- [x] modifier avec le design créer pour
 - [x] revoir la page fédération pour qu'elle soit plus dans le ton du reste
 - [x] Déplacer la page fédération dans settings
 - [x] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
@@ -21,7 +21,7 @@
 - [ ] internationnalisation
 - [ ] Ajouter une note sur le rechargement du navigateur lors de l'appairage (vérifier si c'est déjà fait)
 - [x] Ajouter un bouton pour redémarrer l'instance dans les settings
-- [ ] Pas de feedback sur bouton vérifier les mises à jour dans settings system
+- [x] Pas de feedback sur bouton vérifier les mises à jour dans settings system
 
 ## Fédération
 - [ ] Au moment de l'appairage avec un noeud on devrait ajouter tout les noeud de la fédération automatiquement (j'appaire une fois pour toute la fédération)

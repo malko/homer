@@ -4,6 +4,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { usePeer } from '../hooks/usePeer';
+import { useToast } from '../hooks/useToast';
 import { AppHeader } from '../components/AppHeader';
 import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
@@ -19,13 +20,6 @@ function slugify(name: string): string {
     .replace(/[\s_-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'project';
 }
-
-// ─── Toast ─────────────────────────────────────────────────────────────────
-
-type ToastType = 'success' | 'error' | 'warning';
-interface Toast { id: number; type: ToastType; message: string; }
-
-const TOAST_ICONS: Record<ToastType, string> = { success: '✓', error: '✗', warning: '!' };
 
 // ─── Add Project Selector Modal ───────────────────────────────────────────
 
@@ -601,21 +595,9 @@ export function ProjectsPage() {
   const [importInitialTab, setImportInitialTab] = useState<'run' | 'migrate' | 'existing'>('run');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'running' | 'stopped' | 'updatable'>('all');
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const { addToast } = useToast();
   const { status } = useAuth();
   const { activePeer } = usePeer();
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  const addToast = useCallback((type: ToastType, message: string) => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, type, message }]);
-    if (type !== 'error') {
-      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-    }
-  }, []);
 
   useWebSocket((message) => {
     if (message.type === 'containers_updated' || message.type === 'project_updated') {
@@ -774,17 +756,6 @@ export function ProjectsPage() {
             </div>
           )}
         </main>
-      </div>
-
-      {/* Toasts */}
-      <div className="toast-container">
-        {toasts.map(toast => (
-          <div key={toast.id} className={`toast toast-${toast.type}`}>
-            <span style={{ fontWeight: 700 }}>{TOAST_ICONS[toast.type]}</span>
-            <span style={{ flex: 1 }}>{toast.message}</span>
-            <button className="toast-dismiss" onClick={() => dismissToast(toast.id)}>×</button>
-          </div>
-        ))}
       </div>
 
       {showSelectorModal && <AddProjectSelectorModal onClose={handleSelectorClose} onSelect={handleSelectorAction} />}
