@@ -14,13 +14,14 @@
 ## UI/UX
 - [ ] modifier avec le design créer pour
 - [x] revoir la page fédération pour qu'elle soit plus dans le ton du reste
-- [ ] Déplacer la page fédération dans settings
-- [ ] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
+- [x] Déplacer la page fédération dans settings
+- [x] Ajouter quelques choix de thèmes dans la section paramètres et changer le theme par défaut pour un theme plus sombre
 - [ ] revoir navigation de la page projet => le menu sur la gauche c'est pas beau avec le menu principal ça fait double menu c'est moche
 - [ ] Pour le paramètre d'intervalle de vérification des mises à jour proposer des options par défaut (6h, 12h, 1 jours, 1 semaine) et laisser la possibilité à l'utilisateur de saisir une valeur custom 
 - [ ] internationnalisation
 - [ ] Ajouter une note sur le rechargement du navigateur lors de l'appairage (vérifier si c'est déjà fait)
-- [ ] Ajouter un bouton pour redémarrer l'instance dans les settings
+- [x] Ajouter un bouton pour redémarrer l'instance dans les settings
+- [ ] Pas de feedback sur bouton vérifier les mises à jour dans settings system
 
 ## Fédération
 - [ ] Au moment de l'appairage avec un noeud on devrait ajouter tout les noeud de la fédération automatiquement (j'appaire une fois pour toute la fédération)
@@ -58,4 +59,4 @@
 - [x] start / stop compose en distant ne fonctionne pas en distant
 - [x] connexion websocket pour notifs en temps réel du status distant ne fonctionne pas on fallback sur 10secondes polling
     => et si on autorisait le cross origin pour les instances et qu'on se connectait directement à l'autre backend ?
-- [ ] demande de restart ne fonctionne pas ni local ni distant
+- [x] demande de restart ne fonctionne pas ni local ni distant

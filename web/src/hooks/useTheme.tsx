@@ -2,8 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 
 export const THEME_DEFINITIONS = [
   { id: 'homer-light',       label: 'Homer Light',         dark: false, family: 'homer' },
-  { id: 'homer-de',          label: 'Homer Dark',          dark: true,  family: 'homer' },
-  { id: 'homer-ta',          label: 'Homer Terminal',      dark: true,  family: 'homer' },
+  { id: 'homer-dark',          label: 'Homer Dark',          dark: true,  family: 'homer' },
   { id: 'tango-light',       label: 'Tango Light',         dark: false, family: 'tango' },
   { id: 'tango-dark',        label: 'Tango Dark',          dark: true,  family: 'tango' },
   { id: 'solarized-light',   label: 'Solarized Light',     dark: false, family: 'solarized' },
@@ -22,7 +21,7 @@ export const THEME_DEFINITIONS = [
 
 export type ThemeId = typeof THEME_DEFINITIONS[number]['id'];
 
-const DEFAULT_DARK: ThemeId  = 'homer-de';
+const DEFAULT_DARK: ThemeId  = 'homer-dark';
 const DEFAULT_LIGHT: ThemeId = 'homer-light';
 
 function isDark(id: ThemeId): boolean {

@@ -22,8 +22,8 @@
   --color-text: #0f172a;
   --color-text-muted: #64748b;
   --color-border: #e2e8f0;
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
+  --color-primary: #7c3aed;
+  --color-primary-hover: #6d28d9;
   --color-success: #16a34a;
   --color-warning: #d97706;
   --color-danger: #dc2626;
@@ -35,30 +35,9 @@
   color-scheme: light;
 }
 
-/* ─── homer-de (dark slate — default dark theme) ────────────────────────── */
+/* ─── homer-dark (terminal / near-black) ─────────────────────────────────── */
 [data-theme="dark"],
-[data-theme="homer-de"] {
-  --color-bg: #0f172a;
-  --color-bg-secondary: #1e293b;
-  --color-bg-tertiary: #334155;
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
-  --color-border: #475569;
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-info: #0ea5e9;
-  --color-info-dark: #0284c7;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.45), 0 4px 6px rgba(0, 0, 0, 0.3);
-  color-scheme: dark;
-}
-
-/* ─── homer-ta (terminal / near-black) ─────────────────────────────────── */
-[data-theme="homer-ta"] {
+[data-theme="homer-dark"] {
   --color-bg: #0c0c0f;
   --color-bg-secondary: #111118;
   --color-bg-tertiary: #1a1a25;
