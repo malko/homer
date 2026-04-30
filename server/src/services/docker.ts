@@ -429,25 +429,90 @@ export async function updateProjectImages(projectId: number): Promise<{ changed:
   const projectName = path.basename(projectDir);
 
   try {
-    await execCommand(`docker compose -f "${project.path}" -p "${projectName}" pull`);
+    const pullOutput = await execCommand(`docker compose -f "${project.path}" -p "${projectName}" pull`);
     
-    const before = await execCommand(`docker images --format "{{.Repository}}:{{.Tag}}|{{.ID}}" | grep -v "<none>"`);
+    const pullChanged = pullOutput.includes('Pulled') || pullOutput.includes('Downloaded');
     
-    await execCommand(`docker compose -f "${project.path}" -p "${projectName}" up -d --pull always`);
-    
-    const after = await execCommand(`docker images --format "{{.Repository}}:{{.Tag}}|{{.ID}}" | grep -v "<none>"`);
-    
-    const changed = before !== after;
+    if (pullChanged) {
+      await execCommand(`docker compose -f "${project.path}" -p "${projectName}" up -d --pull always --force-recreate`);
+    }
     
     try {
       await execCommand('docker image prune -f');
     } catch {}
 
-    return { changed, output: `Update completed. Images ${changed ? 'were' : 'were not'} changed.` };
+    return { changed: pullChanged, output: `Update completed. Images ${pullChanged ? 'were' : 'were not'} changed.` };
   } catch (error: unknown) {
     const err = error as { stderr?: string };
     return { changed: false, output: err.stderr || 'Unknown error' };
   }
+}
+
+export function updateProjectImagesStream(
+  projectId: number,
+  onLine: (line: string) => void,
+  onDone: (success: boolean, changed: boolean) => void,
+): () => void {
+  const project = projectQueries.getById(projectId);
+  if (!project) {
+    onLine('Error: Project not found');
+    onDone(false, false);
+    return () => {};
+  }
+
+  const projectDir = path.dirname(project.path);
+  const projectName = path.basename(projectDir);
+
+  let pullChanged = false;
+  const commands = [
+    { args: ['compose', '-f', project.path, '-p', projectName, 'pull'], label: 'pull' },
+    { args: ['compose', '-f', project.path, '-p', projectName, 'up', '-d', '--pull', 'always', '--force-recreate'], label: 'up' },
+  ];
+
+  let cmdIndex = 0;
+  let child: ReturnType<typeof spawn> | null = null;
+
+  const runNext = () => {
+    if (cmdIndex >= commands.length) {
+      onDone(true, pullChanged);
+      return;
+    }
+
+    const { args, label } = commands[cmdIndex++];
+    child = spawn('docker', args, { cwd: projectDir, stdio: ['ignore', 'pipe', 'pipe'] });
+
+    const handleData = (data: Buffer) => {
+      const lines = String(data).split('\n');
+      for (const line of lines) {
+        if (line.length > 0) onLine(line);
+      }
+    };
+
+    child.stdout?.on('data', handleData);
+    child.stderr?.on('data', handleData);
+
+    child.on('error', (err) => {
+      onLine(`spawn error: ${err.message}`);
+      onDone(false, false);
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        onDone(false, false);
+        return;
+      }
+      if (label === 'pull') {
+        pullChanged = true;
+      }
+      runNext();
+    });
+  };
+
+  runNext();
+
+  return () => {
+    try { child?.kill('SIGTERM'); } catch {}
+  };
 }
 
 export async function checkProjectImageUpdates(projectId: number): Promise<{ hasUpdates: boolean; services: string[] }> {

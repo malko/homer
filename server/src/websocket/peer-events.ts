@@ -1,8 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { createRequire } from 'module';
-import { peerQueries } from '../db/index.js';
+import { peerQueries, settingQueries } from '../db/index.js';
 import { verifySignature } from '../services/peers.js';
-import { streamLogs, deployProjectStream, downProjectStream, listContainers } from '../services/docker.js';
+import { streamLogs, deployProjectStream, downProjectStream, updateProjectImagesStream, listContainers } from '../services/docker.js';
 
 interface IPty {
   onData: (cb: (data: string) => void) => void;
@@ -41,6 +41,7 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
       const logStreamers = new Map<string, () => void>();
       const deployStreamers = new Map<string, () => void>();
       const downStreamers = new Map<string, () => void>();
+      const updateStreamers = new Map<string, () => void>();
       const terminalSessions = new Map<string, IPty>();
       let heartbeatTimer: NodeJS.Timeout | null = null;
       let containersCheckTimer: NodeJS.Timeout | null = null;
@@ -187,6 +188,44 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
             if (stop) { stop(); downStreamers.delete(key); }
           }
 
+          if (message.type === 'subscribe_update' && message.projectId) {
+            const projectId = Number(message.projectId);
+            const key = `${clientId}:update:${projectId}`;
+            if (updateStreamers.has(key)) {
+              console.log(`[peer-events] subscribe_update duplicate projectId=${projectId} — ignored`);
+              return;
+            }
+            try {
+              const stop = updateProjectImagesStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'update_output', projectId, line })); } catch {}
+                },
+                (success, changed) => {
+                  updateStreamers.delete(key);
+                  console.log(`[peer-events] update done projectId=${projectId} success=${success} changed=${changed}`);
+                  try { socket.send(JSON.stringify({ type: 'update_done', projectId, success, changed })); } catch {}
+                  if (success) {
+                    settingQueries.set(`image_updates_${projectId}`, JSON.stringify({ hasUpdates: false, services: [], checkedAt: Date.now() }));
+                  }
+                },
+              );
+              updateStreamers.set(key, stop);
+              console.log(`[peer-events] update started projectId=${projectId}`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[peer-events] update spawn FAILED projectId=${projectId}: ${msg}`);
+              try { socket.send(JSON.stringify({ type: 'update_output', projectId, line: `Error: ${msg}` })); } catch {}
+              try { socket.send(JSON.stringify({ type: 'update_done', projectId, success: false, changed: false })); } catch {}
+            }
+          }
+
+          if (message.type === 'abort_update' && message.projectId) {
+            const key = `${clientId}:update:${Number(message.projectId)}`;
+            const stop = updateStreamers.get(key);
+            if (stop) { stop(); updateStreamers.delete(key); }
+          }
+
           if (message.type === 'subscribe_terminal' && message.containerId) {
             const containerId = String(message.containerId);
             const key = `${clientId}:terminal:${containerId}`;
@@ -265,6 +304,7 @@ export function setupPeerEventsWs(fastify: FastifyInstance) {
         logStreamers.forEach(stop => stop());
         deployStreamers.forEach(stop => stop());
         downStreamers.forEach(stop => stop());
+        updateStreamers.forEach(stop => stop());
         terminalSessions.forEach(proc => { try { proc.kill(); } catch {} });
       });
 

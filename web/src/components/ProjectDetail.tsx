@@ -568,16 +568,50 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   };
 
   const handleUpdate = async () => {
-    setUpdating(true);
-    try {
-      await api.projects.updateImages(project.id);
-      addToast('success', `Images updated for ${project.name}`);
-      onRefresh();
-    } catch (err) {
-      addToast('error', err instanceof Error ? err.message : 'Update images failed');
-    } finally {
-      setUpdating(false);
-    }
+    setComposePanelType('deploy');
+    setComposePanelOpen(true);
+    setDeployRunning(true);
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/events?token=${token}`);
+    deployWsRef.current = ws;
+
+    ws.onopen = () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe_update', projectId: project.id, peer_uuid: getActivePeer() }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'update_output' && msg.projectId === project.id) {
+          setDeployLines(prev => [...prev, msg.line as string]);
+        } else if (msg.type === 'update_done' && msg.projectId === project.id) {
+          setDeployRunning(false);
+          ws.close();
+          deployWsRef.current = null;
+          if (msg.success) {
+            addToast('success', `Images updated for ${project.name}`);
+            onRefresh();
+          } else {
+            addToast('error', 'Update failed — see output for details');
+          }
+        } else if (msg.type === 'error') {
+          addToast('error', msg.message || 'WebSocket error');
+          setDeployRunning(false);
+          ws.close();
+          deployWsRef.current = null;
+        }
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      setDeployRunning(false);
+      deployWsRef.current = null;
+    };
   };
 
   const handleCheckUpdates = async () => {
@@ -750,8 +784,8 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             {deployRunning || downRunning ? (runningCount > 0 ? 'Stopping...' : 'Starting...') : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
           {project.update_available && (
-            <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={updating} title="docker compose pull && docker compose up -d">
-              {updating ? 'Updating...' : 'Update Images'}
+            <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={deployRunning} title="docker compose pull && docker compose up -d">
+              {deployRunning ? 'Updating...' : 'Update Images'}
             </button>
           )}
           <button className="btn btn-sm btn-secondary" onClick={handleCheckUpdates} disabled={checkingUpdates} title="Vérifier les mises à jour d'images">

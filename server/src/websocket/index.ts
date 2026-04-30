@@ -1,8 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from '@fastify/websocket';
 import { createRequire } from 'module';
-import { sessionQueries, peerQueries } from '../db/index.js';
-import { streamLogs, deployProjectStream, downProjectStream } from '../services/docker.js';
+import { sessionQueries, peerQueries, settingQueries } from '../db/index.js';
+import { streamLogs, deployProjectStream, downProjectStream, updateProjectImagesStream } from '../services/docker.js';
 import { getLocalInstance } from '../services/instance.js';
 import { peerWsManager } from '../services/peer-ws.js';
 import { peerFetch } from '../services/peers.js';
@@ -33,6 +33,7 @@ const logStreamers = new Map<string, () => void>();
 const terminalSessions = new Map<string, IPty>();
 const deployStreamers = new Map<string, () => void>();
 const downStreamers = new Map<string, () => void>();
+const updateStreamers = new Map<string, () => void>();
 
 const PEER_HEARTBEAT_INTERVAL_MS = 30_000;
 const PEER_CONTAINER_HEARTBEAT_SUB = '__heartbeat__';
@@ -396,6 +397,61 @@ export function setupWebSocket(fastify: FastifyInstance) {
               if (stop) { stop(); downStreamers.delete(key); }
             }
           }
+
+          if (message.type === 'subscribe_update' && message.projectId) {
+            const projectId = Number(message.projectId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              const subKey = `${clientId}:update:${projectId}`;
+              const ok = peerWsManager.subscribe(peerUuid, subKey,
+                (event) => {
+                  if ((event['type'] === 'update_output' || event['type'] === 'update_done') && event['projectId'] === projectId) {
+                    try { socket.send(JSON.stringify(event)); } catch {}
+                  }
+                },
+                { type: 'subscribe_update', projectId },
+                { type: 'abort_update', projectId },
+              );
+              if (!ok) {
+                try { socket.send(JSON.stringify({ type: 'update_output', projectId, line: `Error: Peer ${peerUuid} not available` })); } catch {}
+                try { socket.send(JSON.stringify({ type: 'update_done', projectId, success: false, changed: false })); } catch {}
+              }
+            } else {
+              const key = `${clientId}:update:${projectId}`;
+              const existing = updateStreamers.get(key);
+              if (existing) { existing(); updateStreamers.delete(key); }
+              const stop = updateProjectImagesStream(
+                projectId,
+                (line) => {
+                  try { socket.send(JSON.stringify({ type: 'update_output', projectId, line })); } catch {}
+                },
+                (success, changed) => {
+                  updateStreamers.delete(key);
+                  try { socket.send(JSON.stringify({ type: 'update_done', projectId, success, changed })); } catch {}
+                  if (success) {
+                    instance.broadcast({ type: 'containers_updated' });
+                    settingQueries.set(`image_updates_${projectId}`, JSON.stringify({ hasUpdates: false, services: [], checkedAt: Date.now() }));
+                    instance.broadcast({ type: 'project_update_available', projectId, hasUpdates: false });
+                  }
+                },
+              );
+              updateStreamers.set(key, stop);
+            }
+          }
+
+          if (message.type === 'abort_update' && message.projectId) {
+            const projectId = Number(message.projectId);
+            const peerUuid = message.peer_uuid as string | undefined;
+            const local = getLocalInstance();
+            if (peerUuid && peerUuid !== local.uuid) {
+              peerWsManager.unsubscribe(peerUuid, `${clientId}:update:${projectId}`);
+            } else {
+              const key = `${clientId}:update:${projectId}`;
+              const stop = updateStreamers.get(key);
+              if (stop) { stop(); updateStreamers.delete(key); }
+            }
+          }
         } catch {}
       });
 
@@ -408,6 +464,9 @@ export function setupWebSocket(fastify: FastifyInstance) {
         });
         downStreamers.forEach((stop, key) => {
           if (key.startsWith(clientId)) { stop(); downStreamers.delete(key); }
+        });
+        updateStreamers.forEach((stop, key) => {
+          if (key.startsWith(clientId)) { stop(); updateStreamers.delete(key); }
         });
         const termKeysToDelete: string[] = [];
         terminalSessions.forEach((proc, key) => {
