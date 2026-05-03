@@ -1,5 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { Container, ProxyHost, ProxyHostInput } from '../api';
+import { InfoTooltip } from './InfoTooltip';
+
+type UpstreamType = 'container' | 'url';
 
 function UpstreamCombobox({ value, onChange, suggestions, placeholder }: {
   value: string;
@@ -111,6 +114,9 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
   }, [isEdit, proxyHost, domainSuffix, containers]);
 
   const [domain, setDomain] = useState(proxyHost?.domain || defaultDomain);
+  const [upstreamType, setUpstreamType] = useState<UpstreamType>(
+    proxyHost?.upstream?.startsWith('http://') || proxyHost?.upstream?.startsWith('https://') ? 'url' : 'container'
+  );
   const [upstream, setUpstream] = useState(proxyHost?.upstream || '');
   const [tlsMode, setTlsMode] = useState<'internal' | 'acme'>(proxyHost?.tls_mode || 'internal');
   const [basicAuthEnabled, setBasicAuthEnabled] = useState(!!proxyHost?.basic_auth_user);
@@ -124,11 +130,17 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isLocalDomain = domain.endsWith('.local');
+
   useEffect(() => {
-    if (domain.endsWith('.local') && !proxyHost) {
+    if (isLocalDomain) {
       setMdnsEnabled(true);
+      setTlsMode('internal');
+      setLocalOnly(true);
+    } else {
+      setMdnsEnabled(false);
     }
-  }, [domain, proxyHost]);
+  }, [isLocalDomain]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,12 +182,20 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
 
   return (
     <form className="proxy-host-form" onSubmit={handleSubmit}>
-      <h3>{isEdit ? 'Modifier le proxy' : 'Nouveau proxy'}</h3>
-
-      {error && <div className="proxy-form-error">{error}</div>}
-
       <div className="form-group">
-        <label htmlFor="proxy-domain">Domaine</label>
+        <label htmlFor="proxy-domain" className="label-with-tooltip">
+          Domaine
+          <InfoTooltip title="À propos des domaines">
+            <p>Un domaine en <code>.local</code> active automatiquement :</p>
+            <ul>
+              <li>la résolution mDNS (découverte automatique sur le réseau local)</li>
+              <li>le certificat TLS interne Caddy</li>
+              <li>l'accès restreint au réseau local</li>
+            </ul>
+            <p className="margin-top-sm">Note : les sous-domaines ne fonctionnent pas avec la résolution mDNS.</p>
+            <p>Pour les autres domaines, les sous-domaines sont autorisés. Configurez votre DNS (AdGuard pour le LAN ou un registrar pour l'extérieur).</p>
+          </InfoTooltip>
+        </label>
         <div className="input-with-hint">
           <input
             id="proxy-domain"
@@ -193,23 +213,75 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
       </div>
 
       <div className="form-group">
-        <label htmlFor="proxy-upstream">Upstream</label>
-        <UpstreamCombobox
-          value={upstream}
-          onChange={setUpstream}
-          suggestions={upstreamSuggestions}
-          placeholder="container-name:8080"
-        />
-        <span className="form-help">Nom du service:port ou host.docker.internal:port</span>
+        <label htmlFor="proxy-upstream-type" className="label-with-tooltip">
+          Type d'upstream
+          <InfoTooltip title="À propos des types d'upstream">
+            <p><strong>Container (homer-services)</strong> : Utilise le nom du service Docker sur le réseau <code>homer-services</code>. Pratique pour les services du même host.</p>
+            <p><strong>URL (service externe)</strong> : Permet de cibler n'importe quel service via son URL complète (<code>http://</code> ou <code>https://</code>). Utile pour les services sur d'autres machines ou avec HTTPS.</p>
+          </InfoTooltip>
+        </label>
+        <div className="radio-group">
+          <label className="radio-label">
+            <input
+              type="radio"
+              name="upstream-type"
+              value="container"
+              checked={upstreamType === 'container'}
+              onChange={() => setUpstreamType('container')}
+            />
+            Container (homer-services)
+          </label>
+          <label className="radio-label">
+            <input
+              type="radio"
+              name="upstream-type"
+              value="url"
+              checked={upstreamType === 'url'}
+              onChange={() => setUpstreamType('url')}
+            />
+            URL (service externe)
+          </label>
+        </div>
       </div>
 
       <div className="form-group">
-        <label htmlFor="proxy-tls">TLS</label>
+        <label htmlFor="proxy-upstream">Upstream</label>
+        {upstreamType === 'container' ? (
+          <UpstreamCombobox
+            value={upstream}
+            onChange={setUpstream}
+            suggestions={upstreamSuggestions}
+            placeholder="container-name:8080"
+          />
+        ) : (
+          <input
+            id="proxy-upstream"
+            type="text"
+            className="input"
+            value={upstream}
+            onChange={e => setUpstream(e.target.value)}
+            placeholder="http://192.168.1.100:8080"
+            required
+          />
+        )}
+        <span className="form-help">
+          {upstreamType === 'container'
+            ? 'Nom du service:port ou host.docker.internal:port'
+            : 'URL complète avec protocole (http:// ou https://)'}
+        </span>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="proxy-tls" title={isLocalDomain ? "TLS interne forcé pour les domaines .local" : undefined}>
+          TLS
+        </label>
         <select
           id="proxy-tls"
-          className="input"
+          className={`input ${isLocalDomain ? 'input-disabled' : ''}`}
           value={tlsMode}
           onChange={e => setTlsMode(e.target.value as 'internal' | 'acme')}
+          disabled={isLocalDomain}
+          title={isLocalDomain ? "TLS interne forcé pour les domaines .local" : undefined}
         >
           <option value="internal">CA locale (certificat interne Caddy)</option>
           <option value="acme">Let's Encrypt (ACME)</option>
@@ -252,23 +324,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
       <div className="form-group">
         <div className="toggle-row">
           <label className="toggle-label">
-            <span>Accès local uniquement</span>
-            <span className="form-help">Restreint aux réseaux privés (192.168.x.x, 10.x.x.x, 172.16.x.x)</span>
-          </label>
-          <button
-            type="button"
-            className={`toggle ${localOnly ? 'toggle-active' : ''}`}
-            onClick={() => setLocalOnly(!localOnly)}
-          >
-            <span className="toggle-handle" />
-          </button>
-        </div>
-      </div>
-
-      <div className="form-group">
-        <div className="toggle-row">
-          <label className="toggle-label">
-            <span>Activé</span>
+            <span>Actif</span>
           </label>
           <button
             type="button"
@@ -282,19 +338,47 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
 
       <div className="form-group">
         <div className="toggle-row">
-          <label className="toggle-label">
-            <span>Afficher dans l'overview</span>
-            <span className="form-help">Lien visible dans l'onglet Overview du projet</span>
+          <label className="toggle-label" title={isLocalDomain ? "Accès local forcé pour les domaines .local" : undefined}>
+            <span>Accès local uniquement</span>
+            <span className="form-help">
+              Restreint aux réseaux privés (192.168.x.x, 10.x.x.x, 172.16.x.x)
+            </span>
           </label>
           <button
             type="button"
-            className={`toggle ${showOnOverview ? 'toggle-active' : ''}`}
-            onClick={() => setShowOnOverview(!showOnOverview)}
+            className={`toggle ${localOnly ? 'toggle-active' : ''} ${isLocalDomain ? 'toggle-disabled' : ''}`}
+            onClick={() => !isLocalDomain && setLocalOnly(!localOnly)}
+            disabled={isLocalDomain}
+            title={isLocalDomain ? "Accès local forcé pour les domaines .local" : undefined}
           >
             <span className="toggle-handle" />
           </button>
         </div>
       </div>
+
+      {isLocalDomain && (
+        <div className="form-note">
+          mDNS activé automatiquement pour les domaines .local
+        </div>
+      )}
+
+      {projectId && (
+        <div className="form-group">
+          <div className="toggle-row">
+            <label className="toggle-label">
+              <span>Afficher dans l'overview</span>
+              <span className="form-help">Lien visible dans l'onglet Overview du projet</span>
+            </label>
+            <button
+              type="button"
+              className={`toggle ${showOnOverview ? 'toggle-active' : ''}`}
+              onClick={() => setShowOnOverview(!showOnOverview)}
+            >
+              <span className="toggle-handle" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="form-group">
         <div className="toggle-row">
@@ -312,23 +396,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
         </div>
       </div>
 
-      {domain.endsWith('.local') && (
-        <div className="form-group">
-          <div className="toggle-row">
-            <label className="toggle-label">
-              <span>mDNS (résolution .local)</span>
-              <span className="form-help">Publié sur le réseau local via Avahi</span>
-            </label>
-            <button
-              type="button"
-              className={`toggle ${mdnsEnabled ? 'toggle-active' : ''}`}
-              onClick={() => setMdnsEnabled(!mdnsEnabled)}
-            >
-              <span className="toggle-handle" />
-            </button>
-          </div>
-        </div>
-      )}
+      {error && <div className="proxy-form-error">{error}</div>}
 
       <div className="proxy-form-actions">
         <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>

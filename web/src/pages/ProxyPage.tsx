@@ -3,7 +3,7 @@ import { AppHeader } from '../components/AppHeader';
 import { api, ProxyHost, ProxyHostInput, ApiError } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
-import { ProxyHostForm } from '../components/ProxyHostForm';
+import { ProxyModal } from '../components/ProxyModal';
 import { ProxyHostList } from '../components/ProxyHostList';
 import { JsonEditor } from '../components/JsonEditor';
 import '../styles/settings.css';
@@ -145,13 +145,18 @@ function ProxyHostsTab() {
   return (
     <div className="settings-section">
       <ConfirmDialog />
+      <ProxyModal
+        proxyHost={editingHost || undefined}
+        domainSuffix={domainSuffix}
+        show={showForm}
+        onSave={handleSave}
+        onCancel={() => { setShowForm(false); setEditingHost(null); }}
+      />
       <div className="proxy-tab-header">
         <h2>Proxy Hosts</h2>
-        {!showForm && (
-          <button className="btn btn-primary" onClick={() => { setEditingHost(null); setShowForm(true); }}>
-            + Ajouter un proxy
-          </button>
-        )}
+        <button className="btn btn-primary" onClick={() => { setEditingHost(null); setShowForm(true); }}>
+          + Ajouter un proxy
+        </button>
       </div>
 
       <div className="settings-card ca-cert-card">
@@ -213,17 +218,6 @@ function ProxyHostsTab() {
           </div>
         </details>
       </div>
-
-      {showForm && (
-        <div className="settings-card">
-          <ProxyHostForm
-            proxyHost={editingHost || undefined}
-            domainSuffix={domainSuffix}
-            onSave={handleSave}
-            onCancel={() => { setShowForm(false); setEditingHost(null); }}
-          />
-        </div>
-      )}
 
       <ProxyHostList
         hosts={hosts}

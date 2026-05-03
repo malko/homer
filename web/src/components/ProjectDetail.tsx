@@ -7,7 +7,7 @@ import { api, getActivePeer, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useConfirm } from '../hooks/useConfirm.js';
-import { ProxyHostForm } from './ProxyHostForm';
+import { ProxyModal } from './ProxyModal';
 import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
 import { parseAnsiSegments } from '../utils/ansi';
@@ -1394,29 +1394,23 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
   return (
     <div style={{ padding: '0.5rem 0' }}>
       <ConfirmDialog />
+      <ProxyModal
+        proxyHost={editingHost || undefined}
+        projectId={projectId}
+        domainSuffix={domainSuffix}
+        containers={containers}
+        show={showForm}
+        onSave={handleSave}
+        onCancel={() => { setShowForm(false); setEditingHost(null); }}
+      />
       <div className="proxy-tab-header">
         <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
           Proxy reverse configurés pour ce projet
         </span>
-        {!showForm && (
-          <button className="btn btn-sm btn-primary" onClick={() => { setEditingHost(null); setShowForm(true); }}>
-            + Ajouter
-          </button>
-        )}
+        <button className="btn btn-sm btn-primary" onClick={() => { setEditingHost(null); setShowForm(true); }}>
+          + Ajouter
+        </button>
       </div>
-
-      {showForm && (
-        <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--color-bg)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
-          <ProxyHostForm
-            proxyHost={editingHost || undefined}
-            projectId={projectId}
-            domainSuffix={domainSuffix}
-            containers={containers}
-            onSave={handleSave}
-            onCancel={() => { setShowForm(false); setEditingHost(null); }}
-          />
-        </div>
-      )}
 
       <ProxyHostList
         hosts={hosts}

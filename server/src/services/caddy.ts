@@ -101,6 +101,28 @@ function caddyRequest(path: string, method: string, body?: string): Promise<{ st
   });
 }
 
+interface ParsedUpstream {
+  dial: string;
+  transport?: {
+    protocol: 'http' | 'https';
+    tls?: { insecure_skip_verify?: boolean };
+  };
+}
+
+function parseUpstream(upstream: string): ParsedUpstream {
+  if (upstream.startsWith('http://') || upstream.startsWith('https://')) {
+    const url = new URL(upstream);
+    const protocol = url.protocol === 'https:' ? 'https' : 'http';
+    const port = url.port || (protocol === 'https' ? '443' : '80');
+    const dial = `${url.hostname}:${port}`;
+    if (protocol === 'https') {
+      return { dial, transport: { protocol: 'http', tls: { insecure_skip_verify: true } } };
+    }
+    return { dial, transport: { protocol: 'http' } };
+  }
+  return { dial: upstream };
+}
+
 function buildRouteForHost(host: ProxyHost): CaddyRoute {
   const matchers: Array<Record<string, unknown>> = [{ host: [host.domain] }];
 
@@ -124,10 +146,15 @@ function buildRouteForHost(host: ProxyHost): CaddyRoute {
     });
   }
 
-  handlers.push({
+  const parsed = parseUpstream(host.upstream);
+  const proxyHandler: Record<string, unknown> = {
     handler: 'reverse_proxy',
-    upstreams: [{ dial: host.upstream }],
-  });
+    upstreams: [{ dial: parsed.dial }],
+  };
+  if (parsed.transport) {
+    proxyHandler.transport = parsed.transport;
+  }
+  handlers.push(proxyHandler);
 
   return {
     match: matchers,
