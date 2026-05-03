@@ -58,13 +58,23 @@ export async function getCurrentVersion(): Promise<string> {
 
 export async function getLatestVersion(): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+    const url = `https://api.github.com/repos/${GITHUB_REPO}/tags`;
+    const res = await fetch(url, {
       headers: { 'User-Agent': 'homer' },
     });
-    if (!res.ok) return null;
-    const data = await res.json() as { tag_name?: string };
-    return data.tag_name?.replace(/^v/, '') ?? null;
-  } catch {
+    if (!res.ok) {
+      console.error(`[updater] GitHub tags API error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const tags = await res.json() as { name?: string }[];
+    if (!Array.isArray(tags) || tags.length === 0) {
+      console.error('[updater] No tags found in GitHub response');
+      return null;
+    }
+    const latestTag = tags[0]?.name;
+    return latestTag?.replace(/^v/, '') ?? null;
+  } catch (error) {
+    console.error('[updater] Failed to fetch latest version:', error);
     return null;
   }
 }
@@ -85,12 +95,9 @@ export async function checkForUpdate(): Promise<{
 }> {
   const currentVersion = await getCurrentVersion();
   const configured = await isConfigured();
-  if (!configured) {
-    return { currentVersion, latestVersion: null, updateAvailable: false, configured: false };
-  }
   const latestVersion = await getLatestVersion();
   const updateAvailable = latestVersion ? isNewer(latestVersion, currentVersion) : false;
-  return { currentVersion, latestVersion, updateAvailable, configured: true };
+  return { currentVersion, latestVersion, updateAvailable, configured };
 }
 
 export function performUpdate(
