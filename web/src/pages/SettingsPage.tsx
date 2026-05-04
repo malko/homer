@@ -117,6 +117,28 @@ function SystemSettings() {
       <InstanceSettings />
 
       <div className="settings-card">
+        <h3>Accès HTTP</h3>
+        <div className="toggle-row">
+          <label className="toggle-label">
+            <span>Désactiver l'accès HTTP pour Homer</span>
+            <span className="form-help">
+              Recommandé après l'installation des certificats TLS. 
+              Homer ne sera plus accessible qu'en HTTPS (port 443).
+              L'accès localhost:80 sera également désactivé.
+            </span>
+          </label>
+          <button
+            type="button"
+            className={`toggle ${settings.homerDisableHttp ? 'toggle-active' : ''}`}
+            onClick={() => saveSettings({ homerDisableHttp: !settings.homerDisableHttp })}
+            disabled={saving}
+          >
+            <span className="toggle-handle" />
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-card">
         <h3>Domaine par défaut</h3>
         <div className="settings-field">
           <label htmlFor="domain-suffix">Suffixe de domaine</label>

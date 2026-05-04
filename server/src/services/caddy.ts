@@ -10,8 +10,6 @@ import type { ProxyHost } from '../db/index.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const CADDY_ADMIN_URL = process.env.CADDY_ADMIN_URL || 'http://localhost:2019';
-const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
-const HOMER_PORT = process.env.PORT || '4000';
 
 // Data dir — same logic as db/index.ts
 const DATA_DIR = process.env.DATA_DIR ?? (process.env.NODE_ENV === 'production' ? '/app/data' : join(__dirname, '../../../data'));
@@ -164,6 +162,8 @@ function buildRouteForHost(host: ProxyHost): CaddyRoute {
 }
 
 export function buildCaddyConfig(): Record<string, unknown> {
+  const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
+  const HOMER_PORT = process.env.PORT || '4000';
   const hosts = proxyHostQueries.getAll().filter(h => h.enabled);
   const routes: CaddyRoute[] = [];
 
@@ -230,11 +230,16 @@ export function buildCaddyConfig(): Record<string, unknown> {
   const servers: Record<string, unknown> = {};
 
   if (hasTls) {
+    // Check if Homer HTTP access is disabled via setting
+    const homerHttpDisabled = settingQueries.get('homer_disable_http') === 'true';
+
     // Build set of domains allowed on HTTP (port 80)
     const httpAllowedDomains = new Set<string>();
-    httpAllowedDomains.add('localhost');
-    httpAllowedDomains.add('127.0.0.1');
-    if (HOMER_DOMAIN) httpAllowedDomains.add(HOMER_DOMAIN);
+    if (!homerHttpDisabled) {
+      httpAllowedDomains.add('localhost');
+      httpAllowedDomains.add('127.0.0.1');
+      if (HOMER_DOMAIN) httpAllowedDomains.add(HOMER_DOMAIN);
+    }
 
     // Add proxy hosts with allow_http enabled
     for (const host of hosts) {
@@ -252,15 +257,17 @@ export function buildCaddyConfig(): Record<string, unknown> {
       return hosts.some(h => httpAllowedDomains.has(h));
     });
 
-    // Add localhost route at the beginning
-    httpRoutes.unshift({
-      match: [{ host: ['localhost', '127.0.0.1'] }],
-      handle: [{
-        handler: 'reverse_proxy',
-        upstreams: [{ dial: `homer:${HOMER_PORT}` }],
-      }],
-      terminal: true,
-    });
+    // Add localhost route at the beginning (only if HTTP access is enabled)
+    if (!homerHttpDisabled) {
+      httpRoutes.unshift({
+        match: [{ host: ['localhost', '127.0.0.1'] }],
+        handle: [{
+          handler: 'reverse_proxy',
+          upstreams: [{ dial: `homer:${HOMER_PORT}` }],
+        }],
+        terminal: true,
+      });
+    }
 
     servers.srv_https = {
       listen: [':443'],

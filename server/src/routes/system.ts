@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { sessionQueries, settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
 import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
+import { syncConfig } from '../services/caddy.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
 
@@ -28,12 +29,14 @@ export async function systemRoutes(fastify: FastifyInstance) {
     const updateCheckInterval = raw ? parseInt(raw, 10) : 10080;
     const rawCertLifetime = settingQueries.get('caddy_cert_lifetime');
     const certLifetime = rawCertLifetime ? parseInt(rawCertLifetime, 10) : 10080;
+    const homerHttpDisabled = settingQueries.get('homer_disable_http');
     return {
       autoUpdate: autoUpdate === 'true',
       domainSuffix,
       extraHostname,
       updateCheckInterval: isNaN(updateCheckInterval) ? 360 : updateCheckInterval,
       certLifetime: isNaN(certLifetime) ? 10080 : certLifetime,
+      homerDisableHttp: homerHttpDisabled === 'true',
     };
   });
 
@@ -44,6 +47,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
       extraHostname?: string;
       updateCheckInterval?: number;
       certLifetime?: number;
+      homerDisableHttp?: boolean;
     };
     if (body.autoUpdate !== undefined) {
       settingQueries.set('auto_update', body.autoUpdate ? 'true' : 'false');
@@ -63,6 +67,11 @@ export async function systemRoutes(fastify: FastifyInstance) {
       // Clamp to sensible range: 1 hour – 30 days (in minutes)
       const minutes = Math.max(60, Math.min(43200, Math.round(body.certLifetime)));
       settingQueries.set('caddy_cert_lifetime', String(minutes));
+    }
+    if (body.homerDisableHttp !== undefined) {
+      settingQueries.set('homer_disable_http', body.homerDisableHttp ? 'true' : 'false');
+      // Reload Caddy config to apply HTTP access changes
+      syncConfig().catch(() => {});
     }
     return { success: true };
   });

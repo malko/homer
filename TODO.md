@@ -11,6 +11,9 @@
 
 ## Page Projets
 
+## Proxy
+- [x] Ajouter une option pour permettre de servir en http aussi
+
 ## UI/UX
 - [x] modifier avec le design créer pour
 - [x] revoir la page fédération pour qu'elle soit plus dans le ton du reste
@@ -25,9 +28,10 @@
 
 ## Fédération
 - [ ] Au moment de l'appairage avec un noeud on devrait ajouter tout les noeud de la fédération automatiquement (j'appaire une fois pour toute la fédération)
+- [x] Supprimer l'édition du nom qui ne sert à rien => on utilise le nom de domaine dans peer_url ça suffit
 
 ## Accès distant
-- Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
+- [ ] Permettre à l'utilisateur d'intégrer facilement un client tailscale (et/ou alternative) pour pouvoir accéder à son homelab de manière sécurisé sans forcément exposé des ports à l'extérieur
 
 ## PAAS
 - [ ] Permettre d'ajouter un projet à partir d'un dépot git et en faire un site statique, ou lancemet d'un projet avec docker compose. Adapater le systeme d'update en conséquence.

@@ -531,6 +531,7 @@ export interface SystemSettingsData {
   extraHostname: string;
   updateCheckInterval: number;
   certLifetime: number;
+  homerDisableHttp: boolean;
 }
 
 export interface HomeTileOverride {
