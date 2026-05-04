@@ -234,4 +234,4 @@ Unit tests are **required** for all new features to ensure code reliability and 
 - Use feature branches for new features or bug fixes
 - Use descriptive commit messages using gitmoji (e.g., "✨ Add user authentication API")
 - Make atomic commits (one logical change per commit)
-- Always ask the user for confirmation before pushing to the main branch
+- **ALWAYS** ask user for confirmation before commit or pushing to the main branch

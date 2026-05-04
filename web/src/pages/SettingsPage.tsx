@@ -69,28 +69,48 @@ export function SettingsPage() {
 
 function SystemSettings() {
   const [settings, setSettings] = useState<SystemSettingsData | null>(null);
+  const [initialSettings, setInitialSettings] = useState<SystemSettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingFields, setSavingFields] = useState<Set<string>>(new Set());
   const [checkingAllUpdates, setCheckingAllUpdates] = useState(false);
   const { addToast } = useToast();
 
   useEffect(() => {
     api.system.getSettings().then(data => {
       setSettings(data);
+      setInitialSettings(data);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
   const saveSettings = async (updates: Partial<SystemSettingsData>) => {
+    if (!settings || !initialSettings) return;
+
+    // Only include fields that actually changed
+    const changed: Partial<SystemSettingsData> = {};
+    let hasChanges = false;
+    for (const key of Object.keys(updates) as Array<keyof SystemSettingsData>) {
+      if (updates[key] !== initialSettings[key]) {
+        (changed as Record<string, unknown>)[key] = updates[key];
+        hasChanges = true;
+      }
+    }
+
+    if (!hasChanges) return;
+
     setSaving(true);
+    setSavingFields(new Set(Object.keys(changed)));
     try {
-      await api.system.saveSettings(updates);
-      setSettings(prev => prev ? { ...prev, ...updates } : null);
+      await api.system.saveSettings(changed);
+      setSettings(prev => prev ? { ...prev, ...changed } : null);
+      setInitialSettings(prev => prev ? { ...prev, ...changed } : null);
       addToast('success', 'Paramètres enregistrés');
     } catch {
       addToast('error', 'Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
+      setSavingFields(new Set());
     }
   };
 
@@ -148,8 +168,13 @@ function SystemSettings() {
             className="input"
             value={settings.domainSuffix}
             onChange={e => setSettings({ ...settings, domainSuffix: e.target.value })}
-            onBlur={() => saveSettings({ domainSuffix: settings.domainSuffix })}
+            onBlur={() => {
+              if (settings.domainSuffix !== initialSettings?.domainSuffix) {
+                saveSettings({ domainSuffix: settings.domainSuffix });
+              }
+            }}
             placeholder=".homelab.local"
+            disabled={savingFields.has('domainSuffix')}
           />
           <span className="form-help">Les nouveaux proxies utiliseront ce suffixe par défaut (ex: monapp.homelab.local)</span>
         </div>
@@ -162,8 +187,13 @@ function SystemSettings() {
             className="input"
             value={settings.extraHostname}
             onChange={e => setSettings({ ...settings, extraHostname: e.target.value })}
-            onBlur={() => saveSettings({ extraHostname: settings.extraHostname })}
+            onBlur={() => {
+              if (settings.extraHostname !== initialSettings?.extraHostname) {
+                saveSettings({ extraHostname: settings.extraHostname });
+              }
+            }}
             placeholder="homer.example.com"
+            disabled={savingFields.has('extraHostname')}
           />
           <span className="form-help">Hostname public avec certificat Let's Encrypt</span>
         </div>
@@ -180,7 +210,12 @@ function SystemSettings() {
               max={43200}
               value={settings.certLifetime}
               onChange={e => setSettings({ ...settings, certLifetime: parseInt(e.target.value) || 10080 })}
-              onBlur={() => saveSettings({ certLifetime: settings.certLifetime })}
+              onBlur={() => {
+                if (settings.certLifetime !== initialSettings?.certLifetime) {
+                  saveSettings({ certLifetime: settings.certLifetime });
+                }
+              }}
+              disabled={savingFields.has('certLifetime')}
             />
             <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>minutes</span>
           </div>
@@ -202,7 +237,12 @@ function SystemSettings() {
               max={43200}
               value={settings.updateCheckInterval}
               onChange={e => setSettings({ ...settings, updateCheckInterval: parseInt(e.target.value) || 10080 })}
-              onBlur={() => saveSettings({ updateCheckInterval: settings.updateCheckInterval })}
+              onBlur={() => {
+                if (settings.updateCheckInterval !== initialSettings?.updateCheckInterval) {
+                  saveSettings({ updateCheckInterval: settings.updateCheckInterval });
+                }
+              }}
+              disabled={savingFields.has('updateCheckInterval')}
             />
             <span style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>minutes</span>
           </div>
