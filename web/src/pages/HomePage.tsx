@@ -3,9 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../hooks/useAuth';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useReachability } from '../hooks/useReachability';
 import { AppHeader } from '../components/AppHeader';
 import { api } from '../api';
-import type { Project, ProxyHost, HomeTileOverride, ExternalTile, ProxyTileOverride } from '../api';
+import type { Project, ProxyHost, HomeTileOverride, ExternalTile, ProxyTileOverride, ReachabilityResult } from '../api';
 
 // ─── Tile model ───────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ interface Tile {
   defaultName: string;
   url: string;
   isRunning: boolean;
+  reachable: boolean | null;
   isExternal: boolean;
   displayName: string | null;
   icon: string | null;
@@ -54,6 +56,7 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
           defaultName: container.name,
           url: `${protocol}://${host}:${port}`,
           isRunning: container.state === 'running',
+          reachable: null,
           isExternal: false,
           displayName: ov?.display_name ?? null,
           icon: ov?.icon ?? null,
@@ -82,6 +85,7 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
       defaultName: ph.domain,
       url: `https://${ph.domain}`,
       isRunning: project ? project.containers.some(c => c.state === 'running') : true,
+      reachable: null,
       isExternal: false,
       displayName: anyOv?.display_name ?? null,
       icon: anyOv?.icon ?? null,
@@ -102,6 +106,7 @@ function buildTiles(projects: Project[], overrides: HomeTileOverride[], external
       defaultName: ext.name,
       url: ext.url,
       isRunning: false,
+      reachable: null,
       isExternal: true,
       displayName: null,
       icon: ext.icon,
@@ -723,7 +728,9 @@ function ServiceTileCard({
   onDragStart, onDragOver, onDrop, onDragEnd,
 }: ServiceTileCardProps) {
   const navigate = useNavigate();
-  const dotClass = tile.isRunning ? 'dot-running' : 'dot-stopped';
+  const dotClass = tile.isRunning
+    ? tile.reachable === false ? 'dot-unreachable' : 'dot-running'
+    : 'dot-stopped';
 
   const tileClasses = [
     'service-tile',
@@ -793,7 +800,7 @@ function ServiceTileCard({
         {!tile.isExternal && (
           <div className="service-tile-meta">
             <span className={`status-dot-lg ${dotClass}`} style={{ width: '8px', height: '8px', flexShrink: 0 }} />
-            <span>{tile.isRunning ? 'running' : 'stopped'}</span>
+            <span>{tile.isRunning ? (tile.reachable === false ? 'injoignable' : 'running') : 'stopped'}</span>
           </div>
         )}
         <div className="service-tile-url">{tile.url}</div>
@@ -818,6 +825,7 @@ export function HomePage() {
   const dragSourceKey = useRef<string | null>(null);
   const [homeProxyHosts, setHomeProxyHosts] = useState<ProxyHost[]>([]);
   const [proxyOverrides, setProxyOverrides] = useState<ProxyTileOverride[]>([]);
+  const { results: homeReachability, checkProxyHosts: checkHomeReachability } = useReachability();
 
   const fetchData = useCallback(async () => {
     try {
@@ -834,6 +842,12 @@ export function HomePage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (homeProxyHosts.length > 0) {
+      checkHomeReachability(homeProxyHosts.filter(h => h.enabled));
+    }
+  }, [homeProxyHosts, checkHomeReachability]);
+
   useWebSocket(msg => {
     if (msg.type === 'containers_updated' || msg.type === 'project_updated') refetchProjects();
   });
@@ -843,10 +857,19 @@ export function HomePage() {
     [projects, overrides, externalTiles, homeProxyHosts, proxyOverrides]
   );
 
+  const tilesWithReachability = useMemo(() => {
+    return baseTiles.map(tile => {
+      if (!tile.serviceKey?.startsWith('proxy:')) return tile;
+      const result = homeReachability.get(tile.url);
+      if (result === undefined) return tile;
+      return { ...tile, reachable: result.reachable };
+    });
+  }, [baseTiles, homeReachability]);
+
   // Apply local order if set, otherwise use base order
   const allTiles = useMemo(() => {
-    if (!localOrder) return baseTiles;
-    const map = new Map(baseTiles.map(t => [t.tileKey, t]));
+    if (!localOrder) return tilesWithReachability;
+    const map = new Map(tilesWithReachability.map(t => [t.tileKey, t]));
     const ordered: Tile[] = [];
     for (const key of localOrder) {
       const t = map.get(key);
@@ -854,7 +877,7 @@ export function HomePage() {
     }
     for (const t of map.values()) ordered.push(t);
     return ordered;
-  }, [baseTiles, localOrder]);
+  }, [tilesWithReachability, localOrder]);
 
   const displayTiles = editMode ? allTiles : allTiles.filter(t => !t.hidden);
 
@@ -916,7 +939,7 @@ export function HomePage() {
   // ── Edit mode ──────────────────────────────────────────────────────────────
 
   const enterEditMode = () => {
-    const order = allTiles.map(t => t.tileKey);
+    const order = tilesWithReachability.map(t => t.tileKey);
     localOrderRef.current = order;
     setLocalOrder(order);
     setEditMode(true);
@@ -1000,7 +1023,7 @@ export function HomePage() {
           </div>
         )}
 
-        {baseTiles.length === 0 ? (
+        {tilesWithReachability.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">🏠</div>
             <h3>No services yet</h3>

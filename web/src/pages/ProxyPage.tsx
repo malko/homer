@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppHeader } from '../components/AppHeader';
 import { api, ProxyHost, ProxyHostInput, ApiError } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
+import { useReachability } from '../hooks/useReachability';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyModal } from '../components/ProxyModal';
 import { ProxyHostList } from '../components/ProxyHostList';
@@ -71,7 +72,8 @@ export function ProxyPage() {
 }
 
 function ProxyHostsTab() {
-  const { hosts, loading, createHost, updateHost, deleteHost, toggleHost } = useProxyHosts();
+  const { hosts, loading, createHost, updateHost, deleteHost, toggleHost, refetch } = useProxyHosts();
+  const { results: reachability, checkProxyHosts } = useReachability();
   const [editingHost, setEditingHost] = useState<ProxyHost | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [domainSuffix, setDomainSuffix] = useState('');
@@ -79,6 +81,12 @@ function ProxyHostsTab() {
   const [certDownloading, setCertDownloading] = useState(false);
 
   const { ConfirmDialog, confirm } = useConfirm();
+
+  useEffect(() => {
+    if (hosts.length > 0) {
+      checkProxyHosts(hosts);
+    }
+  }, [hosts, checkProxyHosts]);
 
   const downloadCACert = async () => {
     setCertError(null);
@@ -226,6 +234,7 @@ function ProxyHostsTab() {
         onDelete={handleDelete}
         onToggle={handleToggle}
         showProject
+        reachability={reachability}
       />
     </div>
   );
@@ -309,7 +318,7 @@ function CaddyTab() {
   };
 
   return (
-    <div className="settings-section" style={{ maxWidth: 900 }}>
+    <div className="settings-section">
       <div className="caddy-tab-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <h2 style={{ margin: 0 }}>Configuration Caddy</h2>

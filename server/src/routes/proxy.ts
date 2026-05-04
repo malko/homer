@@ -1,10 +1,17 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { sessionQueries, proxyHostQueries } from '../db/index.js';
+import { sessionQueries, proxyHostQueries, projectQueries } from '../db/index.js';
 import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig, exportLocalCa, importCa } from '../services/caddy.js';
 import { publishIfEnabled, unpublishIfEnabled, getMdnsStatus } from '../services/mdns.js';
+import { checkReachability } from '../services/reachability.js';
 
 const coerceBool = z.union([z.boolean(), z.number()]).transform(v => !!v);
+
+function enrichWithProjectName<T extends { project_id: number | null }>(host: T) {
+  const projects = projectQueries.getAll();
+  const projectMap = new Map(projects.map(p => [p.id, p.name]));
+  return { ...host, project_name: host.project_id ? projectMap.get(host.project_id) ?? null : null };
+}
 
 const proxyHostSchema = z.object({
   domain: z.string().min(1),
@@ -33,14 +40,16 @@ export async function proxyRoutes(fastify: FastifyInstance) {
   // List all proxy hosts (optionally filter by project_id or show_on_home)
   fastify.get('/api/proxy/hosts', async (request) => {
     const { project_id, show_on_home } = request.query as { project_id?: string; show_on_home?: string };
+    let hosts;
     if (project_id) {
-      return proxyHostQueries.getByProject(parseInt(project_id, 10));
+      hosts = proxyHostQueries.getByProject(parseInt(project_id, 10));
+    } else {
+      hosts = proxyHostQueries.getAll();
     }
-    const all = proxyHostQueries.getAll();
     if (show_on_home === '1') {
-      return all.filter(h => h.show_on_home === 1);
+      hosts = hosts.filter(h => h.show_on_home === 1);
     }
-    return all;
+    return hosts.map(h => enrichWithProjectName(h));
   });
 
   // Get single proxy host
@@ -50,7 +59,7 @@ export async function proxyRoutes(fastify: FastifyInstance) {
     if (!host) {
       return reply.status(404).send({ success: false, output: 'Proxy host not found' });
     }
-    return host;
+    return enrichWithProjectName(host);
   });
 
   // Create proxy host
@@ -94,7 +103,7 @@ export async function proxyRoutes(fastify: FastifyInstance) {
 
       const syncResult = await syncConfig();
       const host = proxyHostQueries.getById(result.id);
-      return { success: true, host, caddy: syncResult };
+      return { success: true, host: host ? enrichWithProjectName(host) : null, caddy: syncResult };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('UNIQUE constraint')) {
@@ -162,7 +171,7 @@ export async function proxyRoutes(fastify: FastifyInstance) {
 
       const syncResult = await syncConfig();
       const host = proxyHostQueries.getById(hostId);
-      return { success: true, host, caddy: syncResult };
+      return { success: true, host: host ? enrichWithProjectName(host) : null, caddy: syncResult };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('UNIQUE constraint')) {
@@ -211,6 +220,20 @@ export async function proxyRoutes(fastify: FastifyInstance) {
 
     const result = await pushConfig(config);
     return result;
+  });
+
+  // Check reachability of upstreams/URLs
+  fastify.post('/api/proxy/check', async (request) => {
+    const { targets } = request.body as { targets?: Array<{ upstream: string; url?: string; tls_mode?: string }> };
+    if (!targets || !Array.isArray(targets)) {
+      return { results: {} };
+    }
+    const results = await checkReachability(targets);
+    const obj: Record<string, { reachable: boolean; statusCode?: number; latencyMs?: number; error?: string }> = {};
+    for (const [key, val] of results) {
+      obj[key] = val;
+    }
+    return { results: obj };
   });
 
   // Caddy status

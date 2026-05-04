@@ -391,6 +391,11 @@ export const api = {
     exportCa: () => request<{ cert: string; key: string }>('/proxy/ca-export'),
     importCa: (cert: string, key: string) =>
       request<{ success: boolean }>('/proxy/ca-import', { method: 'POST', body: JSON.stringify({ cert, key }) }),
+    checkReachability: (targets: Array<{ upstream: string; url?: string; tls_mode?: string }>) =>
+      request<{ results: Record<string, ReachabilityResult> }>('/proxy/check', {
+        method: 'POST',
+        body: JSON.stringify({ targets }),
+      }),
   },
 
   instances: {
@@ -468,6 +473,7 @@ export const api = {
 export interface ProxyHost {
   id: number;
   project_id: number | null;
+  project_name: string | null;
   domain: string;
   upstream: string;
   basic_auth_user: string | null;
@@ -478,6 +484,13 @@ export interface ProxyHost {
   show_on_home: boolean;
   mdns_enabled: boolean;
   created_at: string;
+}
+
+export interface ReachabilityResult {
+  reachable: boolean;
+  statusCode?: number;
+  latencyMs?: number;
+  error?: string;
 }
 
 export interface ProxyHostInput {

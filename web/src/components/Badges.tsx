@@ -24,11 +24,12 @@ export function Badge({ children, className = '', title, onClick, style }: Badge
 interface ProjectBadgeProps {
   project: string;
   onClick?: () => void;
+  style?: React.CSSProperties;
 }
 
-export function ProjectBadge({ project, onClick }: ProjectBadgeProps) {
+export function ProjectBadge({ project, onClick, style }: ProjectBadgeProps) {
   return (
-    <Badge className="badge-project" onClick={onClick} title={onClick ? 'Cliquer pour filtrer' : undefined}>
+    <Badge className="badge-project" onClick={onClick} title={onClick ? 'Cliquer pour filtrer' : undefined} style={style}>
       <FolderOpenIcon size={12} />
       {project}
     </Badge>

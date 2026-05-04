@@ -6,6 +6,7 @@ import { ContainerRow } from './ContainerRow';
 import { api, getActivePeer, type AutoUpdatePolicy } from '../api';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
+import { useReachability } from '../hooks/useReachability';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyModal } from './ProxyModal';
 import { ProxyHostList } from './ProxyHostList';
@@ -1353,8 +1354,19 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
   const [editingHost, setEditingHost] = useState<ProxyHost | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [domainSuffix, setDomainSuffix] = useState('');
+  const { results: proxyReachability, checkProxyHosts } = useReachability();
 
   const { ConfirmDialog, confirm } = useConfirm();
+
+  useEffect(() => {
+    api.system.getSettings().then(s => setDomainSuffix(s.domainSuffix || ''));
+  }, []);
+
+  useEffect(() => {
+    if (hosts.length > 0) {
+      checkProxyHosts(hosts);
+    }
+  }, [hosts, checkProxyHosts]);
 
   useEffect(() => {
     api.system.getSettings().then(s => setDomainSuffix(s.domainSuffix || ''));
@@ -1412,12 +1424,13 @@ function ProjectProxyTab({ projectId, containers, hosts, loading, createHost, up
         </button>
       </div>
 
-      <ProxyHostList
+<ProxyHostList
         hosts={hosts}
         loading={loading}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onToggle={handleToggle}
+        reachability={proxyReachability}
       />
     </div>
   );
