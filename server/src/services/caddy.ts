@@ -230,13 +230,29 @@ export function buildCaddyConfig(): Record<string, unknown> {
   const servers: Record<string, unknown> = {};
 
   if (hasTls) {
-    // HTTPS server on :443 - all domains allowed
-    // HTTP server on :80 - restricted to HOMER_DOMAIN + localhost only
+    // Build set of domains allowed on HTTP (port 80)
+    const httpAllowedDomains = new Set<string>();
+    httpAllowedDomains.add('localhost');
+    httpAllowedDomains.add('127.0.0.1');
+    if (HOMER_DOMAIN) httpAllowedDomains.add(HOMER_DOMAIN);
+
+    // Add proxy hosts with allow_http enabled
+    for (const host of hosts) {
+      if (host.allow_http) {
+        httpAllowedDomains.add(host.domain);
+      }
+    }
+
+    // HTTPS server on :443 - all domains
     const httpsRoutes: CaddyRoute[] = [...routes];
+
+    // HTTP server on :80 - only allowed domains
     const httpRoutes: CaddyRoute[] = routes.filter(r => {
       const hosts = (r.match?.[0]?.host as string[]) || [];
-      return hosts.length === 0 || (HOMER_DOMAIN && hosts.includes(HOMER_DOMAIN));
+      return hosts.some(h => httpAllowedDomains.has(h));
     });
+
+    // Add localhost route at the beginning
     httpRoutes.unshift({
       match: [{ host: ['localhost', '127.0.0.1'] }],
       handle: [{

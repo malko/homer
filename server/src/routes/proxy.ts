@@ -25,6 +25,7 @@ const proxyHostSchema = z.object({
   show_on_overview: coerceBool.optional(),
   show_on_home: coerceBool.optional(),
   mdns_enabled: coerceBool.optional(),
+  allow_http: coerceBool.optional(),
 });
 
 export async function proxyRoutes(fastify: FastifyInstance) {
@@ -95,6 +96,7 @@ export async function proxyRoutes(fastify: FastifyInstance) {
         data.show_on_overview !== false ? 1 : 0,
         data.show_on_home ? 1 : 0,
         mdnsEnabled,
+        data.allow_http ? 1 : 0,
       );
 
       if (mdnsEnabled && data.enabled !== false) {
@@ -156,6 +158,7 @@ export async function proxyRoutes(fastify: FastifyInstance) {
         data.show_on_overview !== undefined ? (data.show_on_overview ? 1 : 0) : existing.show_on_overview,
         data.show_on_home !== undefined ? (data.show_on_home ? 1 : 0) : existing.show_on_home,
         newMdnsEnabled,
+        data.allow_http !== undefined ? (data.allow_http ? 1 : 0) : existing.allow_http,
       );
 
       const isEnabled = data.enabled !== undefined ? data.enabled : existing.enabled;

@@ -72,6 +72,7 @@ export function ProxyHostList({ hosts, loading, onEdit, onDelete, onToggle, show
                 {host.tls_mode ? <span className="proxy-badge proxy-badge-tls">TLS</span> : ''}
                 {host.basic_auth_user ? <span className="proxy-badge proxy-badge-auth">Auth</span> : ''}
                 {host.local_only ? <span className="proxy-badge proxy-badge-local">Local</span> : ''}
+                {host.allow_http ? <span className="proxy-badge proxy-badge-http">HTTP</span> : ''}
               </div>
               <div className="proxy-host-upstream">
                 <span className="proxy-upstream-arrow">&rarr;</span>

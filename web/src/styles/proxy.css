@@ -137,6 +137,11 @@
   color: var(--color-info);
 }
 
+.proxy-badge-http {
+  background: rgba(239, 68, 68, 0.3);
+  color: var(--color-danger);
+}
+
 .proxy-badge-sm {
   display: inline-flex;
   align-items: center;

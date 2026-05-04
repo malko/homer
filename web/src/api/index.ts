@@ -485,6 +485,7 @@ export interface ProxyHost {
   show_on_overview: boolean;
   show_on_home: boolean;
   mdns_enabled: boolean;
+  allow_http: boolean;
   created_at: string;
 }
 
@@ -507,6 +508,7 @@ export interface ProxyHostInput {
   show_on_overview?: boolean;
   show_on_home?: boolean;
   mdns_enabled?: boolean;
+  allow_http?: boolean;
 }
 
 export interface CaddySyncResult {

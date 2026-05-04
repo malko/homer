@@ -127,6 +127,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
   const [showOnOverview, setShowOnOverview] = useState(proxyHost?.show_on_overview !== false);
   const [showOnHome, setShowOnHome] = useState(proxyHost?.show_on_home || false);
   const [mdnsEnabled, setMdnsEnabled] = useState(proxyHost?.mdns_enabled ?? false);
+  const [allowHttp, setAllowHttp] = useState(proxyHost?.allow_http || false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,6 +161,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
         show_on_overview: showOnOverview,
         show_on_home: showOnHome,
         mdns_enabled: mdnsEnabled,
+        allow_http: allowHttp,
       };
 
       if (basicAuthEnabled && basicAuthUser.trim()) {
@@ -390,6 +392,22 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
             type="button"
             className={`toggle ${showOnHome ? 'toggle-active' : ''}`}
             onClick={() => setShowOnHome(!showOnHome)}
+          >
+            <span className="toggle-handle" />
+          </button>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <div className="toggle-row">
+          <label className="toggle-label">
+            <span>Autoriser HTTP</span>
+            <span className="form-help">Autorise l'accès en HTTP (port 80) en plus du HTTPS</span>
+          </label>
+          <button
+            type="button"
+            className={`toggle ${allowHttp ? 'toggle-active' : ''}`}
+            onClick={() => setAllowHttp(!allowHttp)}
           >
             <span className="toggle-handle" />
           </button>

@@ -123,6 +123,7 @@ async function initDb() {
   try { db.run('ALTER TABLE proxy_hosts ADD COLUMN show_on_overview INTEGER DEFAULT 1'); } catch {}
   try { db.run('ALTER TABLE proxy_hosts ADD COLUMN show_on_home INTEGER DEFAULT 0'); } catch {}
   try { db.run('ALTER TABLE proxy_hosts ADD COLUMN mdns_enabled INTEGER DEFAULT 0'); } catch {}
+try { db.run('ALTER TABLE proxy_hosts ADD COLUMN allow_http INTEGER DEFAULT 0'); } catch {}
   try { db.run(`CREATE TABLE IF NOT EXISTS proxy_tile_overrides (
     proxy_host_id INTEGER PRIMARY KEY,
     display_name TEXT,
@@ -514,6 +515,7 @@ export interface ProxyHost {
   show_on_overview: number;
   show_on_home: number;
   mdns_enabled: number;
+  allow_http: number;
   created_at: string;
 }
 
@@ -542,19 +544,19 @@ export const proxyHostQueries = {
     stmt.free();
     return undefined;
   },
-  create: (domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0, mdnsEnabled: number = 0) => {
+  create: (domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0, mdnsEnabled: number = 0, allowHttp: number = 0) => {
     db.run(
-      'INSERT INTO proxy_hosts (domain, upstream, project_id, basic_auth_user, basic_auth_password_hash, local_only, enabled, tls_mode, show_on_overview, show_on_home, mdns_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome, mdnsEnabled]
+      'INSERT INTO proxy_hosts (domain, upstream, project_id, basic_auth_user, basic_auth_password_hash, local_only, enabled, tls_mode, show_on_overview, show_on_home, mdns_enabled, allow_http) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome, mdnsEnabled, allowHttp]
     );
     const result = db.exec('SELECT last_insert_rowid() as id');
     saveDb();
     return { id: result[0].values[0][0] as number };
   },
-  update: (id: number, domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0, mdnsEnabled: number = 0) => {
+  update: (id: number, domain: string, upstream: string, projectId: number | null, basicAuthUser: string | null, basicAuthPasswordHash: string | null, localOnly: number, enabled: number, tlsMode: string, showOnOverview: number = 1, showOnHome: number = 0, mdnsEnabled: number = 0, allowHttp: number = 0) => {
     db.run(
-      'UPDATE proxy_hosts SET domain = ?, upstream = ?, project_id = ?, basic_auth_user = ?, basic_auth_password_hash = ?, local_only = ?, enabled = ?, tls_mode = ?, show_on_overview = ?, show_on_home = ?, mdns_enabled = ? WHERE id = ?',
-      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome, mdnsEnabled, id]
+      'UPDATE proxy_hosts SET domain = ?, upstream = ?, project_id = ?, basic_auth_user = ?, basic_auth_password_hash = ?, local_only = ?, enabled = ?, tls_mode = ?, show_on_overview = ?, show_on_home = ?, mdns_enabled = ?, allow_http = ? WHERE id = ?',
+      [domain, upstream, projectId, basicAuthUser, basicAuthPasswordHash, localOnly, enabled, tlsMode, showOnOverview, showOnHome, mdnsEnabled, allowHttp, id]
     );
     saveDb();
   },
