@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { userQueries, sessionQueries, settingQueries, peerQueries } from '../db/index.js';
+import { userQueries, sessionQueries, settingQueries, peerQueries, userThemeQueries } from '../db/index.js';
 import { peerFetch, generateSecret, loadLocalRootCa } from '../services/peers.js';
 import { getLocalInstance } from '../services/instance.js';
 import { importCa } from '../services/caddy.js';
@@ -314,6 +314,35 @@ export async function authRoutes(fastify: FastifyInstance) {
     if (token) {
       sessionQueries.delete(token);
     }
+    return { success: true };
+  });
+
+  // ── User theme preferences ──────────────────────────────────────────────────
+
+  fastify.get('/api/auth/theme', async (request, reply) => {
+    const authHeader = request.headers.authorization?.replace('Bearer ', '');
+    const session = authHeader ? sessionQueries.getByToken(authHeader) : null;
+    if (!session) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const prefs = userThemeQueries.getAllForUser(session.username);
+    return { preferences: prefs };
+  });
+
+  fastify.put('/api/auth/theme', async (request, reply) => {
+    const authHeader = request.headers.authorization?.replace('Bearer ', '');
+    const session = authHeader ? sessionQueries.getByToken(authHeader) : null;
+    if (!session) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const body = z.object({
+      instance_id: z.string().min(1),
+      theme_id: z.string().min(1),
+    }).parse(request.body);
+
+    userThemeQueries.set(session.username, body.instance_id, body.theme_id);
     return { success: true };
   });
 }

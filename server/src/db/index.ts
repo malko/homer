@@ -57,6 +57,14 @@ async function initDb() {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS user_theme_preferences (
+      username TEXT NOT NULL,
+      instance_id TEXT NOT NULL,
+      theme_id TEXT NOT NULL,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+      PRIMARY KEY (username, instance_id)
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       username TEXT NOT NULL,
@@ -244,6 +252,40 @@ function normalizeProject(project: Project): Project {
     env_path: normalizePath(project.env_path),
   };
 }
+
+export interface UserThemePreference {
+  username: string;
+  instance_id: string;
+  theme_id: string;
+  updated_at: number;
+}
+
+export const userThemeQueries = {
+  get: (username: string, instanceId: string): string | null => {
+    const stmt = db.prepare('SELECT theme_id FROM user_theme_preferences WHERE username = ? AND instance_id = ?');
+    stmt.bind([username, instanceId]);
+    if (stmt.step()) {
+      const row = stmt.get();
+      stmt.free();
+      return row[0] as string;
+    }
+    stmt.free();
+    return null;
+  },
+  set: (username: string, instanceId: string, themeId: string) => {
+    db.run(
+      'INSERT INTO user_theme_preferences (username, instance_id, theme_id) VALUES (?, ?, ?) ON CONFLICT(username, instance_id) DO UPDATE SET theme_id = excluded.theme_id, updated_at = strftime("%s", "now")',
+      [username, instanceId, themeId]
+    );
+    saveDb();
+  },
+  getAllForUser: (username: string): UserThemePreference[] => {
+    const result = db.exec('SELECT * FROM user_theme_preferences WHERE username = ?', [username]);
+    if (result.length === 0) return [];
+    const columns = result[0].columns;
+    return result[0].values.map((row: any[]) => rowToObj<UserThemePreference>(columns, row));
+  },
+};
 
 export const userQueries = {
   getAllForFederation: (): Array<{ username: string; home_instance_uuid: string | null }> => {

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { api } from '../api';
 
 export const THEME_DEFINITIONS = [
   { id: 'homer-light',       label: 'Homer Light',         dark: false, family: 'homer' },
@@ -35,7 +36,22 @@ function toggleVariant(id: ThemeId): ThemeId {
   return (sibling?.id as ThemeId) ?? (def.dark ? DEFAULT_LIGHT : DEFAULT_DARK);
 }
 
-export function getThemeForInstance(instanceId: string): ThemeId {
+export async function getThemeForInstance(instanceId: string): Promise<ThemeId> {
+  // Try API first
+  try {
+    const response = await api.auth.getThemePreferences();
+    const pref = response.preferences?.find((p: { instance_id: string; theme_id: string }) => p.instance_id === instanceId);
+    if (pref?.theme_id && THEME_DEFINITIONS.some(t => t.id === pref.theme_id)) {
+      // Cache in localStorage
+      const key = instanceId === 'local' ? 'color-theme' : `color-theme-${instanceId}`;
+      localStorage.setItem(key, pref.theme_id);
+      return pref.theme_id as ThemeId;
+    }
+  } catch {
+    // API failed, fallback to localStorage
+  }
+
+  // Fallback to localStorage
   const key = instanceId === 'local' ? 'color-theme' : `color-theme-${instanceId}`;
   const stored = localStorage.getItem(key) as ThemeId | null;
   if (stored && THEME_DEFINITIONS.some(t => t.id === stored)) return stored;
@@ -51,6 +67,8 @@ export function getThemeForInstance(instanceId: string): ThemeId {
 export function setThemeForInstance(instanceId: string, themeId: ThemeId) {
   const key = instanceId === 'local' ? 'color-theme' : `color-theme-${instanceId}`;
   localStorage.setItem(key, themeId);
+  // Save to API in background
+  api.auth.setThemePreference(instanceId, themeId).catch(() => {});
 }
 
 function applyTheme(themeId: ThemeId) {
@@ -67,11 +85,21 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [themeId, setThemeState] = useState<ThemeId>(() => getThemeForInstance('local'));
+  const [themeId, setThemeState] = useState<ThemeId>(DEFAULT_DARK);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    applyTheme(themeId);
-  }, [themeId]);
+    getThemeForInstance('local').then(id => {
+      setThemeState(id);
+      setInitialized(true);
+    }).catch(() => setInitialized(true));
+  }, []);
+
+  useEffect(() => {
+    if (initialized) {
+      applyTheme(themeId);
+    }
+  }, [themeId, initialized]);
 
   function setThemeId(id: ThemeId) {
     setThemeForInstance('local', id);
@@ -82,6 +110,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const next = toggleVariant(themeId);
     setThemeId(next);
   }
+
+  if (!initialized) return null;
 
   return (
     <ThemeContext.Provider value={{ themeId, resolvedDark: isDark(themeId), setThemeId, toggleTheme }}>
@@ -96,8 +126,13 @@ export function useTheme(): ThemeContextValue {
   return ctx;
 }
 
-export function applyInstanceTheme(instanceId: string) {
-  const themeId = getThemeForInstance(instanceId);
+export async function applyInstanceTheme(instanceId: string) {
+  const themeId = await getThemeForInstance(instanceId);
   document.documentElement.setAttribute('data-theme', themeId);
   return themeId;
 }
+
+// Initialize theme on load (call once at app start)
+getThemeForInstance('local').then(themeId => {
+  document.documentElement.setAttribute('data-theme', themeId);
+}).catch(() => {});

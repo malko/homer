@@ -179,6 +179,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ peer_url, username, password, adopt_ca }),
       }),
+    getThemePreferences: () =>
+      request<{ preferences: Array<{ username: string; instance_id: string; theme_id: string; updated_at: number }> }>('/auth/theme'),
+    setThemePreference: (instanceId: string, themeId: string) =>
+      request<{ success: boolean }>('/auth/theme', {
+        method: 'PUT',
+        body: JSON.stringify({ instance_id: instanceId, theme_id: themeId }),
+      }),
   },
 
   projects: {
@@ -295,8 +302,8 @@ export const api = {
       updateAvailable: boolean;
       configured: boolean;
     }>('/system/version'),
-    getSettings: () => request<SystemSettings>('/system/settings'),
-    saveSettings: (data: Partial<SystemSettings>) =>
+    getSettings: () => request<SystemSettingsData>('/system/settings'),
+    saveSettings: (data: Partial<SystemSettingsData>) =>
       request<{ success: boolean }>('/system/settings', {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -521,7 +528,7 @@ export interface ProjectUpdatePayload {
   watchEnabled?: boolean;
 }
 
-export interface SystemSettings {
+export interface SystemSettingsData {
   autoUpdate: boolean;
   domainSuffix: string;
   extraHostname: string;

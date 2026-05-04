@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
-import { api, Container, SystemSettings, LocalInstanceInfo } from '../api';
+import { api, Container, SystemSettingsData, LocalInstanceInfo } from '../api';
 import { ContainerRow } from '../components/ContainerRow';
 import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
@@ -68,7 +68,7 @@ export function SettingsPage() {
 // ─── System Settings ─────────────────────────────────────────────────────────
 
 function SystemSettings() {
-  const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [settings, setSettings] = useState<SystemSettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checkingAllUpdates, setCheckingAllUpdates] = useState(false);
@@ -81,7 +81,7 @@ function SystemSettings() {
     }).catch(() => setLoading(false));
   }, []);
 
-  const saveSettings = async (updates: Partial<SystemSettings>) => {
+  const saveSettings = async (updates: Partial<SystemSettingsData>) => {
     setSaving(true);
     try {
       await api.system.saveSettings(updates);

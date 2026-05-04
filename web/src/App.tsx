@@ -32,7 +32,7 @@ function PeerThemeSync() {
   const { activePeer } = usePeer();
   useEffect(() => {
     const instanceId = activePeer ? activePeer.uuid : 'local';
-    applyInstanceTheme(instanceId);
+    applyInstanceTheme(instanceId).catch(() => {});
   }, [activePeer?.uuid]);
   return null;
 }

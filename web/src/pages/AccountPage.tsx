@@ -125,18 +125,24 @@ function ThemeSection() {
   const [applyAll, setApplyAll] = useState(false);
   const [localInstance, setLocalInstance] = useState<LocalInstanceInfo | null>(null);
   const [peers, setPeers] = useState<PeerInstance[]>([]);
-  const [localTheme, setLocalTheme] = useState<ThemeId>(() => getThemeForInstance('local'));
+  const [localTheme, setLocalTheme] = useState<ThemeId>('homer-dark');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.instances.self().then(setLocalInstance).catch(() => {});
     api.instances.list().then(r => setPeers(r.peers)).catch(() => {});
+    getThemeForInstance('local').then(theme => {
+      setLocalTheme(theme);
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
   const handleApplyAll = (checked: boolean) => {
     setApplyAll(checked);
     if (checked) {
-      const theme = getThemeForInstance('local');
-      peers.forEach(p => setThemeForInstance(p.uuid, theme));
+      getThemeForInstance('local').then(theme => {
+        peers.forEach(p => setThemeForInstance(p.uuid, theme));
+      });
     }
   };
 
@@ -153,7 +159,7 @@ function ThemeSection() {
     <div className="settings-card">
       <h3>Thème</h3>
       <p className="form-help" style={{ marginBottom: '1rem' }}>
-        Choisissez un thème pour chaque instance. Le thème s'applique automatiquement lors du changement d'instance.
+        Choisissez un thème pour chaque instance. Le thème s'applique automatiquement lors du changement d'instance ().
       </p>
 
       <div className="account-theme-section">
@@ -189,17 +195,38 @@ function ThemeSection() {
 }
 
 function PeerThemeSection({ peer }: { peer: PeerInstance }) {
-  const [selected, setSelected] = useState<ThemeId>(() => getThemeForInstance(peer.uuid));
+  const [selected, setSelected] = useState<ThemeId>('homer-dark');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getThemeForInstance(peer.uuid).then(theme => {
+      setSelected(theme);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [peer.uuid]);
 
   const handleChange = (id: ThemeId) => {
     setSelected(id);
     setThemeForInstance(peer.uuid, id);
   };
 
+  let displayName = peer.name;
+  if (peer.url) {
+    try {
+      const url = new URL(peer.url);
+      displayName = url.hostname;
+    } catch {}
+  }
+
   return (
     <div className="account-theme-section">
       <div className="account-theme-section-header">
-        <strong>{peer.name}</strong>
+        <strong>{displayName}</strong>
+        {displayName !== peer.name && (
+          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {peer.name}
+          </span>
+        )}
       </div>
       <ThemeSelect value={selected} onChange={handleChange} />
     </div>
