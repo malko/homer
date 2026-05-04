@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AppHeader } from '../components/AppHeader';
-import { api, ApiError, LocalInstanceInfo, PeerInstance } from '../api';
+import { api, ApiError, LocalInstanceInfo, PeerInstance, displayName } from '../api';
 import { useTheme, THEME_DEFINITIONS, ThemeId, getThemeForInstance, setThemeForInstance } from '../hooks/useTheme';
 import '../styles/settings.css';
 import '../styles/account.css';
@@ -164,7 +164,7 @@ function ThemeSection() {
 
       <div className="account-theme-section">
         <div className="account-theme-section-header">
-          <strong>{localInstance?.friendlyName ?? localInstance?.name ?? 'Instance locale'}</strong>
+          <strong>{localInstance ? displayName(localInstance, true) : 'Instance locale'}</strong>
           {localInstance?.name && (
             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
               {localInstance.name}
@@ -210,19 +210,11 @@ function PeerThemeSection({ peer }: { peer: PeerInstance }) {
     setThemeForInstance(peer.uuid, id);
   };
 
-  let displayName = peer.name;
-  if (peer.url) {
-    try {
-      const url = new URL(peer.url);
-      displayName = url.hostname;
-    } catch {}
-  }
-
   return (
     <div className="account-theme-section">
       <div className="account-theme-section-header">
-        <strong>{displayName}</strong>
-        {displayName !== peer.name && (
+        <strong>{displayName(peer)}</strong>
+        {displayName(peer) !== peer.name && (
           <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
             {peer.name}
           </span>

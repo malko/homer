@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { api, LocalInstanceInfo, PeerInstance, ApiError } from '../api';
+import { api, LocalInstanceInfo, PeerInstance, ApiError, displayName } from '../api';
 import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -50,12 +50,6 @@ export function FederationSettings() {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [leavingFederation, setLeavingFederation] = useState(false);
-
-  // Instance name editing
-  const [editingName, setEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -262,68 +256,16 @@ export function FederationSettings() {
             <span className="instances-label">Id</span>
             <span className="instances-value instances-value--mono" style={{ fontSize: '0.82rem' }}>{self.name}</span>
           </div>
-          <div className="instances-row" style={{ alignItems: 'flex-start' }}>
+          <div className="instances-row">
             <span className="instances-label">Nom</span>
-            {editingName ? (
-              <div style={{ display: 'flex', gap: '0.5rem', flex: 1, flexDirection: 'column', alignItems: 'flex-end' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', width: '100%', justifyContent: 'flex-end' }}>
-                  <input
-                    className="input"
-                    style={{ maxWidth: '240px' }}
-                    value={nameValue}
-                    onChange={e => setNameValue(e.target.value)}
-                    onKeyDown={async e => {
-                      if (e.key === 'Enter') {
-                        setSavingName(true);
-                        setNameError(null);
-                        try {
-                          const updated = await api.instances.updateSelf(nameValue);
-                          setSelf(updated);
-                          setEditingName(false);
-                        } catch (err) {
-                          setNameError(err instanceof ApiError ? err.message : 'Erreur');
-                        } finally {
-                          setSavingName(false);
-                        }
-                      }
-                      if (e.key === 'Escape') { setEditingName(false); setNameError(null); }
-                    }}
-                    autoFocus
-                  />
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={savingName || !nameValue.trim()}
-                    onClick={async () => {
-                      setSavingName(true);
-                      setNameError(null);
-                      try {
-                        const updated = await api.instances.updateSelf(nameValue);
-                        setSelf(updated);
-                        setEditingName(false);
-                      } catch (err) {
-                        setNameError(err instanceof ApiError ? err.message : 'Erreur');
-                      } finally {
-                        setSavingName(false);
-                      }
-                    }}
-                  >
-                    {savingName ? '…' : 'Enregistrer'}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => { setEditingName(false); setNameError(null); }}>Annuler</button>
-                </div>
-                {nameError && <span style={{ fontSize: '0.8rem', color: 'var(--color-danger)' }}>{nameError}</span>}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span className="instances-value">{self.friendlyName}</span>
-                <button
-                  className="btn btn-sm"
-                  onClick={() => { setNameValue(self.friendlyName); setEditingName(true); setNameError(null); }}
-                >
-                  Modifier
-                </button>
-              </div>
-            )}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+              <span className="instances-value">{displayName(self, true)}</span>
+              {displayName(self, true) !== self.name && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {self.name}
+                </span>
+              )}
+            </div>
           </div>
           <div className="instances-row">
             <span className="instances-label">Version</span>
@@ -348,7 +290,14 @@ export function FederationSettings() {
             {peers.map((peer) => (
               <li key={peer.uuid} className="instances-card" style={{ margin: 0, marginBottom: '0.5rem' }}>
                 <div className="instances-row">
-                  <span className="instances-label">{peer.name}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span className="instances-label">{displayName(peer)}</span>
+                    {displayName(peer) !== peer.name && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {peer.name}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span className={`instances-status instances-status--${peer.status}`}>
                       {peer.status}
@@ -363,7 +312,7 @@ export function FederationSettings() {
                     </button>
                     <button
                       className="btn btn-danger btn-sm"
-                      onClick={() => handleUnpair(peer.uuid, peer.name)}
+                      onClick={() => handleUnpair(peer.uuid, displayName(peer))}
                     >
                       Désappairer
                     </button>

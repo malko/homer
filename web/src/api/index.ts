@@ -407,11 +407,6 @@ export const api = {
 
   instances: {
     self: () => request<LocalInstanceInfo>('/instances/self'),
-    updateSelf: (friendlyName: string) =>
-      request<LocalInstanceInfo>('/instances/self', {
-        method: 'PUT',
-        body: JSON.stringify({ friendlyName }),
-      }),
     list: () => request<{ peers: PeerInstance[] }>('/instances'),
     pendingPairings: () => request<{ pending: Array<{
       id: string;
@@ -608,9 +603,29 @@ export interface ImageInfo {
 export interface LocalInstanceInfo {
   uuid: string;
   name: string;         // immutable federation identifier
-  friendlyName: string; // user-editable display name
   version: string;
   url: string | null;
+}
+
+export function displayName(
+  instance: { name: string; url: string | null },
+  isLocal: boolean = false
+): string {
+  // 1. Priority to URL hostname
+  if (instance.url) {
+    try {
+      const host = new URL(instance.url).hostname;
+      if (host) return host;
+    } catch {}
+  }
+
+  // 2. For local instance in browser, use window.location.hostname (useful in dev mode)
+  if (isLocal && typeof window !== 'undefined' && window.location?.hostname) {
+    return window.location.hostname;
+  }
+
+  // 3. Fallback to technical name (hash)
+  return instance.name;
 }
 
 export interface PeerInstance {

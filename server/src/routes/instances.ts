@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getLocalInstance, setFriendlyName } from '../services/instance.js';
+import { getLocalInstance, getInstanceDisplayName } from '../services/instance.js';
 import {
   sessionQueries,
   peerQueries,
@@ -45,25 +45,9 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     return {
       uuid: instance.uuid,
       name: instance.name,
-      friendlyName: instance.friendlyName,
       version: instance.version,
       url: instance.url,
     };
-  });
-
-  // ── Update self friendly name ─────────────────────────────────────────────
-  fastify.put('/api/instances/self', async (request, reply) => {
-    if (!requireAuth(request, reply)) return;
-    const { friendlyName } = request.body as { friendlyName?: string };
-    if (!friendlyName || typeof friendlyName !== 'string' || !friendlyName.trim()) {
-      return reply.status(400).send({ error: 'Le nom ne peut pas être vide' });
-    }
-    try {
-      const updated = setFriendlyName(friendlyName.trim());
-      return { uuid: updated.uuid, name: updated.name, friendlyName: updated.friendlyName, version: updated.version, url: updated.url };
-    } catch (err) {
-      return reply.status(400).send({ error: err instanceof Error ? err.message : 'Erreur' });
-    }
   });
 
   // ── Paired peers list ─────────────────────────────────────────────────────
@@ -116,7 +100,7 @@ export async function instancesRoutes(fastify: FastifyInstance) {
       method: 'POST',
       body: {
         from_uuid: local.uuid,
-        from_name: local.name,
+        from_name: getInstanceDisplayName(),
         from_url: local.url,
         local_code: localCode,
         shared_secret: sharedSecret,
@@ -304,7 +288,7 @@ export async function instancesRoutes(fastify: FastifyInstance) {
     const ca = await loadLocalRootCa();
     return {
       to_uuid: local.uuid,
-      to_name: local.name,
+      to_name: getInstanceDisplayName(),
       to_url: local.url,
       ca,
     };

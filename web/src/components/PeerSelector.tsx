@@ -1,12 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { usePeer } from '../hooks/usePeer';
+import { displayName } from '../api';
 import type { PeerInstance } from '../api';
 
 function peerLabel(p: PeerInstance): string {
-  if (p.url) {
-    try { return new URL(p.url).hostname; } catch {}
-  }
-  return p.name;
+  return displayName(p);
 }
 
 function localLabel(): string {

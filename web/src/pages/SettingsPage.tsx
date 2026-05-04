@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
-import { api, Container, SystemSettingsData, LocalInstanceInfo } from '../api';
+import { api, Container, SystemSettingsData, LocalInstanceInfo, displayName } from '../api';
 import { ContainerRow } from '../components/ContainerRow';
 import { usePeer } from '../hooks/usePeer';
 import { useConfirm } from '../hooks/useConfirm';
@@ -230,10 +230,6 @@ function InstanceSettings() {
 
   const [version, setVersion] = useState<VersionInfo | null>(null);
   const [instanceInfo, setInstanceInfo] = useState<LocalInstanceInfo | null>(null);
-  const [editingName, setEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -348,21 +344,6 @@ function InstanceSettings() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  const handleSaveName = async () => {
-    if (!nameValue.trim()) return;
-    setSavingName(true);
-    setNameError(null);
-    try {
-      const updated = await api.instances.updateSelf(nameValue.trim());
-      setInstanceInfo(updated);
-      setEditingName(false);
-    } catch (err) {
-      setNameError(err instanceof Error ? err.message : 'Erreur');
-    } finally {
-      setSavingName(false);
-    }
-  };
-
   const handleCheckUpdate = async () => {
     setChecking(true);
     try {
@@ -446,31 +427,8 @@ function InstanceSettings() {
               </div>
               <div className="instance-version-row">
                 <span>Nom</span>
-                {editingName ? (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
-                    <input
-                      className="input"
-                      style={{ width: 'auto', maxWidth: '14rem', padding: '0.25rem 0.5rem', fontSize: '0.875rem' }}
-                      value={nameValue}
-                      onChange={e => setNameValue(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false); }}
-                      autoFocus
-                    />
-                    <button className="btn btn-primary btn-sm" onClick={handleSaveName} disabled={savingName}>
-                      {savingName ? '...' : 'Enregistrer'}
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setEditingName(false)}>Annuler</button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <span className="version-badge">{instanceInfo.friendlyName}</span>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setNameValue(instanceInfo.friendlyName); setEditingName(true); setNameError(null); }}>
-                      Modifier
-                    </button>
-                  </div>
-                )}
+                <span className="version-badge">{instanceInfo ? displayName(instanceInfo, true) : '-'}</span>
               </div>
-              {nameError && <div className="proxy-form-error" style={{ marginTop: '0.25rem' }}>{nameError}</div>}
             </>
           )}
           {version?.configured ? (
