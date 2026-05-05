@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { listContainers, getContainerLogs, startContainer, stopContainer, restartContainer, checkContainerUpdate } from '../services/docker.js';
+import { listContainers, getContainerLogs, clearContainerLogs, startContainer, stopContainer, restartContainer, checkContainerUpdate } from '../services/docker.js';
 import { sessionQueries, containerUpdateQueries } from '../db/index.js';
 
 declare module 'fastify' {
@@ -28,6 +28,15 @@ export async function containerRoutes(fastify: FastifyInstance) {
     
     const logs = await getContainerLogs(id, tail ? parseInt(tail) : 100);
     return { logs };
+  });
+
+  fastify.delete('/api/containers/:id/logs', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await clearContainerLogs(id);
+    if (!result.success) {
+      return reply.status(500).send({ error: result.output });
+    }
+    return { success: true };
   });
 
   fastify.post('/api/containers/:id/start', async (request, reply) => {

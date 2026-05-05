@@ -258,6 +258,8 @@ export const api = {
       request<{ success: boolean; output: string }>(`/containers/${id}/update-image`, { method: 'POST' }),
     checkUpdate: (id: string) =>
       request<{ success: boolean; hasUpdate: boolean }>(`/containers/${id}/check-update`, { method: 'POST' }),
+    clearLogs: (id: string) =>
+      request<{ success: boolean }>(`/containers/${id}/logs`, { method: 'DELETE' }),
   },
 
   home: {

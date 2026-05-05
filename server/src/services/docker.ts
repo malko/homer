@@ -325,6 +325,27 @@ export async function getContainerLogs(containerId: string, tail = 100): Promise
   }
 }
 
+export async function clearContainerLogs(containerId: string): Promise<{ success: boolean; output: string }> {
+  try {
+    const logPath = (await execCommand(`docker inspect --format='{{.LogPath}}' ${containerId}`)).trim();
+    if (!logPath) {
+      return { success: false, output: 'Could not determine log file path' };
+    }
+    // Try direct truncation first (works when host filesystem is accessible)
+    try {
+      await fs.truncate(logPath, 0);
+      return { success: true, output: '' };
+    } catch {
+      // Fallback: mount the log file into a short-lived container and truncate from there
+      await execCommand(`docker run --rm -v "${logPath}:/logfile" alpine sh -c "> /logfile"`);
+      return { success: true, output: '' };
+    }
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return { success: false, output: err.message || 'Failed to clear logs' };
+  }
+}
+
 export async function startContainer(containerId: string): Promise<void> {
   await execCommand(`docker start ${containerId}`);
 }

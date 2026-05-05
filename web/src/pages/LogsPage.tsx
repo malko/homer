@@ -39,6 +39,8 @@ export function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
   const logsScrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -98,6 +100,21 @@ export function LogsPage() {
     }
   }, [logs, following]);
 
+  const handleClearLogs = useCallback(async () => {
+    if (!containerId) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      await api.containers.clearLogs(containerId);
+      setLogs([]);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setClearError(e.message || 'Failed to clear logs');
+    } finally {
+      setClearing(false);
+    }
+  }, [containerId]);
+
   const handleMoveBack = () => {
     window.close();
   };
@@ -127,6 +144,22 @@ export function LogsPage() {
           Auto-scroll
         </label>
         <button
+          onClick={handleClearLogs}
+          disabled={clearing}
+          title="Clear logs from disk"
+          style={{
+            background: 'transparent',
+            border: '1px solid #7f1d1d',
+            color: clearing ? '#64748b' : '#f87171',
+            borderRadius: '0.25rem',
+            padding: '0.2rem 0.6rem',
+            fontSize: '0.75rem',
+            cursor: clearing ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {clearing ? 'Clearing…' : 'Clear logs'}
+        </button>
+        <button
           onClick={handleMoveBack}
           style={{
             background: 'transparent',
@@ -141,6 +174,12 @@ export function LogsPage() {
           ← Close
         </button>
       </div>
+
+      {clearError && (
+        <div style={{ padding: '0.35rem 0.75rem', background: '#450a0a', borderBottom: '1px solid #7f1d1d', fontSize: '0.75rem', color: '#f87171' }}>
+          Failed to clear logs: {clearError}
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }} ref={logsScrollRef}>
         {loading ? (

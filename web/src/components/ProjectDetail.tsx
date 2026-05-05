@@ -156,6 +156,8 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [logsInitialized, setLogsInitialized] = useState(false);
   const [following, setFollowing] = useState(true);
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
+  const [clearingLogs, setClearingLogs] = useState(false);
+  const [clearLogsError, setClearLogsError] = useState<string | null>(null);
   const logsScrollRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | undefined>(undefined);
@@ -708,6 +710,28 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   };
 
+  const handleClearLogs = useCallback(async () => {
+    const targets = selectedContainerId
+      ? project.containers.filter(c => c.id === selectedContainerId)
+      : project.containers;
+    if (targets.length === 0) return;
+    setClearingLogs(true);
+    setClearLogsError(null);
+    try {
+      await Promise.all(targets.map(c => api.containers.clearLogs(c.id)));
+      setLogs(prev => {
+        const next = { ...prev };
+        for (const c of targets) next[c.id] = [];
+        return next;
+      });
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setClearLogsError(e.message || 'Failed to clear logs');
+    } finally {
+      setClearingLogs(false);
+    }
+  }, [selectedContainerId, project.containers]);
+
   const [containerActionInProgress, setContainerActionInProgress] = useState<string | null>(null);
 
   const handleContainerAction = async (action: 'start' | 'stop' | 'restart' | 'remove' | 'checkUpdate', containerId: string) => {
@@ -939,11 +963,26 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   ))}
                 </div>
               )}
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer', marginLeft: 'auto' }}>
-                <input type="checkbox" checked={following} onChange={e => setFollowing(e.target.checked)} />
-                Follow logs
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: 'auto' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={following} onChange={e => setFollowing(e.target.checked)} />
+                  Follow logs
+                </label>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={handleClearLogs}
+                  disabled={clearingLogs}
+                  title="Clear logs from disk"
+                >
+                  {clearingLogs ? 'Clearing…' : 'Clear logs'}
+                </button>
+              </div>
             </div>
+            {clearLogsError && (
+              <div style={{ marginBottom: '0.5rem', padding: '0.4rem 0.6rem', background: 'var(--color-danger-bg, #450a0a)', border: '1px solid var(--color-danger)', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--color-danger)' }}>
+                Failed to clear logs: {clearLogsError}
+              </div>
+            )}
             {logsLoading ? (
               <div className="loading"><div className="spinner" />Loading logs...</div>
             ) : (
