@@ -4,6 +4,7 @@ import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
 import { ContainerRow } from './ContainerRow';
 import { api, getActivePeer, type AutoUpdatePolicy } from '../api';
+import { MoreVerticalIcon, FileTextIcon } from './Icons';
 import type { Project, Container, ProxyHost, ProxyHostInput } from '../api';
 import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useReachability } from '../hooks/useReachability';
@@ -118,6 +119,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   // Deploy panel state
   const [composePanelOpen, setComposePanelOpen] = useState(false);
   const [composePanelType, setComposePanelType] = useState<'deploy' | 'down'>('deploy');
+  const [outputMenuOpen, setOutputMenuOpen] = useState(false);
   const [deployLines, setDeployLines] = useState<string[]>([]);
   const [deployRunning, setDeployRunning] = useState(false);
   const deployWsRef = useRef<WebSocket | null>(null);
@@ -793,9 +795,9 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             <span className="project-path" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '300px' }}>
               {project.path}
             </span>
-            <span className={`status-badge ${project.allRunning ? 'status-running' : project.anyRunning ? 'status-other' : 'status-stopped'}`}>
+            <span className={`status-badge ${deployRunning || downRunning ? 'status-other' : project.allRunning ? 'status-running' : project.anyRunning ? 'status-other' : 'status-stopped'}`}>
               <span className="status-dot" />
-              {runningCount}/{totalCount} running
+              {deployRunning ? 'deploying…' : downRunning ? 'stopping…' : `${runningCount}/${totalCount} running`}
             </span>
             {project.update_available && (
               <span className="update-pill" title="Des images plus récentes sont disponibles">
@@ -806,7 +808,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning} title={runningCount > 0 ? 'docker compose down' : 'docker compose up -d'}>
-            {deployRunning || downRunning ? (runningCount > 0 ? 'Stopping...' : 'Starting...') : (runningCount > 0 ? 'Stop' : 'Start')}
+            {deployRunning ? 'Starting...' : downRunning ? 'Stopping...' : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
           {project.update_available && (
             <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={deployRunning} title="docker compose pull && docker compose up -d">
@@ -817,16 +819,54 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             {checkingUpdates ? '...' : 'Check Updates'}
           </button>
           <button className="btn btn-sm btn-danger" onClick={handleDeleteClick} title="Supprime le projet d'HOMER (avec option docker compose down)">Remove</button>
-          {!composePanelOpen && deployLines.length > 0 && (
-            <button className="btn btn-sm btn-secondary" onClick={() => { setComposePanelType('deploy'); setComposePanelOpen(true); }} title="Voir les logs de déploiement">
-              Logs
-            </button>
-          )}
-          {!composePanelOpen && downLines.length > 0 && (
-            <button className="btn btn-sm btn-secondary" onClick={() => { setComposePanelType('down'); setComposePanelOpen(true); }} title="Voir les logs d'arrêt">
-              Logs
-            </button>
-          )}
+          <div className="container-menu-wrapper">
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setOutputMenuOpen(o => !o)}
+                title="Output"
+              >
+                <MoreVerticalIcon size={16} />
+              </button>
+              {outputMenuOpen && (
+                <>
+                  <div className="container-menu-backdrop" onClick={() => setOutputMenuOpen(false)} />
+                  <div className="container-menu">
+                    <button
+                      className="container-menu-item"
+                      disabled={deployLines.length === 0}
+                      onClick={() => {
+                        if (composePanelOpen && composePanelType === 'deploy') {
+                          setComposePanelOpen(false);
+                        } else {
+                          setComposePanelType('deploy');
+                          setComposePanelOpen(true);
+                        }
+                        setOutputMenuOpen(false);
+                      }}
+                    >
+                      <FileTextIcon size={14} />
+                      Deploy output
+                    </button>
+                    <button
+                      className="container-menu-item"
+                      disabled={downLines.length === 0}
+                      onClick={() => {
+                        if (composePanelOpen && composePanelType === 'down') {
+                          setComposePanelOpen(false);
+                        } else {
+                          setComposePanelType('down');
+                          setComposePanelOpen(true);
+                        }
+                        setOutputMenuOpen(false);
+                      }}
+                    >
+                      <FileTextIcon size={14} />
+                      Stop output
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
         </div>
       </div>
 
