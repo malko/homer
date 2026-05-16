@@ -128,6 +128,8 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
   const [showOnHome, setShowOnHome] = useState(proxyHost?.show_on_home || false);
   const [mdnsEnabled, setMdnsEnabled] = useState(proxyHost?.mdns_enabled ?? false);
   const [allowHttp, setAllowHttp] = useState(proxyHost?.allow_http || false);
+  const [flushIntervalEnabled, setFlushIntervalEnabled] = useState(proxyHost?.flush_interval !== null && proxyHost?.flush_interval !== undefined);
+  const [flushIntervalValue, setFlushIntervalValue] = useState(proxyHost?.flush_interval ?? -1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,6 +164,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
         show_on_home: showOnHome,
         mdns_enabled: mdnsEnabled,
         allow_http: allowHttp,
+        flush_interval: flushIntervalEnabled ? flushIntervalValue : null,
       };
 
       if (basicAuthEnabled && basicAuthUser.trim()) {
@@ -412,6 +415,37 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
             <span className="toggle-handle" />
           </button>
         </div>
+      </div>
+
+      <div className="form-group">
+        <div className="toggle-row">
+          <label className="toggle-label">
+            <span>Flush Interval (SSE)</span>
+            <span className="form-help">Évite l'output buffering pour les endpoints Server-Sent Events</span>
+          </label>
+          <button
+            type="button"
+            className={`toggle ${flushIntervalEnabled ? 'toggle-active' : ''}`}
+            onClick={() => setFlushIntervalEnabled(!flushIntervalEnabled)}
+          >
+            <span className="toggle-handle" />
+          </button>
+        </div>
+        {flushIntervalEnabled && (
+          <div className="proxy-auth-fields">
+            <input
+              id="proxy-flush-interval"
+              type="number"
+              className="input"
+              value={flushIntervalValue}
+              onChange={e => setFlushIntervalValue(parseInt(e.target.value, 10) || -1)}
+              placeholder="-1"
+            />
+            <span className="form-help">
+              -1 = flush immédiat (SSE), ou valeur positive en ms (ex: 100)
+            </span>
+          </div>
+        )}
       </div>
 
       {error && <div className="proxy-form-error">{error}</div>}

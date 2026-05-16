@@ -58,6 +58,7 @@ describe('Caddy buildCaddyConfig with allow_http', () => {
         show_on_home: 0,
         mdns_enabled: 0,
         allow_http: 0,
+        flush_interval: null,
       },
     ]);
 
@@ -101,6 +102,7 @@ describe('Caddy buildCaddyConfig with allow_http', () => {
         show_on_home: 0,
         mdns_enabled: 0,
         allow_http: 1,
+        flush_interval: null,
       },
     ]);
 
@@ -142,6 +144,7 @@ describe('Caddy buildCaddyConfig with allow_http', () => {
         show_on_home: 0,
         mdns_enabled: 0,
         allow_http: 1,
+        flush_interval: null,
       },
     ]);
 
@@ -367,6 +370,7 @@ describe('Caddy buildCaddyConfig with homer_disable_http', () => {
         show_on_home: 0,
         mdns_enabled: 0,
         allow_http: 1,
+        flush_interval: null,
       },
     ]);
 
