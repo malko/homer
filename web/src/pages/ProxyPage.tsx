@@ -242,6 +242,7 @@ function ProxyHostsTab() {
 
 function CaddyTab() {
   const [caddyStatus, setCaddyStatus] = useState<{ running: boolean; error?: string } | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'generated' | 'running'>('generated');
   const [generatedConfig, setGeneratedConfig] = useState<string>('');
   const [runningConfig, setRunningConfig] = useState<string>('');
@@ -252,6 +253,7 @@ function CaddyTab() {
 
   useEffect(() => {
     (async () => {
+      setConfigLoading(true);
       try {
         const [status, configData] = await Promise.all([
           api.proxy.getStatus(),
@@ -262,15 +264,19 @@ function CaddyTab() {
         const run = configData.running ? JSON.stringify(configData.running, null, 2) : '// Caddy non accessible';
         setGeneratedConfig(gen);
         setRunningConfig(run);
-        setEditableConfig(viewMode === 'generated' ? gen : run);
+        setEditableConfig(gen);
       } catch {
         setCaddyStatus({ running: false, error: 'Cannot fetch status' });
+      } finally {
+        setConfigLoading(false);
       }
     })();
-  }, [viewMode]);
+  }, []);
 
   useEffect(() => {
-    setEditableConfig(viewMode === 'generated' ? generatedConfig : runningConfig);
+    if (generatedConfig || runningConfig) {
+      setEditableConfig(viewMode === 'generated' ? generatedConfig : runningConfig);
+    }
   }, [viewMode, generatedConfig, runningConfig]);
 
   const handlePush = async () => {
@@ -287,7 +293,10 @@ function CaddyTab() {
           api.proxy.getConfig(),
         ]);
         setCaddyStatus(status);
-        setGeneratedConfig(JSON.stringify(configData.generated, null, 2));
+        const gen = JSON.stringify(configData.generated, null, 2);
+        const run = configData.running ? JSON.stringify(configData.running, null, 2) : '// Caddy non accessible';
+        setGeneratedConfig(gen);
+        setRunningConfig(run);
       }
     } catch (err) {
       setPushMessage(err instanceof Error ? err.message : 'Erreur');
@@ -308,7 +317,10 @@ function CaddyTab() {
         api.proxy.getConfig(),
       ]);
       setCaddyStatus(status);
-      setGeneratedConfig(JSON.stringify(configData.generated, null, 2));
+      const gen = JSON.stringify(configData.generated, null, 2);
+      const run = configData.running ? JSON.stringify(configData.running, null, 2) : '// Caddy non accessible';
+      setGeneratedConfig(gen);
+      setRunningConfig(run);
     } catch (err) {
       setPushMessage(err instanceof Error ? err.message : 'Erreur');
     } finally {
@@ -318,51 +330,58 @@ function CaddyTab() {
   };
 
   return (
-    <div className="settings-section">
-      <div className="caddy-tab-header">
+    <div className="settings-section" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="caddy-tab-header" style={{ flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <h2 style={{ margin: 0 }}>Configuration Caddy</h2>
-          <div className="caddy-status">
-            <span className={`caddy-status-dot ${caddyStatus?.running ? 'caddy-running' : 'caddy-stopped'}`} />
-            <span>{caddyStatus?.running ? 'En ligne' : 'Hors ligne'}</span>
+          {caddyStatus && (
+            <div className="caddy-status">
+              <span className={`caddy-status-dot ${caddyStatus.running ? 'caddy-running' : 'caddy-stopped'}`} />
+              <span>{caddyStatus.running ? 'En ligne' : 'Hors ligne'}</span>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div className="caddy-view-toggle">
+            <button
+              className={viewMode === 'generated' ? 'active' : ''}
+              onClick={() => setViewMode('generated')}
+            >
+              Générée
+            </button>
+            <button
+              className={viewMode === 'running' ? 'active' : ''}
+              onClick={() => setViewMode('running')}
+            >
+              Active
+            </button>
           </div>
-        </div>
-        <div className="caddy-view-toggle">
-          <button
-            className={viewMode === 'generated' ? 'active' : ''}
-            onClick={() => setViewMode('generated')}
-          >
-            Générée
+          {pushMessage && (
+            <span style={{ fontSize: '0.8125rem', color: pushMessage.includes('Erreur') ? 'var(--color-danger)' : 'var(--color-success)' }}>
+              {pushMessage}
+            </span>
+          )}
+          <button className="btn btn-primary btn-sm" onClick={handlePush} disabled={pushing || !isValid} title="Pousse le contenu de l'éditeur vers Caddy (remplace la config active)">
+            {pushing ? 'Application...' : 'Appliquer'}
           </button>
-          <button
-            className={viewMode === 'running' ? 'active' : ''}
-            onClick={() => setViewMode('running')}
-          >
-            Active
+          <button className="btn btn-secondary btn-sm" onClick={handleReload} disabled={pushing} title="Re-génère la config depuis la base de données et la pousse vers Caddy (annule les modifications manuelles)">
+            Reset
           </button>
         </div>
       </div>
 
-      <div className="settings-card" style={{ padding: 0, overflow: 'hidden' }}>
-        <JsonEditor
-          value={editableConfig}
-          onChange={setEditableConfig}
-          onValidate={(valid) => setIsValid(valid)}
-          minHeight="400px"
-        />
-      </div>
-
-      <div className="caddy-config-actions">
-        <button className="btn btn-primary" onClick={handlePush} disabled={pushing || !isValid}>
-          {pushing ? 'Application...' : 'Appliquer cette config'}
-        </button>
-        <button className="btn btn-secondary" onClick={handleReload} disabled={pushing}>
-          Regénérer depuis la DB
-        </button>
-        {pushMessage && (
-          <span style={{ fontSize: '0.8125rem', color: pushMessage.includes('Erreur') ? 'var(--color-danger)' : 'var(--color-success)', alignSelf: 'center' }}>
-            {pushMessage}
-          </span>
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {configLoading ? (
+          <div className="loading"><div className="spinner" />Chargement...</div>
+        ) : (
+          <div className="settings-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <JsonEditor
+              value={editableConfig}
+              onChange={setEditableConfig}
+              onValidate={(valid) => setIsValid(valid)}
+              minHeight="400px"
+            />
+          </div>
         )}
       </div>
     </div>

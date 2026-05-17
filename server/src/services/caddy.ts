@@ -153,7 +153,7 @@ function buildRouteForHost(host: ProxyHost): CaddyRoute {
     proxyHandler.transport = parsed.transport;
   }
   if (host.flush_interval !== null && host.flush_interval !== undefined) {
-    proxyHandler.flush_interval = `${host.flush_interval}ms`;
+    proxyHandler.flush_interval = host.flush_interval < 0 ? host.flush_interval : `${host.flush_interval}ms`;
   }
   handlers.push(proxyHandler);
 

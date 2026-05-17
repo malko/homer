@@ -439,6 +439,7 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
               className="input"
               value={flushIntervalValue}
               onChange={e => setFlushIntervalValue(parseInt(e.target.value, 10) || -1)}
+              min={-1}
               placeholder="-1"
             />
             <span className="form-help">
