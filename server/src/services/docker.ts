@@ -98,6 +98,7 @@ export interface Container {
   service?: string;
   created: string;
   ports?: string[];
+  exposedPorts?: string[];
   hasUpdate?: boolean;
 }
 
@@ -183,7 +184,7 @@ export async function listContainers(): Promise<Container[]> {
     
     if (!output) return [];
     
-    return output.split('\n').map(line => {
+    const containers: Container[] = output.split('\n').map(line => {
       const [id, name, image, status, state, labels, created, portsStr] = line.split('|');
       const projectLabel = labels?.match(/com\.docker\.compose\.project=([^,]+)/)?.[1];
       const serviceLabel = labels?.match(/com\.docker\.compose\.service=([^,]+)/)?.[1];
@@ -201,6 +202,56 @@ export async function listContainers(): Promise<Container[]> {
         ports,
       };
     });
+
+    const containerIds = containers.filter(c => c.id).map(c => c.id);
+    if (containerIds.length > 0) {
+      try {
+        const ids = containerIds.join(' ');
+        const inspectOutput = await execCommand(
+          `docker inspect --format '{{.Id}}|{{json .Config.ExposedPorts}}' ${ids}`
+        );
+        const exposedMap = new Map<string, string[]>();
+        for (const line of inspectOutput.split('\n')) {
+          if (!line.trim()) continue;
+          const sepIdx = line.indexOf('|');
+          if (sepIdx === -1) continue;
+          const cid = line.slice(0, sepIdx);
+          const jsonStr = line.slice(sepIdx + 1);
+          if (jsonStr === '<no value>' || jsonStr === 'null' || !jsonStr) continue;
+          try {
+            const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+            exposedMap.set(cid, Object.keys(parsed).map(k => k.split('/')[0]));
+          } catch {}
+        }
+        for (const c of containers) {
+          const fullId = [...exposedMap.keys()].find(k => k.startsWith(c.id));
+          if (fullId) {
+            c.exposedPorts = exposedMap.get(fullId)!;
+          }
+        }
+      } catch {
+        for (const cid of containerIds) {
+          try {
+            const line = await execCommand(
+              `docker inspect --format '{{.Id}}|{{json .Config.ExposedPorts}}' ${cid}`
+            );
+            if (!line.trim()) continue;
+            const sepIdx = line.indexOf('|');
+            if (sepIdx === -1) continue;
+            const jsonStr = line.slice(sepIdx + 1);
+            if (jsonStr === '<no value>' || jsonStr === 'null' || !jsonStr) continue;
+            const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+            const ports = Object.keys(parsed).map(k => k.split('/')[0]);
+            const container = containers.find(c => cid.startsWith(c.id) || c.id.startsWith(cid));
+            if (container && ports.length > 0) {
+              container.exposedPorts = ports;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    return containers;
   } catch {
     return [];
   }

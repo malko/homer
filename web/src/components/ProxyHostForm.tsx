@@ -94,8 +94,9 @@ export function ProxyHostForm({ proxyHost, projectId, domainSuffix = '', contain
     const suggestions: Array<{ label: string; value: string }> = [];
     for (const c of containers) {
       const name = c.service || c.name;
-      if (c.ports && c.ports.length > 0) {
-        for (const port of c.ports) {
+      const ports = c.exposedPorts && c.exposedPorts.length > 0 ? c.exposedPorts : c.ports;
+      if (ports && ports.length > 0) {
+        for (const port of ports) {
           suggestions.push({ label: `${name}:${port}`, value: `${name}:${port}` });
         }
       } else {

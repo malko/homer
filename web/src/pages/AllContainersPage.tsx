@@ -54,7 +54,7 @@ export function AllContainersPage() {
 
   useEffect(() => {
     loadContainers();
-  }, [search, selectedProject, showUpdatesOnly, stateFilter]);
+  }, [search, selectedProject, stateFilter]);
 
   const loadContainers = async () => {
     setLoading(true);
@@ -64,7 +64,10 @@ export function AllContainersPage() {
         project: selectedProject !== 'all' ? selectedProject : undefined,
         state: stateFilter !== 'all' ? stateFilter : undefined,
       });
-      setContainers(data);
+      setContainers(prev => {
+        const updateMap = new Map(prev.map(c => [c.id, c.hasUpdate]));
+        return data.map(c => ({ ...c, hasUpdate: updateMap.get(c.id) ?? c.hasUpdate ?? false }));
+      });
       
       const projects = Array.from(new Set(data.map(c => c.project).filter(Boolean))) as string[];
       setAllProjects(projects);
@@ -146,7 +149,8 @@ export function AllContainersPage() {
   const runningCount = useMemo(() => containers.filter(c => c.state === 'running').length, [containers]);
 
   const sortedContainers = useMemo(() => {
-    const sorted = [...containers];
+    let filtered = showUpdatesOnly ? containers.filter(c => c.hasUpdate) : containers;
+    const sorted = [...filtered];
     const dir = sortDirection === 'asc' ? 1 : -1;
     switch (sortBy) {
       case 'name':
@@ -163,7 +167,7 @@ export function AllContainersPage() {
       default:
         return sorted;
     }
-  }, [containers, sortBy, sortDirection]);
+  }, [containers, sortBy, sortDirection, showUpdatesOnly]);
 
   if (loading && containers.length === 0) {
     return (

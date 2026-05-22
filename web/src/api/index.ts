@@ -87,6 +87,7 @@ export interface Container {
   service?: string;
   created: string;
   ports?: string[];
+  exposedPorts?: string[];
   update_available?: boolean;
   hasUpdate?: boolean;
 }
