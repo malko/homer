@@ -142,6 +142,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [hasEnvFile, setHasEnvFile] = useState(false);
   const [filesLoaded, setFilesLoaded] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
+ 
+  // Full file paths from backend for toolbar display only (not used in save/load logic)
+  const [composePathDisplay, setComposePathDisplay] = useState('');
+  const [envFilePathDisplay, setEnvFilePathDisplay] = useState('');
+
   const [fileSaving, setFileSaving] = useState(false);
   const [fileValidating, setFileValidating] = useState(false);
   const [composeErrors, setComposeErrors] = useState<string[]>([]);
@@ -187,9 +192,12 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
       (async () => {
         try {
           const files = await api.projects.readFiles(project.id);
+          setComposePathDisplay(files.composePath || '');
+          setEnvFilePathDisplay(files.envPath ?? ''); // null if no .env file exists
           setComposeContent(files.composeContent);
           setEnvContent(files.envContent || '');
-          setHasEnvFile(!!files.envPath && !!files.envContent);
+          const has = !!(files.envPath && files.envContent);
+          setHasEnvFile(has);
           setFilesLoaded(true);
         } catch (err) {
           addToast('error', err instanceof Error ? err.message : 'Failed to load files');
@@ -1058,9 +1066,10 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           fileLoading ? (
             <div className="loading"><div className="spinner" />Loading files...</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div className="edit-project-toolbar">
-                <span className="project-path">{project.path}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+              <div className="edit-project-toolbar" style={{ flexShrink: 0 }}>
+                <span className="project-path">{composePathDisplay || 'docker-compose.yml'}</span>
+
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexGrow:1, justifyContent:'flex-end' }}>
                   {composeErrors.length > 0 && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-danger)' }}>
@@ -1090,7 +1099,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   </button>
                 </div>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 <YamlEditor
                   value={composeContent}
                   onChange={setComposeContent}
@@ -1117,9 +1126,10 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               </button>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div className="edit-project-toolbar">
-                <span className="project-path">{project.path}/.env</span>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+              <div className="edit-project-toolbar" style={{ flexShrink: 0 }}>
+                <span className="project-path">{envFilePathDisplay || '.env'}</span>
+
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexGrow:1, justifyContent:'flex-end' }}>
                   <button className="btn btn-sm btn-danger" onClick={async () => {
                     const confirmed = await confirm({
@@ -1137,7 +1147,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   </button>
                 </div>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 <YamlEditor value={envContent} onChange={setEnvContent} minHeight="300px" />
               </div>
             </div>
