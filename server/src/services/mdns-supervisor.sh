@@ -38,8 +38,14 @@ publish_domains() {
     const config = JSON.parse(fs.readFileSync('${CONFIG}', 'utf8'));
     (config.domains || []).forEach(d => {
       if (d.domain && d.ip) {
+        const serviceName = d.domain.replace('.local', '');
+        console.log('[mdns-supervisor] Multi-publishing for ' + d.domain + ' (A, HTTP:80, HTTPS:443)');
+        // A record -> linux ok
         console.log('[mdns-supervisor] Publishing A ' + d.domain + ' -> ' + d.ip);
         spawn('avahi-publish', ['-a', '-R', d.domain, d.ip], { detached: true, stdio: 'ignore' }).unref();
+        // HTTP record 80 and 443 -> macos ok
+        spawn('avahi-publish', ['-s', serviceName, '_http._tcp', '80'], { detached: true, stdio: 'ignore' }).unref();
+        spawn('avahi-publish', ['-s', serviceName, '_https._tcp', '443'], { detached: true, stdio: 'ignore' }).unref();
       }
     });
   "
