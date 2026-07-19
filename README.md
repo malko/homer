@@ -96,7 +96,7 @@ HOMER can adopt compose stacks that live **outside** its `data/` directory ("Ajo
 
 What works without any extra setup: listing containers, start/stop/restart, logs, and `docker compose down` (labels are enough for these).
 
-For **full management** (editing the compose file, `up`, watch mode, image updates), HOMER's container must be able to read the stack's compose file. Add an **identical-path volume mount** to HOMER's `docker-compose.yml` and restart:
+For **full management** (editing the compose file, `up`, watch mode, image updates), HOMER's container must be able to read the stack's compose file. **The UI generates everything for you**: when a stack is not accessible, HOMER shows a ready-to-copy (or download) `docker-compose.override.yml` covering all your external stacks, plus the exact command to apply it. Manually, this means adding an **identical-path volume mount** to HOMER's `docker-compose.yml` (or an override file next to it) and running `docker compose up -d`:
 
 ```yaml
 services:

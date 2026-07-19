@@ -5,6 +5,8 @@ import { requireSession } from '../middleware/require-session.js';
 import { addToNetworkSchema } from './request-schemas.js';
 import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates, isProjectFileAccessible } from '../services/docker.js';
 import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
+import { getOwnComposeInfo } from '../services/compose-discovery.js';
+import { buildMountGuide, type MountGuide } from '../services/mount-override.js';
 import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -58,12 +60,26 @@ declare module 'fastify' {
   }
 }
 
+// One guide covering the dirs of every inaccessible external project, so a
+// single override paste fixes them all. Null when everything is accessible.
+async function buildSharedMountGuide(projects: { path: string; external: number }[]): Promise<MountGuide | null> {
+  const inaccessibleDirs: string[] = [];
+  for (const project of projects) {
+    if (project.external && !(await isProjectFileAccessible(project))) {
+      inaccessibleDirs.push(path.dirname(project.path));
+    }
+  }
+  if (inaccessibleDirs.length === 0) return null;
+  return buildMountGuide(inaccessibleDirs, await getOwnComposeInfo());
+}
+
 export async function projectRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', requireSession);
 
   fastify.get('/api/projects', async () => {
     const projects = projectQueries.getAll();
     const containers = await listContainers();
+    const mountGuide = await buildSharedMountGuide(projects);
 
     return Promise.all(projects.map(async (project) => {
       const projectName = getComposeProjectName(project);
@@ -85,7 +101,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
         watch_enabled: Boolean(project.watch_enabled),
         external: Boolean(project.external),
         fileAccessible,
-        suggested_mount: fileAccessible ? undefined : getMountHint(project.path),
+        mount_guide: fileAccessible ? undefined : mountGuide ?? undefined,
         update_available: updateAvailable,
         containers: projectContainers,
         allRunning: projectContainers.length > 0 && projectContainers.every(c => c.state === 'running'),
@@ -107,13 +123,14 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const projectContainers = containers.filter(c => c.project === projectName);
 
     const fileAccessible = await isProjectFileAccessible(project);
+    const mountGuide = fileAccessible ? null : await buildSharedMountGuide(projectQueries.getAll());
     return {
       ...project,
       auto_update: Boolean(project.auto_update),
       watch_enabled: Boolean(project.watch_enabled),
       external: Boolean(project.external),
       fileAccessible,
-      suggested_mount: fileAccessible ? undefined : getMountHint(project.path),
+      mount_guide: mountGuide ?? undefined,
       containers: projectContainers,
     };
   });

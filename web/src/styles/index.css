@@ -3808,6 +3808,45 @@ body {
   color: #f59e0b;
 }
 
+.mount-guide {
+  font-size: 0.8125rem;
+}
+
+.mount-guide__intro {
+  margin: 0 0 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.mount-guide__step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.mount-guide__step-title {
+  font-weight: 500;
+}
+
+.mount-guide__actions {
+  display: inline-flex;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.mount-guide__code {
+  margin: 0.375rem 0 0;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .volume-size {
   font-size: 0.875rem;
   font-weight: 600;

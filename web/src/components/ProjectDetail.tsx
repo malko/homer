@@ -10,6 +10,7 @@ import { useProxyHosts } from '../hooks/useProxyHosts';
 import { useReachability } from '../hooks/useReachability';
 import { useConfirm } from '../hooks/useConfirm.js';
 import { ProxyModal } from './ProxyModal';
+import { MountGuide } from './MountGuide';
 import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
 import { parseAnsiSegments } from '../utils/ansi';
@@ -888,13 +889,15 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
         </div>
       </div>
 
-      {degraded && project.suggested_mount && (
+      {degraded && project.mount_guide && (
         <div className="warning-banner" style={{ margin: '0.75rem 1rem 0' }}>
           <div className="warning-header">
             <span className="warning-icon">&#9888;</span>
             <span>Gestion limitée : le fichier compose n'est pas accessible depuis le conteneur Homer.</span>
           </div>
-          <pre style={{ fontSize: '0.75rem', whiteSpace: 'pre-wrap', margin: '0.5rem 0 0' }}>{project.suggested_mount}</pre>
+          <div style={{ marginTop: '0.5rem' }}>
+            <MountGuide guide={project.mount_guide} />
+          </div>
         </div>
       )}
 

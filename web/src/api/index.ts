@@ -104,12 +104,20 @@ export interface Project {
   external: boolean;
   compose_project: string | null;
   fileAccessible?: boolean;
-  suggested_mount?: string;
+  mount_guide?: MountGuide;
   update_available?: boolean;
   created_at: string;
   containers: Container[];
   allRunning: boolean;
   anyRunning: boolean;
+}
+
+export interface MountGuide {
+  dirs: string[];
+  overrideFile: string | null;
+  overrideContent: string;
+  upCommand: string | null;
+  overrideExists: boolean;
 }
 
 export interface DiscoveredComposeProject {
@@ -118,7 +126,6 @@ export interface DiscoveredComposeProject {
   workingDir: string | null;
   containerCount: number;
   accessible: boolean;
-  suggestedMount?: string;
 }
 
 export interface ParsedService {
@@ -483,7 +490,7 @@ export const api = {
         body: JSON.stringify({ projectPaths }),
       }),
     getComposeProjects: () =>
-      request<{ projects: DiscoveredComposeProject[] }>('/import/compose-projects'),
+      request<{ projects: DiscoveredComposeProject[]; mountGuide?: MountGuide }>('/import/compose-projects'),
     importExternal: (payload: { name?: string; configFile?: string; manualPath?: string }) =>
       request<{ success: boolean; project: Project; warnings: string[] }>('/import/external', {
         method: 'POST',

@@ -10,7 +10,8 @@ import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
 import type { TabType } from '../components/ProjectDetail';
 import { PROJECT_SOURCES } from '../config/projectSources';
-import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy, DiscoveredComposeProject } from '../api';
+import { MountGuide } from '../components/MountGuide';
+import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy, DiscoveredComposeProject, MountGuide as MountGuideData } from '../api';
 
 function slugify(name: string): string {
   return name
@@ -216,6 +217,7 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
   const [importingExisting, setImportingExisting] = useState(false);
   const [containerSearch, setContainerSearch] = useState('');
   const [discoveredStacks, setDiscoveredStacks] = useState<DiscoveredComposeProject[]>([]);
+  const [discoveredMountGuide, setDiscoveredMountGuide] = useState<MountGuideData | null>(null);
   const [externalScanned, setExternalScanned] = useState(false);
   const [manualPath, setManualPath] = useState('');
   const [adopting, setAdopting] = useState<string | null>(null);
@@ -228,7 +230,7 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
     setEditedEnv(''); setProjectName(''); setError('');
     setExistingProjects([]); setSelectedExisting(new Set());
     setContainerSearch('');
-    setDiscoveredStacks([]); setExternalScanned(false); setManualPath('');
+    setDiscoveredStacks([]); setDiscoveredMountGuide(null); setExternalScanned(false); setManualPath('');
     setAdopting(null); setExternalWarnings([]);
   };
 
@@ -238,6 +240,7 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
       const { api } = await import('../api');
       const result = await api.import.getComposeProjects();
       setDiscoveredStacks(result.projects);
+      setDiscoveredMountGuide(result.mountGuide ?? null);
       setExternalScanned(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to discover compose projects');
@@ -562,9 +565,6 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
                             </span>
                           </span>
                           <span className="standalone-image">{s.configFiles[0]} · {s.containerCount} container{s.containerCount !== 1 ? 's' : ''}</span>
-                          {!s.accessible && s.suggestedMount && (
-                            <pre style={{ fontSize: '0.6875rem', whiteSpace: 'pre-wrap', color: 'var(--color-text-muted)', margin: '0.25rem 0 0' }}>{s.suggestedMount}</pre>
-                          )}
                         </div>
                         <button
                           className="btn btn-primary btn-sm"
@@ -579,6 +579,17 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
                 )}
                 {!loading && externalScanned && discoveredStacks.length === 0 && (
                   <p style={{ color: 'var(--color-text-muted)', marginTop: '1rem', fontSize: '0.875rem' }}>Aucune stack compose non gérée détectée.</p>
+                )}
+                {!loading && discoveredMountGuide && (
+                  <div className="warning-banner" style={{ marginTop: '1rem' }}>
+                    <div className="warning-header">
+                      <span className="warning-icon">&#9888;</span>
+                      <span>Certaines stacks ne sont pas accessibles depuis le conteneur Homer.</span>
+                    </div>
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <MountGuide guide={discoveredMountGuide} />
+                    </div>
+                  </div>
                 )}
                 <div className="input-group" style={{ marginTop: '1.5rem' }}>
                   <label className="input-label">Ou chemin absolu d'un fichier compose (stack non démarrée)</label>

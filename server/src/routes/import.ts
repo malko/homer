@@ -19,6 +19,7 @@ import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
 import { validateComposeFile } from '../services/docker.js';
 import { groupComposeProjects, findRelativePathRefs, getOwnComposeInfo } from '../services/compose-discovery.js';
 import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
+import { buildMountGuide } from '../services/mount-override.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -240,6 +241,7 @@ export async function importRoutes(fastify: FastifyInstance) {
     const ownStack = await getOwnComposeInfo();
 
     const projects = [];
+    const inaccessibleDirs: string[] = [];
     for (const discovered of groupComposeProjects(labelSets)) {
       if (discovered.name === ownStack?.project) continue;
       if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
@@ -247,15 +249,22 @@ export async function importRoutes(fastify: FastifyInstance) {
       try {
         await fs.access(discovered.configFiles[0]);
         accessible = true;
-      } catch {}
-      projects.push({
-        ...discovered,
-        accessible,
-        suggestedMount: accessible ? undefined : getMountHint(discovered.configFiles[0]),
-      });
+      } catch {
+        inaccessibleDirs.push(path.dirname(discovered.configFiles[0]));
+      }
+      projects.push({ ...discovered, accessible });
     }
 
-    return { projects };
+    // Also cover already-adopted external projects still waiting for a mount,
+    // so the single generated override fixes everything at once.
+    for (const p of managed) {
+      if (p.external) {
+        try { await fs.access(p.path); } catch { inaccessibleDirs.push(path.dirname(p.path)); }
+      }
+    }
+
+    const mountGuide = inaccessibleDirs.length > 0 ? buildMountGuide(inaccessibleDirs, ownStack) : undefined;
+    return { projects, mountGuide };
   });
 
   // Adopt an external compose project (outside Homer's data dir).
