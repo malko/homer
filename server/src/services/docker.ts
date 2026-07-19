@@ -1,8 +1,10 @@
 import { exec, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
-import { projectQueries } from '../db/index.js';
+import { projectQueries, type Project } from '../db/index.js';
+import { getComposeProjectName, getMountHint } from './compose-project-name.js';
 import { checkImageUpdateWithPolicy } from './registry.js';
 import { assertValidId, assertValidImageRef } from './docker-args.js';
 import { parseComposeInfo, buildDockerRunArgs, type DockerInspect } from './container-recreate.js';
@@ -261,10 +263,26 @@ export async function listContainers(): Promise<Container[]> {
   }
 }
 
-export async function listProjectContainers(projectPath: string): Promise<Container[]> {
+export async function listProjectContainers(project: Pick<Project, 'path' | 'compose_project'>): Promise<Container[]> {
   const containers = await listContainers();
-  const projectName = path.basename(path.dirname(projectPath));
+  const projectName = getComposeProjectName(project);
   return containers.filter(c => c.project === projectName);
+}
+
+/**
+ * Whether the project's compose file is readable from inside Homer's
+ * container. Always true for Homer-managed projects (they live in the data
+ * dir); external projects need an identical-path volume mount. Probed live so
+ * adding the mount later upgrades the project without any DB change.
+ */
+export async function isProjectFileAccessible(project: Pick<Project, 'path' | 'external'>): Promise<boolean> {
+  if (!project.external) return true;
+  try {
+    await fs.access(project.path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function getSystemStats(): Promise<SystemStats> {
@@ -483,8 +501,12 @@ export async function deployProject(projectId: number): Promise<{ success: boole
     return { success: false, output: 'Project not found' };
   }
 
+  if (!(await isProjectFileAccessible(project))) {
+    return { success: false, output: getMountHint(project.path) };
+  }
+
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
   const command = `docker compose -f "${project.path}" -p "${projectName}" up -d`;
 
   try {
@@ -505,12 +527,16 @@ export async function composeDown(
   if (!project) return { success: false, output: 'Project not found' };
 
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
   const flags = options.removeVolumes ? ' --volumes' : '';
-  const command = `docker compose -f "${project.path}" -p "${projectName}" down${flags}`;
+  // Without file access, `down` still works purely from the compose labels.
+  const accessible = await isProjectFileAccessible(project);
+  const command = accessible
+    ? `docker compose -f "${project.path}" -p "${projectName}" down${flags}`
+    : `docker compose -p "${projectName}" down${flags}`;
 
   try {
-    const { stdout, stderr } = await execAsync(command, { cwd: projectDir, timeout: 60000 });
+    const { stdout, stderr } = await execAsync(command, { cwd: accessible ? projectDir : undefined, timeout: 60000 });
     return { success: true, output: stdout || stderr || 'Down completed' };
   } catch (error: unknown) {
     const err = error as { stderr?: string; message?: string };
@@ -524,8 +550,12 @@ export async function updateProjectImages(projectId: number): Promise<{ changed:
     return { changed: false, output: 'Project not found' };
   }
 
+  if (!(await isProjectFileAccessible(project))) {
+    return { changed: false, output: getMountHint(project.path) };
+  }
+
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
 
   try {
     const pullOutput = await execCommand(`docker compose -f "${project.path}" -p "${projectName}" pull`);
@@ -559,8 +589,14 @@ export function updateProjectImagesStream(
     return () => {};
   }
 
+  if (project.external && !existsSync(project.path)) {
+    onLine(getMountHint(project.path));
+    onDone(false, false);
+    return () => {};
+  }
+
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
 
   let pullChanged = false;
   const commands = [
@@ -626,8 +662,12 @@ export async function checkProjectImageUpdates(projectId: number): Promise<{ has
   const project = projectQueries.getById(projectId);
   if (!project) return { hasUpdates: false, services: [] };
 
+  // Runs in the periodic auto-update loop — skip silently when the external
+  // project's file is out of reach rather than logging an error every cycle.
+  if (!(await isProjectFileAccessible(project))) return { hasUpdates: false, services: [] };
+
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
   const policy = project.auto_update_policy ?? 'all';
 
   // Collect service → image mappings from compose config
@@ -737,8 +777,14 @@ export function deployProjectStream(
     return () => {};
   }
 
+  if (project.external && !existsSync(project.path)) {
+    onLine(getMountHint(project.path));
+    onDone(false);
+    return () => {};
+  }
+
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
 
   const child = spawn('docker', ['compose', '-f', project.path, '-p', projectName, 'up', '-d'], {
     cwd: projectDir,
@@ -784,10 +830,15 @@ export function downProjectStream(
   }
 
   const projectDir = path.dirname(project.path);
-  const projectName = path.basename(projectDir);
+  const projectName = getComposeProjectName(project);
+  // Without file access, `down` still works purely from the compose labels.
+  const accessible = !project.external || existsSync(project.path);
+  const args = accessible
+    ? ['compose', '-f', project.path, '-p', projectName, 'down']
+    : ['compose', '-p', projectName, 'down'];
 
-  const child = spawn('docker', ['compose', '-f', project.path, '-p', projectName, 'down'], {
-    cwd: projectDir,
+  const child = spawn('docker', args, {
+    cwd: accessible ? projectDir : undefined,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

@@ -30,4 +30,10 @@ export const PROJECT_SOURCES: ProjectSource[] = [
     icon: '📂',
     description: 'Importer un projet existant depuis le dossier data',
   },
+  {
+    id: 'external',
+    label: 'Adopter un projet externe',
+    icon: '🔗',
+    description: 'Adopter une stack compose existante en dehors du dossier data',
+  },
 ];

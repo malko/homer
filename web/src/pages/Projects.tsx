@@ -10,7 +10,7 @@ import { YamlEditor } from '../components/YamlEditor';
 import { ProjectDetail } from '../components/ProjectDetail';
 import type { TabType } from '../components/ProjectDetail';
 import { PROJECT_SOURCES } from '../config/projectSources';
-import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy } from '../api';
+import type { StandaloneContainer, ContainerDecision, ParseWarnings, AutoUpdatePolicy, DiscoveredComposeProject } from '../api';
 
 function slugify(name: string): string {
   return name
@@ -23,7 +23,7 @@ function slugify(name: string): string {
 
 // ─── Add Project Selector Modal ───────────────────────────────────────────
 
-type SelectorAction = 'create' | 'docker-run' | 'migrate' | 'existing';
+type SelectorAction = 'create' | 'docker-run' | 'migrate' | 'existing' | 'external';
 
 interface AddProjectSelectorModalProps {
   onClose: () => void;
@@ -185,16 +185,18 @@ function AddProjectModal({ onClose, onAdd }: { onClose: () => void; onAdd: (proj
 
 // ─── Import Modal ───────────────────────────────────────────────────────────
 
+type ImportTab = 'run' | 'migrate' | 'existing' | 'external';
+
 interface ImportModalProps {
   onClose: () => void;
   onImport: () => void;
-  initialTab?: 'run' | 'migrate' | 'existing';
+  initialTab?: ImportTab;
 }
 
 function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps) {
   const [step, setStep] = useState<'input' | 'decisions' | 'preview'>('input');
-  const [tab, setTab] = useState<'run' | 'migrate' | 'existing'>(() => {
-    const valid: ('run' | 'migrate' | 'existing')[] = ['run', 'migrate', 'existing'];
+  const [tab, setTab] = useState<ImportTab>(() => {
+    const valid: ImportTab[] = ['run', 'migrate', 'existing', 'external'];
     return valid.includes(initialTab) ? initialTab : 'run';
   });
   const [dockerRunCmd, setDockerRunCmd] = useState('');
@@ -213,6 +215,11 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
   const [selectedExisting, setSelectedExisting] = useState<Set<string>>(new Set());
   const [importingExisting, setImportingExisting] = useState(false);
   const [containerSearch, setContainerSearch] = useState('');
+  const [discoveredStacks, setDiscoveredStacks] = useState<DiscoveredComposeProject[]>([]);
+  const [externalScanned, setExternalScanned] = useState(false);
+  const [manualPath, setManualPath] = useState('');
+  const [adopting, setAdopting] = useState<string | null>(null);
+  const [externalWarnings, setExternalWarnings] = useState<string[]>([]);
 
   const resetState = () => {
     setStep('input'); setDockerRunCmd(''); setStandaloneContainers([]);
@@ -221,6 +228,43 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
     setEditedEnv(''); setProjectName(''); setError('');
     setExistingProjects([]); setSelectedExisting(new Set());
     setContainerSearch('');
+    setDiscoveredStacks([]); setExternalScanned(false); setManualPath('');
+    setAdopting(null); setExternalWarnings([]);
+  };
+
+  const handleLoadComposeProjects = async () => {
+    setLoading(true); setError('');
+    try {
+      const { api } = await import('../api');
+      const result = await api.import.getComposeProjects();
+      setDiscoveredStacks(result.projects);
+      setExternalScanned(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to discover compose projects');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdoptExternal = async (payload: { name?: string; configFile?: string; manualPath?: string }, key: string) => {
+    setAdopting(key); setError('');
+    try {
+      const { api } = await import('../api');
+      const result = await api.import.importExternal(payload);
+      onImport();
+      if (result.warnings && result.warnings.length > 0) {
+        // Keep the modal open so the user sees what to fix or mount.
+        setExternalWarnings(result.warnings);
+        setManualPath('');
+        await handleLoadComposeProjects();
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to adopt project');
+    } finally {
+      setAdopting(null);
+    }
   };
 
   const handleLoadExistingProjects = async () => {
@@ -367,8 +411,8 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
   };
 
   const renderStepIndicator = () => {
-    const steps = tab === 'run' ? ['Input', 'Preview'] : tab === 'migrate' ? ['Select', 'Decisions', 'Preview'] : ['Select Projects'];
-    const currentIndex = tab === 'existing' ? 0 : step === 'input' ? 0 : step === 'decisions' ? 1 : 2;
+    const steps = tab === 'run' ? ['Input', 'Preview'] : tab === 'migrate' ? ['Select', 'Decisions', 'Preview'] : tab === 'external' ? ['Adopt Project'] : ['Select Projects'];
+    const currentIndex = (tab === 'existing' || tab === 'external') ? 0 : step === 'input' ? 0 : step === 'decisions' ? 1 : 2;
     return (
       <div className="wizard-steps">
         {steps.map((s, i) => (
@@ -393,6 +437,7 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
           <button className={`import-tab ${tab === 'run' ? 'active' : ''}`} onClick={() => { setTab('run'); resetState(); }}>From docker run</button>
           <button className={`import-tab ${tab === 'migrate' ? 'active' : ''}`} onClick={() => { setTab('migrate'); resetState(); }}>Migrate containers</button>
           <button className={`import-tab ${tab === 'existing' ? 'active' : ''}`} onClick={() => { setTab('existing'); resetState(); }}>Existing projects</button>
+          <button className={`import-tab ${tab === 'external' ? 'active' : ''}`} onClick={() => { setTab('external'); resetState(); }}>External projects</button>
         </div>
 
         {step === 'input' && (
@@ -483,6 +528,79 @@ function ImportModal({ onClose, onImport, initialTab = 'run' }: ImportModalProps
                 {!loading && existingProjects.length === 0 && (
                   <p style={{ color: 'var(--color-text-muted)', marginTop: '1rem', fontSize: '0.875rem' }}>No new projects found in the data folder.</p>
                 )}
+              </>
+            )}
+            {tab === 'external' && (
+              <>
+                <p style={{ color: 'var(--color-text-muted)', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                  Adopter une stack compose qui vit en dehors du dossier data de Homer.
+                  Les stacks en cours d'exécution sont détectées automatiquement via Docker ;
+                  pour une gestion complète (édition, déploiement, watch), le dossier de la stack
+                  doit être monté dans le conteneur Homer avec un chemin identique.
+                </p>
+                <p style={{ color: 'var(--color-text-muted)', marginBottom: '1rem', fontSize: '0.8125rem' }}>
+                  💡 Astuce : privilégiez des chemins <strong>absolus</strong> dans vos fichiers compose —
+                  les chemins relatifs (<code>./data</code>) dépendent du dossier du projet et sont
+                  source d'ambiguïté une fois la stack gérée par Homer.
+                </p>
+                {externalWarnings.length > 0 && (
+                  <div className="warning-banner" style={{ marginBottom: '1rem' }}>
+                    <div className="warning-header"><span className="warning-icon">&#9888;</span><span>Projet adopté avec des avertissements :</span></div>
+                    <ul className="warning-list">{externalWarnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                  </div>
+                )}
+                <button className="btn btn-secondary" onClick={handleLoadComposeProjects} disabled={loading}>{loading ? 'Scanning...' : 'Scan for running stacks'}</button>
+                {!loading && discoveredStacks.length > 0 && (
+                  <div className="standalone-list" style={{ marginTop: '1rem', maxHeight: '260px', overflowY: 'auto' }}>
+                    {discoveredStacks.map((s) => (
+                      <div key={s.name} className="standalone-item" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                        <div className="standalone-info" style={{ flex: 1 }}>
+                          <span className="standalone-name">
+                            {s.name}
+                            <span className={s.accessible ? 'badge badge-accessible' : 'badge badge-degraded'} style={{ marginLeft: '0.5rem' }}>
+                              {s.accessible ? 'gérable' : 'accès limité'}
+                            </span>
+                          </span>
+                          <span className="standalone-image">{s.configFiles[0]} · {s.containerCount} container{s.containerCount !== 1 ? 's' : ''}</span>
+                          {!s.accessible && s.suggestedMount && (
+                            <pre style={{ fontSize: '0.6875rem', whiteSpace: 'pre-wrap', color: 'var(--color-text-muted)', margin: '0.25rem 0 0' }}>{s.suggestedMount}</pre>
+                          )}
+                        </div>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => handleAdoptExternal({ name: s.name, configFile: s.configFiles[0] }, s.name)}
+                          disabled={adopting !== null}
+                        >
+                          {adopting === s.name ? 'Adoption...' : 'Adopter'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!loading && externalScanned && discoveredStacks.length === 0 && (
+                  <p style={{ color: 'var(--color-text-muted)', marginTop: '1rem', fontSize: '0.875rem' }}>Aucune stack compose non gérée détectée.</p>
+                )}
+                <div className="input-group" style={{ marginTop: '1.5rem' }}>
+                  <label className="input-label">Ou chemin absolu d'un fichier compose (stack non démarrée)</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input
+                      type="text"
+                      className="input"
+                      value={manualPath}
+                      onChange={(e) => setManualPath(e.target.value)}
+                      placeholder="/home/user/stacks/myapp/docker-compose.yml"
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => handleAdoptExternal({ manualPath: manualPath.trim() }, '__manual__')}
+                      disabled={adopting !== null || !manualPath.trim()}
+                    >
+                      {adopting === '__manual__' ? 'Adoption...' : 'Adopter'}
+                    </button>
+                  </div>
+                  <p className="form-help">Le fichier doit être lisible depuis le conteneur Homer (montage à chemin identique requis).</p>
+                </div>
               </>
             )}
             {error && <p className="error-text" style={{ marginTop: '1rem' }}>{error}</p>}
@@ -592,7 +710,7 @@ export function ProjectsPage() {
   const [showSelectorModal, setShowSelectorModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importInitialTab, setImportInitialTab] = useState<'run' | 'migrate' | 'existing'>('run');
+  const [importInitialTab, setImportInitialTab] = useState<ImportTab>('run');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'running' | 'stopped' | 'updatable'>('all');
   const { addToast } = useToast();
@@ -629,6 +747,10 @@ export function ProjectsPage() {
         break;
       case 'existing':
         setImportInitialTab('existing');
+        setShowImportModal(true);
+        break;
+      case 'external':
+        setImportInitialTab('external');
         setShowImportModal(true);
         break;
     }
@@ -723,6 +845,7 @@ export function ProjectsPage() {
                       {running}/{total} running
                       {project.auto_update ? ' · auto' : ''}
                       {project.watch_enabled ? ' · watch' : ''}
+                      {project.external ? ' · externe' : ''}
                     </span>
                   </div>
                 </div>

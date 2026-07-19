@@ -101,11 +101,24 @@ export interface Project {
   auto_update: boolean;
   auto_update_policy: AutoUpdatePolicy;
   watch_enabled: boolean;
+  external: boolean;
+  compose_project: string | null;
+  fileAccessible?: boolean;
+  suggested_mount?: string;
   update_available?: boolean;
   created_at: string;
   containers: Container[];
   allRunning: boolean;
   anyRunning: boolean;
+}
+
+export interface DiscoveredComposeProject {
+  name: string;
+  configFiles: string[];
+  workingDir: string | null;
+  containerCount: number;
+  accessible: boolean;
+  suggestedMount?: string;
 }
 
 export interface ParsedService {
@@ -468,6 +481,13 @@ export const api = {
       request<{ results: Array<{ name: string; path: string; success: boolean; error?: string }> }>('/import/existing', {
         method: 'POST',
         body: JSON.stringify({ projectPaths }),
+      }),
+    getComposeProjects: () =>
+      request<{ projects: DiscoveredComposeProject[] }>('/import/compose-projects'),
+    importExternal: (payload: { name?: string; configFile?: string; manualPath?: string }) =>
+      request<{ success: boolean; project: Project; warnings: string[] }>('/import/external', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
   },
 };

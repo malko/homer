@@ -47,19 +47,20 @@ interface ProjectDetailProps {
 
 
 
-function SettingToggle({ label, description, value, onChange }: {
+function SettingToggle({ label, description, value, onChange, disabled }: {
   label: string;
   description: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: 'var(--color-bg-secondary)', borderRadius: '0.5rem', border: '1px solid var(--color-border)', opacity: disabled ? 0.5 : 1 }}>
       <div>
         <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{label}</div>
         <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>{description}</div>
       </div>
-      <div className={`toggle ${value ? 'toggle-active' : ''}`} onClick={() => onChange(!value)}>
+      <div className={`toggle ${value ? 'toggle-active' : ''}`} onClick={() => { if (!disabled) onChange(!value); }} style={disabled ? { cursor: 'not-allowed' } : undefined}>
         <div className="toggle-handle" />
       </div>
     </div>
@@ -105,6 +106,9 @@ function SettingSelect({ label, description, value, options, onChange }: {
 export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialTab, onTabChange }: ProjectDetailProps) {
   const { ConfirmDialog, confirm } = useConfirm();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'overview');
+  // External project whose compose file is not reachable from Homer's
+  // container: only label-based operations (stop, logs, containers) work.
+  const degraded = project.external && project.fileAccessible === false;
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
@@ -781,7 +785,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     .filter(c => c.state === 'running' && c.ports && c.ports.length > 0)
     .flatMap(c => c.ports!.map(port => ({ container: c, port: String(port) })));
 
-  const tabs: { id: TabType; label: string }[] = [
+  const allTabs: { id: TabType; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'compose', label: 'Compose' },
     { id: 'env', label: 'Env' },
@@ -789,6 +793,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     { id: 'logs', label: 'Logs' },
     { id: 'proxy', label: 'Proxy' },
   ];
+  const tabs = allTabs.filter(tab => !degraded || (tab.id !== 'compose' && tab.id !== 'env'));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
@@ -807,6 +812,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
               <span className="status-dot" />
               {deployRunning ? 'deploying…' : downRunning ? 'stopping…' : `${runningCount}/${totalCount} running`}
             </span>
+            {project.external && (
+              <span className={`badge ${degraded ? 'badge-degraded' : 'badge-external'}`} title={degraded ? 'Fichier compose inaccessible depuis Homer' : 'Projet externe au dossier data'}>
+                {degraded ? 'externe · accès limité' : 'externe'}
+              </span>
+            )}
             {project.update_available && (
               <span className="update-pill" title="Des images plus récentes sont disponibles">
                 Mise à jour dispo
@@ -815,10 +825,10 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-          <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning} title={runningCount > 0 ? 'docker compose down' : 'docker compose up -d'}>
+          <button className={`btn btn-sm ${runningCount > 0 ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggle} disabled={deployRunning || downRunning || (degraded && runningCount === 0)} title={runningCount > 0 ? 'docker compose down' : degraded ? 'Fichier compose inaccessible — impossible de démarrer' : 'docker compose up -d'}>
             {deployRunning ? 'Starting...' : downRunning ? 'Stopping...' : (runningCount > 0 ? 'Stop' : 'Start')}
           </button>
-          {project.update_available && (
+          {project.update_available && !degraded && (
             <button className="btn btn-sm btn-success" onClick={handleUpdate} disabled={deployRunning} title="docker compose pull && docker compose up -d">
               {deployRunning ? 'Updating...' : 'Update Images'}
             </button>
@@ -877,6 +887,16 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
             </div>
         </div>
       </div>
+
+      {degraded && project.suggested_mount && (
+        <div className="warning-banner" style={{ margin: '0.75rem 1rem 0' }}>
+          <div className="warning-header">
+            <span className="warning-icon">&#9888;</span>
+            <span>Gestion limitée : le fichier compose n'est pas accessible depuis le conteneur Homer.</span>
+          </div>
+          <pre style={{ fontSize: '0.75rem', whiteSpace: 'pre-wrap', margin: '0.5rem 0 0' }}>{project.suggested_mount}</pre>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="detail-tabs">
@@ -973,7 +993,8 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                 />
                 <SettingToggle
                   label="Watch for file changes"
-                  description="Auto-deploy when the compose file changes on disk"
+                  description={degraded ? 'Indisponible : fichier compose inaccessible depuis Homer' : 'Auto-deploy when the compose file changes on disk'}
+                  disabled={degraded}
                   value={!!project.watch_enabled}
                   onChange={async (v) => {
                     try {
@@ -1293,17 +1314,19 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                 <span>Also delete volumes</span>
                 <span className="delete-modal__hint">adds <code>--volumes</code></span>
               </label>
-              <label className="delete-modal__option">
-                <input
-                  type="checkbox"
-                  checked={deleteOpts.deleteFiles}
-                  onChange={(e) => setDeleteOpts(o => ({ ...o, deleteFiles: e.target.checked }))}
-                />
-                <span>Also delete project files</span>
-                <span className="delete-modal__hint">
-                  deletes <code>{project.path.replace(/\/docker-compose\.yml$/, '/')}</code>
-                </span>
-              </label>
+              {!project.external && (
+                <label className="delete-modal__option">
+                  <input
+                    type="checkbox"
+                    checked={deleteOpts.deleteFiles}
+                    onChange={(e) => setDeleteOpts(o => ({ ...o, deleteFiles: e.target.checked }))}
+                  />
+                  <span>Also delete project files</span>
+                  <span className="delete-modal__hint">
+                    deletes <code>{project.path.replace(/\/docker-compose\.yml$/, '/')}</code>
+                  </span>
+                </label>
+              )}
             </div>
             <div className="form-actions">
               <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)} disabled={deleting}>

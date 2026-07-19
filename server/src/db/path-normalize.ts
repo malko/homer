@@ -28,3 +28,18 @@ export function normalizePath(p: string | null, dataDir: string, dockerDataDir: 
   }
   return p;
 }
+
+/**
+ * Apply path normalization to a project row. External projects are exempt:
+ * their compose files live outside the data dir and their stored paths are
+ * host-truth — remapping one that happens to contain a `/data/projects/`
+ * segment would silently break it.
+ */
+export function normalizeProjectPaths<T extends { path: string; env_path: string | null; external: number }>(project: T, dataDir: string): T {
+  if (project.external) return project;
+  return {
+    ...project,
+    path: normalizePath(project.path, dataDir) ?? project.path,
+    env_path: normalizePath(project.env_path, dataDir),
+  };
+}

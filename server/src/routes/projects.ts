@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { projectQueries, settingQueries, DB_CONFIG } from '../db/index.js';
 import { requireSession } from '../middleware/require-session.js';
 import { addToNetworkSchema } from './request-schemas.js';
-import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates } from '../services/docker.js';
+import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates, isProjectFileAccessible } from '../services/docker.js';
+import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
 import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -64,8 +65,8 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const projects = projectQueries.getAll();
     const containers = await listContainers();
 
-    return projects.map((project) => {
-      const projectName = path.basename(path.dirname(project.path));
+    return Promise.all(projects.map(async (project) => {
+      const projectName = getComposeProjectName(project);
       const projectContainers = containers.filter(c => c.project === projectName);
 
       let updateAvailable = false;
@@ -77,16 +78,20 @@ export async function projectRoutes(fastify: FastifyInstance) {
         }
       } catch {}
 
+      const fileAccessible = await isProjectFileAccessible(project);
       return {
         ...project,
         auto_update: Boolean(project.auto_update),
         watch_enabled: Boolean(project.watch_enabled),
+        external: Boolean(project.external),
+        fileAccessible,
+        suggested_mount: fileAccessible ? undefined : getMountHint(project.path),
         update_available: updateAvailable,
         containers: projectContainers,
         allRunning: projectContainers.length > 0 && projectContainers.every(c => c.state === 'running'),
         anyRunning: projectContainers.some(c => c.state === 'running'),
       };
-    });
+    }));
   });
 
   fastify.get('/api/projects/:id', async (request, reply) => {
@@ -98,13 +103,17 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }
     
     const containers = await listContainers();
-    const projectName = path.basename(path.dirname(project.path));
+    const projectName = getComposeProjectName(project);
     const projectContainers = containers.filter(c => c.project === projectName);
-    
+
+    const fileAccessible = await isProjectFileAccessible(project);
     return {
       ...project,
       auto_update: Boolean(project.auto_update),
       watch_enabled: Boolean(project.watch_enabled),
+      external: Boolean(project.external),
+      fileAccessible,
+      suggested_mount: fileAccessible ? undefined : getMountHint(project.path),
       containers: projectContainers,
     };
   });
@@ -161,8 +170,13 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }
     
     const newName = body.name || project.name;
-    const newPath = getProjectPath(newName).composePath;
-    
+    // External projects keep their on-disk path: it is not derived from the name.
+    const newPath = project.external ? project.path : getProjectPath(newName).composePath;
+
+    if (body.watchEnabled && !(await isProjectFileAccessible(project))) {
+      return reply.status(400).send({ error: getMountHint(project.path) });
+    }
+
     const newUrl = body.url !== undefined ? (body.url || null) : project.url;
     const newIcon = body.icon !== undefined ? (body.icon || null) : project.icon;
     projectQueries.update(
@@ -212,7 +226,9 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     projectQueries.delete(id);
 
-    if (q.deleteFiles === '1') {
+    // Never touch files outside Homer's data dir: external projects are only
+    // removed from Homer, their files stay untouched on the host.
+    if (q.deleteFiles === '1' && !project.external) {
       try {
         const projectDir = path.dirname(project.path);
         await fs.rm(projectDir, { recursive: true, force: true });
@@ -303,6 +319,9 @@ export async function projectRoutes(fastify: FastifyInstance) {
     } catch (error: unknown) {
       const err = error as { message?: string; code?: string };
       if (err.code === 'ENOENT') {
+        if (project.external) {
+          return reply.status(404).send({ error: getMountHint(project.path) });
+        }
         return reply.status(404).send({ error: 'File not found' });
       }
       return reply.status(500).send({ error: err.message || 'Failed to read files' });
@@ -322,7 +341,11 @@ export async function projectRoutes(fastify: FastifyInstance) {
     if (!project) {
       return reply.status(404).send({ error: 'Project not found' });
     }
-    
+
+    if (!(await isProjectFileAccessible(project))) {
+      return reply.status(409).send({ error: getMountHint(project.path) });
+    }
+
     const projectDir = path.dirname(project.path);
     let envPath = project.env_path;
     
@@ -366,7 +389,11 @@ export async function projectRoutes(fastify: FastifyInstance) {
     if (!project) {
       return reply.status(404).send({ error: 'Project not found' });
     }
-    
+
+    if (!(await isProjectFileAccessible(project))) {
+      return { valid: false, error: getMountHint(project.path) };
+    }
+
     const validation = await validateComposeFile(project.path);
     
     if (!validation.valid) {
@@ -422,6 +449,10 @@ export async function projectRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Project not found' });
     }
 
+    if (!(await isProjectFileAccessible(project))) {
+      return reply.status(409).send({ error: getMountHint(project.path) });
+    }
+
     const networkExists = await ensureHomerNetworkExists();
     if (!networkExists) {
       return reply.status(500).send({ error: 'Failed to create homer-services network' });
@@ -442,6 +473,10 @@ export async function projectRoutes(fastify: FastifyInstance) {
     
     if (!project) {
       return reply.status(404).send({ error: 'Project not found' });
+    }
+
+    if (!(await isProjectFileAccessible(project))) {
+      return reply.status(409).send({ error: getMountHint(project.path) });
     }
 
     const services = await getProjectServices(project.path);

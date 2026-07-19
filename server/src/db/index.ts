@@ -3,7 +3,7 @@ import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { normalizePath } from './path-normalize.js';
+import { normalizeProjectPaths } from './path-normalize.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ?? (process.env.NODE_ENV === 'production' ? '/app/data' : join(__dirname, '../../../data'));
@@ -118,6 +118,8 @@ async function initDb() {
   try { db.run('ALTER TABLE projects ADD COLUMN url TEXT'); } catch {}
   try { db.run('ALTER TABLE projects ADD COLUMN icon TEXT'); } catch {}
   try { db.run("ALTER TABLE projects ADD COLUMN auto_update_policy TEXT DEFAULT 'all'"); } catch {}
+  try { db.run('ALTER TABLE projects ADD COLUMN external INTEGER DEFAULT 0'); } catch {}
+  try { db.run('ALTER TABLE projects ADD COLUMN compose_project TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN icon_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN card_bg TEXT'); } catch {}
   try { db.run('ALTER TABLE home_tiles ADD COLUMN sort_order INTEGER'); } catch {}
@@ -212,6 +214,8 @@ export interface Project {
   auto_update: number;
   auto_update_policy: AutoUpdatePolicy;
   watch_enabled: number;
+  external: number;
+  compose_project: string | null;
   created_at: string;
 }
 
@@ -230,11 +234,7 @@ function rowToObj<T>(columns: string[], row: any[]): T {
 }
 
 function normalizeProject(project: Project): Project {
-  return {
-    ...project,
-    path: normalizePath(project.path, dataDir) ?? project.path,
-    env_path: normalizePath(project.env_path, dataDir),
-  };
+  return normalizeProjectPaths(project, dataDir);
 }
 
 export interface UserThemePreference {
@@ -342,10 +342,10 @@ export const projectQueries = {
     stmt.free();
     return undefined;
   },
-  create: (name: string, path: string, envPath: string | null, autoUpdate: number = 0, autoUpdatePolicy: AutoUpdatePolicy = 'all') => {
+  create: (name: string, path: string, envPath: string | null, autoUpdate: number = 0, autoUpdatePolicy: AutoUpdatePolicy = 'all', external: number = 0, composeProject: string | null = null) => {
     db.run(
-      'INSERT INTO projects (name, path, env_path, auto_update, auto_update_policy) VALUES (?, ?, ?, ?, ?)',
-      [name, path, envPath, autoUpdate, autoUpdatePolicy]
+      'INSERT INTO projects (name, path, env_path, auto_update, auto_update_policy, external, compose_project) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, path, envPath, autoUpdate, autoUpdatePolicy, external, composeProject]
     );
     const result = db.exec('SELECT last_insert_rowid() as id');
     saveDb();

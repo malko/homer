@@ -90,6 +90,25 @@ volumes:
 
 The included `docker-compose.yml` includes Caddy for automatic HTTPS. Configure domain suffix in settings.
 
+### External compose projects
+
+HOMER can adopt compose stacks that live **outside** its `data/` directory ("Ajouter un projet" → "Adopter un projet externe"). Running stacks are discovered automatically from Docker labels — no configuration needed.
+
+What works without any extra setup: listing containers, start/stop/restart, logs, and `docker compose down` (labels are enough for these).
+
+For **full management** (editing the compose file, `up`, watch mode, image updates), HOMER's container must be able to read the stack's compose file. Add an **identical-path volume mount** to HOMER's `docker-compose.yml` and restart:
+
+```yaml
+services:
+  homer:
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/user/stacks:/home/user/stacks   # identical host & container path
+```
+
+The path must be identical on both sides because compose commands run inside HOMER's container while bind mounts declared in your stack resolve on the host. For the same reason, prefer **absolute paths** over relative ones (`./data`) inside external compose files. Removing an external project from HOMER never deletes its files.
+
 ## Project Structure
 
 ```

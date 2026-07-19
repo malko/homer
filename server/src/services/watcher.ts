@@ -1,4 +1,5 @@
 import chokidar, { FSWatcher } from 'chokidar';
+import { existsSync } from 'fs';
 import { projectQueries, Project } from '../db/index.js';
 import { deployProject } from './docker.js';
 
@@ -35,7 +36,10 @@ export class FileWatcher {
 
   addProject(project: Project) {
     if (!this.watcher) return;
-    
+    // External projects can only be watched when their compose file is
+    // reachable from inside the container (identical-path mount present).
+    if (project.external && !existsSync(project.path)) return;
+
     this.watchedProjects.set(project.id, project.path);
     this.watcher.add(project.path);
     

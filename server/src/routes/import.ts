@@ -1,7 +1,10 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import fs from 'fs/promises';
 import path from 'path';
-import { 
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { z } from 'zod';
+import {
   parseDockerRun, 
   serviceToCompose, 
   generateEnvFromParsedService,
@@ -14,6 +17,29 @@ import {
 } from '../services/parser.js';
 import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
 import { validateComposeFile } from '../services/docker.js';
+import { groupComposeProjects, findRelativePathRefs } from '../services/compose-discovery.js';
+import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
+
+const execFileAsync = promisify(execFile);
+
+const externalImportSchema = z.object({
+  // Discovered mode: a running stack picked from /api/import/compose-projects.
+  name: z.string().min(1).optional(),
+  configFile: z.string().min(1).optional(),
+  // Manual mode: an absolute compose file path typed by the user.
+  manualPath: z.string().min(1).optional(),
+}).refine(b => Boolean(b.manualPath) !== Boolean(b.name && b.configFile), {
+  message: 'Provide either manualPath, or name + configFile',
+});
+
+function relativePathWarnings(composeContent: string): string[] {
+  const refs = findRelativePathRefs(composeContent);
+  if (refs.length === 0) return [];
+  return [
+    'This compose file references relative paths (' + refs.join(' | ') + '). ' +
+    'Relative paths resolve against the compose project directory and only keep working through Homer because of the identical-path mount — prefer absolute paths in your compose file to avoid ambiguity.',
+  ];
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -187,6 +213,118 @@ export async function importRoutes(fastify: FastifyInstance) {
     }
 
     return { results };
+  });
+
+  // Running compose stacks (from container labels) not yet managed by Homer.
+  fastify.get('/api/import/compose-projects', async () => {
+    let labelSets: Array<Record<string, string> | null> = [];
+    try {
+      const { stdout: idsOut } = await execFileAsync('docker', ['ps', '-a', '--format', '{{.ID}}']);
+      const ids = idsOut.split('\n').filter(Boolean);
+      if (ids.length > 0) {
+        // JSON labels, not {{.Labels}}: config_files values may contain commas.
+        const { stdout } = await execFileAsync('docker', ['inspect', '--format', '{{json .Config.Labels}}', ...ids]);
+        labelSets = stdout.split('\n').filter(Boolean).map(line => {
+          try { return JSON.parse(line) as Record<string, string>; } catch { return null; }
+        });
+      }
+    } catch (err) {
+      fastify.log.error('compose-projects discovery failed: ' + (err instanceof Error ? err.message : String(err)));
+      return { projects: [] };
+    }
+
+    const managed = projectQueries.getAll();
+    const managedNames = new Set(managed.map(p => getComposeProjectName(p)));
+    const managedPaths = new Set(managed.map(p => p.path));
+
+    const projects = [];
+    for (const discovered of groupComposeProjects(labelSets)) {
+      if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
+      let accessible = false;
+      try {
+        await fs.access(discovered.configFiles[0]);
+        accessible = true;
+      } catch {}
+      projects.push({
+        ...discovered,
+        accessible,
+        suggestedMount: accessible ? undefined : getMountHint(discovered.configFiles[0]),
+      });
+    }
+
+    return { projects };
+  });
+
+  // Adopt an external compose project (outside Homer's data dir).
+  fastify.post('/api/import/external', async (request, reply) => {
+    const parsed = externalImportSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Provide either manualPath, or name + configFile' });
+    }
+    const body = parsed.data;
+    const composePath = (body.manualPath ?? body.configFile) as string;
+    const warnings: string[] = [];
+
+    if (!path.isAbsolute(composePath)) {
+      return reply.status(400).send({ error: 'Compose file path must be absolute' });
+    }
+    if (composePath.startsWith(DB_CONFIG.projectsDir + path.sep)) {
+      return reply.status(400).send({ error: 'This compose file lives in Homer\'s projects directory — use the "existing projects" import instead' });
+    }
+
+    const managed = projectQueries.getAll();
+    if (managed.some(p => p.path === composePath)) {
+      return reply.status(400).send({ error: 'Project already managed' });
+    }
+    if (body.name && managed.some(p => getComposeProjectName(p) === body.name)) {
+      return reply.status(400).send({ error: `A managed project already uses the compose project name "${body.name}"` });
+    }
+
+    let accessible = true;
+    try {
+      await fs.access(composePath);
+    } catch {
+      accessible = false;
+    }
+
+    if (body.manualPath && !accessible) {
+      return reply.status(400).send({ error: getMountHint(composePath) });
+    }
+
+    let envPathValue: string | null = null;
+    if (accessible) {
+      const validation = await validateComposeFile(composePath);
+      if (!validation.valid) {
+        if (body.manualPath) {
+          return reply.status(400).send({ error: `Invalid compose file: ${validation.error}` });
+        }
+        // The stack is already running: adopt it anyway, but surface the issue.
+        warnings.push(`Compose file did not validate: ${validation.error}`);
+      }
+
+      const envPath = path.join(path.dirname(composePath), '.env');
+      try {
+        await fs.access(envPath);
+        envPathValue = envPath;
+      } catch {}
+
+      try {
+        warnings.push(...relativePathWarnings(await fs.readFile(composePath, 'utf-8')));
+      } catch {}
+    } else {
+      warnings.push(getMountHint(composePath));
+    }
+
+    const displayName = body.name ?? path.basename(path.dirname(composePath));
+    const composeProject = body.name ?? null;
+    const result = projectQueries.create(displayName, composePath, envPathValue, 0, 'all', 1, composeProject);
+    const newProject = projectQueries.getById(Number(result.lastInsertRowid));
+
+    if (!newProject) {
+      return reply.status(500).send({ error: 'Failed to create project' });
+    }
+
+    return { success: true, project: newProject, warnings };
   });
 
   fastify.post('/api/import/save', async (request, reply) => {
