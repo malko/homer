@@ -1,12 +1,14 @@
-import { exec, spawn } from 'child_process';
+import { exec, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import { projectQueries } from '../db/index.js';
 import { checkImageUpdateWithPolicy } from './registry.js';
 import { assertValidId, assertValidImageRef } from './docker-args.js';
+import { parseComposeInfo, buildDockerRunArgs, type DockerInspect } from './container-recreate.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 interface VolumeUsageInfo {
   containers: string[];
@@ -430,28 +432,43 @@ export async function removeContainer(containerId: string): Promise<{ success: b
 export async function updateContainerImage(containerId: string): Promise<{ success: boolean; output: string }> {
   try {
     assertValidId(containerId);
-    const infoOutput = await execCommand(`docker inspect ${containerId} --format "{{.Config.Image}}"`);
-    if (!infoOutput) {
+
+    // Read the full configuration BEFORE touching the container, so nothing is
+    // lost when it is recreated.
+    const rawInspect = await execFileAsync('docker', ['inspect', containerId], { timeout: 30000 });
+    const inspected = JSON.parse(rawInspect.stdout) as DockerInspect[];
+    const container = inspected[0];
+    const imageName = container?.Config?.Image;
+    if (!imageName) {
       return { success: false, output: 'Image du container non trouvée' };
     }
+    assertValidImageRef(imageName);
+    await execFileAsync('docker', ['pull', imageName], { timeout: 300000 });
 
-    const imageName = assertValidImageRef(infoOutput.trim());
-    await execCommand(`docker pull ${imageName}`);
-    await execCommand(`docker stop ${containerId}`);
-    await execCommand(`docker rm -f ${containerId}`);
-    
-    const containerName = (await execCommand(`docker inspect ${containerId} --format "{{.Name}}"`).catch(() => '')).replace(/^\//, '');
-    const projectLabel = await execCommand(`docker inspect ${containerId} --format '{{index .Config.Labels "com.docker.compose.project"}}'`).catch(() => '');
-    const serviceLabel = await execCommand(`docker inspect ${containerId} --format '{{index .Config.Labels "com.docker.compose.service"}}'`).catch(() => '');
+    // Compose-managed container: let compose recreate it so the entire service
+    // definition (ports, env, volumes, networks, depends_on…) is preserved.
+    const composeInfo = parseComposeInfo(container.Config?.Labels);
+    if (composeInfo) {
+      const fileArgs = composeInfo.configFiles.flatMap(f => ['-f', f]);
+      const opts = composeInfo.workingDir ? { cwd: composeInfo.workingDir, timeout: 120000 } : { timeout: 120000 };
+      await execFileAsync(
+        'docker',
+        ['compose', ...fileArgs, '-p', composeInfo.project, 'up', '-d', '--pull', 'always', '--force-recreate', composeInfo.service],
+        opts,
+      );
+      return { success: true, output: `Container mis à jour avec l'image ${imageName}` };
+    }
 
-    let runCmd = 'docker run -d';
-    if (containerName) runCmd += ' --name ' + containerName;
-    if (projectLabel) runCmd += ' --label com.docker.compose.project=' + projectLabel;
-    if (serviceLabel) runCmd += ' --label com.docker.compose.service=' + serviceLabel;
-    runCmd += ' ' + imageName;
+    // Standalone container: rebuild the run configuration from inspect.
+    const { args, extraNetworks } = buildDockerRunArgs(container);
+    await execFileAsync('docker', ['stop', containerId], { timeout: 30000 }).catch(() => {});
+    await execFileAsync('docker', ['rm', '-f', containerId], { timeout: 30000 });
+    await execFileAsync('docker', args, { timeout: 60000 });
+    for (const net of extraNetworks) {
+      const name = (container.Name ?? '').replace(/^\//, '');
+      if (name) await execFileAsync('docker', ['network', 'connect', net, name], { timeout: 30000 }).catch(() => {});
+    }
 
-    await execCommand(runCmd);
-    
     return { success: true, output: `Container mis à jour avec l'image ${imageName}` };
   } catch (error: unknown) {
     const err = error as { stderr?: string; message?: string };
