@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { projectQueries, settingQueries, DB_CONFIG } from '../db/index.js';
 import { requireSession } from '../middleware/require-session.js';
+import { addToNetworkSchema } from './request-schemas.js';
 import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates } from '../services/docker.js';
 import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
@@ -410,9 +411,13 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
   fastify.post('/api/projects/:id/add-to-network', async (request, reply) => {
     const id = parseInt((request.params as { id: string }).id);
-    const { services } = request.body as { services?: string[] };
+    const parsed = addToNetworkSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+    const { services } = parsed.data;
     const project = projectQueries.getById(id);
-    
+
     if (!project) {
       return reply.status(404).send({ error: 'Project not found' });
     }

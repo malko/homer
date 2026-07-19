@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
 import { requireSession } from '../middleware/require-session.js';
+import { systemSettingsSchema } from './request-schemas.js';
 import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
 import { syncConfig } from '../services/caddy.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
@@ -34,15 +35,12 @@ export async function systemRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.put('/api/system/settings', async (request) => {
-    const body = request.body as {
-      autoUpdate?: boolean;
-      domainSuffix?: string;
-      extraHostname?: string;
-      updateCheckInterval?: number;
-      certLifetime?: number;
-      homerDisableHttp?: boolean;
-    };
+  fastify.put('/api/system/settings', async (request, reply) => {
+    const parsed = systemSettingsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+    const body = parsed.data;
     if (body.autoUpdate !== undefined) {
       settingQueries.set('auto_update', body.autoUpdate ? 'true' : 'false');
     }
