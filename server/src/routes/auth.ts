@@ -5,6 +5,7 @@ import { userQueries, sessionQueries, settingQueries, peerQueries, userThemeQuer
 import { peerFetch, generateSecret, loadLocalRootCa } from '../services/peers.js';
 import { getLocalInstance } from '../services/instance.js';
 import { importCa } from '../services/caddy.js';
+import { decidePasswordChange } from '../services/password-policy.js';
 
 const HOMER_DOMAIN = process.env.HOMER_DOMAIN || '';
 
@@ -296,8 +297,12 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'User not found' });
     }
 
-    if (user.must_change_password === 0 && body.currentPassword) {
-      const valid = await bcrypt.compare(body.currentPassword, user.password_hash);
+    const decision = decidePasswordChange(user.must_change_password === 1, body.currentPassword);
+    if (decision.action === 'reject') {
+      return reply.status(400).send({ error: decision.reason });
+    }
+    if (decision.action === 'verify') {
+      const valid = await bcrypt.compare(body.currentPassword!, user.password_hash);
       if (!valid) {
         return reply.status(400).send({ error: 'Current password is incorrect' });
       }
