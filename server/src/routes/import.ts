@@ -17,7 +17,7 @@ import {
 } from '../services/parser.js';
 import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
 import { validateComposeFile } from '../services/docker.js';
-import { groupComposeProjects, findRelativePathRefs } from '../services/compose-discovery.js';
+import { groupComposeProjects, findRelativePathRefs, getOwnComposeInfo } from '../services/compose-discovery.js';
 import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
 
 const execFileAsync = promisify(execFile);
@@ -236,9 +236,12 @@ export async function importRoutes(fastify: FastifyInstance) {
     const managed = projectQueries.getAll();
     const managedNames = new Set(managed.map(p => getComposeProjectName(p)));
     const managedPaths = new Set(managed.map(p => p.path));
+    // Homer must not offer to adopt the stack it is running in.
+    const ownStack = await getOwnComposeInfo();
 
     const projects = [];
     for (const discovered of groupComposeProjects(labelSets)) {
+      if (discovered.name === ownStack?.project) continue;
       if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
       let accessible = false;
       try {
@@ -270,6 +273,11 @@ export async function importRoutes(fastify: FastifyInstance) {
     }
     if (composePath.startsWith(DB_CONFIG.projectsDir + path.sep)) {
       return reply.status(400).send({ error: 'This compose file lives in Homer\'s projects directory — use the "existing projects" import instead' });
+    }
+
+    const ownStack = await getOwnComposeInfo();
+    if (ownStack && (body.name === ownStack.project || ownStack.configFiles.includes(composePath))) {
+      return reply.status(400).send({ error: 'This is the stack Homer itself runs in — it cannot adopt itself' });
     }
 
     const managed = projectQueries.getAll();

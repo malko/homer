@@ -1,4 +1,5 @@
-import { parseComposeInfo } from './container-recreate.js';
+import { spawn } from 'child_process';
+import { parseComposeInfo, type ComposeInfo } from './container-recreate.js';
 
 export interface DiscoveredComposeProject {
   name: string;
@@ -29,6 +30,37 @@ export function groupComposeProjects(labelSets: Array<Record<string, string> | n
     }
   }
   return [...byName.values()];
+}
+
+let ownComposeInfo: ComposeInfo | null | undefined;
+
+/**
+ * Compose provenance of the stack Homer itself runs in. Inside Docker,
+ * HOSTNAME is the container id (same trick as the self-updater). Resolves to
+ * null outside a compose-managed container (dev mode). Cached for the process
+ * lifetime — Homer's own stack cannot change while it runs.
+ */
+export function getOwnComposeInfo(): Promise<ComposeInfo | null> {
+  if (ownComposeInfo !== undefined) return Promise.resolve(ownComposeInfo);
+  const hostname = process.env.HOSTNAME;
+  if (!hostname) {
+    ownComposeInfo = null;
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const child = spawn('docker', ['inspect', hostname, '--format', '{{json .Config.Labels}}'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    child.on('error', () => { ownComposeInfo = null; resolve(null); });
+    child.on('close', () => {
+      try {
+        ownComposeInfo = parseComposeInfo(JSON.parse(stdout.trim()));
+      } catch {
+        ownComposeInfo = null;
+      }
+      resolve(ownComposeInfo);
+    });
+  });
 }
 
 /**
