@@ -241,7 +241,8 @@ export async function importRoutes(fastify: FastifyInstance) {
     const ownStack = await getOwnComposeInfo();
 
     const projects = [];
-    const inaccessibleEntries: { dir: string; project: string }[] = [];
+    const guideEntries: { dir: string; project: string }[] = [];
+    let anyInaccessible = false;
     for (const discovered of groupComposeProjects(labelSets)) {
       if (discovered.name === ownStack?.project) continue;
       if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
@@ -250,20 +251,21 @@ export async function importRoutes(fastify: FastifyInstance) {
         await fs.access(discovered.configFiles[0]);
         accessible = true;
       } catch {
-        inaccessibleEntries.push({ dir: path.dirname(discovered.configFiles[0]), project: discovered.name });
+        guideEntries.push({ dir: path.dirname(discovered.configFiles[0]), project: discovered.name });
+        anyInaccessible = true;
       }
       projects.push({ ...discovered, accessible });
     }
 
-    // Also cover already-adopted external projects still waiting for a mount,
-    // so the single generated override fixes everything at once.
+    // Include EVERY adopted external project — accessible ones too, so the
+    // regenerated override never drops mounts added by previous adoptions.
     for (const p of managed) {
-      if (p.external) {
-        try { await fs.access(p.path); } catch { inaccessibleEntries.push({ dir: path.dirname(p.path), project: p.name }); }
-      }
+      if (!p.external) continue;
+      guideEntries.push({ dir: path.dirname(p.path), project: p.name });
+      try { await fs.access(p.path); } catch { anyInaccessible = true; }
     }
 
-    const mountGuide = inaccessibleEntries.length > 0 ? buildMountGuide(inaccessibleEntries, ownStack) : undefined;
+    const mountGuide = anyInaccessible ? buildMountGuide(guideEntries, ownStack) : undefined;
     return { projects, mountGuide };
   });
 
