@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { proxyHostQueries, settingQueries } from '../db/index.js';
 import type { ProxyHost } from '../db/index.js';
+import { constrainCaddyConfig } from './caddy-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -304,7 +305,12 @@ export function buildCaddyConfig(): Record<string, unknown> {
 }
 
 export async function pushConfig(config?: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
-  const payload = config || buildCaddyConfig();
+  let payload: Record<string, unknown>;
+  try {
+    payload = constrainCaddyConfig(config ?? buildCaddyConfig(), CADDY_ADMIN_URL);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
   const maxRetries = 10;
   const retryDelay = 3000;
 

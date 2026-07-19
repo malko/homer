@@ -4,6 +4,7 @@ import { sessionQueries, proxyHostQueries, projectQueries } from '../db/index.js
 import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig, exportLocalCa, importCa } from '../services/caddy.js';
 import { publishIfEnabled, unpublishIfEnabled, getMdnsStatus } from '../services/mdns.js';
 import { checkReachability } from '../services/reachability.js';
+import { isPlainObject } from '../services/caddy-config.js';
 
 const coerceBool = z.union([z.boolean(), z.number()]).transform(v => !!v);
 
@@ -215,8 +216,8 @@ export async function proxyRoutes(fastify: FastifyInstance) {
   // Push custom Caddy config
   fastify.put('/api/proxy/config', async (request, reply) => {
     const { config, saveAsOverride } = request.body as { config: Record<string, unknown>; saveAsOverride?: boolean };
-    if (!config) {
-      return reply.status(400).send({ success: false, output: 'Config is required' });
+    if (!isPlainObject(config)) {
+      return reply.status(400).send({ success: false, output: 'Config must be a JSON object' });
     }
 
     if (saveAsOverride) {
