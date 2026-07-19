@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
 import { getRunningVersionAsync } from './version.js';
+import { getOwnComposeInfo, getOwnImage } from './compose-discovery.js';
+import { buildRecreatePlan, buildHelperRunArgs } from './mount-override.js';
 
 const GITHUB_REPO = process.env.HOMER_GITHUB_REPO || 'malko/homer';
 
@@ -133,7 +135,16 @@ export function performUpdate(
     }
     onPullDone();
     onLine('Redémarrage via docker compose...');
-    await runSpawn('docker', ['compose', '-f', config.composeFile, 'up', '-d']);
+    // Homer's compose dir is not mounted into its own container: run compose
+    // from a detached helper that mounts it host-side and survives Homer's
+    // own recreation. Fall back to the in-container command outside Docker.
+    const plan = buildRecreatePlan(await getOwnComposeInfo());
+    const image = await getOwnImage();
+    if (plan && image) {
+      await runSpawn('docker', buildHelperRunArgs(plan, image));
+    } else {
+      await runSpawn('docker', ['compose', '-f', config.composeFile, 'up', '-d']);
+    }
   })();
 }
 
@@ -161,6 +172,22 @@ export function restartInstance(
 
   (async () => {
     onLine('Redémarrage de l\'instance...');
+
+    // Preferred path: recreate the stack with docker compose up -d
+    // --force-recreate from a detached helper. Unlike `docker restart`, this
+    // also applies compose file changes (a freshly created override, edited
+    // env…) and survives Homer's own container being replaced.
+    const plan = buildRecreatePlan(await getOwnComposeInfo());
+    const image = await getOwnImage();
+    if (plan && image) {
+      onLine('Recréation de la stack via docker compose up -d --force-recreate...');
+      const { ok } = await runCommand('docker', buildHelperRunArgs(plan, image, ['--force-recreate']));
+      if (ok) {
+        onDone();
+        return;
+      }
+      onLine('Échec du lancement du conteneur de redémarrage, repli sur docker restart...');
+    }
 
     let projectContainers: string[] = [];
     let ownContainerId = hostname;

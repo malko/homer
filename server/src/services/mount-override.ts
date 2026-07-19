@@ -93,3 +93,36 @@ export function buildApplyPlan(own: ComposeInfo | null): ApplyPlan | null {
   const mountDirs = [...new Set([cwd, ...upFiles.map(f => path.dirname(f))])];
   return { cwd, overrideFile, mountDirs, composeArgs };
 }
+
+/**
+ * Like buildApplyPlan but for recreating the stack as-is: only the compose
+ * files recorded on the running containers, without injecting a new override.
+ * In the auto-load case compose still picks up an override created since.
+ */
+export function buildRecreatePlan(own: ComposeInfo | null): ApplyPlan | null {
+  if (!own || own.configFiles.length === 0) return null;
+  const { overrideFile, cwd, autoLoads } = resolveOverride(own);
+  const composeArgs = autoLoads
+    ? ['compose', 'up', '-d']
+    : ['compose', ...own.configFiles.flatMap(f => ['-f', f]), 'up', '-d'];
+  const mountDirs = [...new Set([cwd, ...own.configFiles.map(f => path.dirname(f))])];
+  return { cwd, overrideFile, mountDirs, composeArgs };
+}
+
+/**
+ * docker argv launching the detached helper container that executes a plan.
+ * The helper mounts the compose dirs host-side and owns the daemon socket, so
+ * it keeps running while Homer's own container is being recreated.
+ */
+export function buildHelperRunArgs(plan: ApplyPlan, image: string, extraComposeArgs: string[] = []): string[] {
+  return [
+    'run', '-d', '--rm',
+    '-v', '/var/run/docker.sock:/var/run/docker.sock',
+    ...plan.mountDirs.flatMap(d => ['-v', `${d}:${d}`]),
+    '-w', plan.cwd,
+    '--entrypoint', 'docker',
+    image,
+    ...plan.composeArgs,
+    ...extraComposeArgs,
+  ];
+}

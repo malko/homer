@@ -6,7 +6,7 @@ import { requireSession } from '../middleware/require-session.js';
 import { systemSettingsSchema } from './request-schemas.js';
 import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
 import { getOwnComposeInfo, getOwnImage } from '../services/compose-discovery.js';
-import { buildApplyPlan } from '../services/mount-override.js';
+import { buildApplyPlan, buildHelperRunArgs } from '../services/mount-override.js';
 
 const execFileAsync = promisify(execFile);
 import { syncConfig } from '../services/caddy.js';
@@ -121,15 +121,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      await execFileAsync('docker', [
-        'run', '-d', '--rm',
-        '-v', '/var/run/docker.sock:/var/run/docker.sock',
-        ...mountArgs,
-        '-w', plan.cwd,
-        '--entrypoint', 'docker',
-        image,
-        ...plan.composeArgs,
-      ], { timeout: 60000 });
+      await execFileAsync('docker', buildHelperRunArgs(plan, image), { timeout: 60000 });
     } catch (error: unknown) {
       const err = error as { stderr?: string; message?: string };
       return reply.status(500).send({ error: err.stderr || err.message || 'Failed to launch the restart helper' });

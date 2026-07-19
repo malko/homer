@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMountGuide, buildApplyPlan } from './mount-override.js';
+import { buildMountGuide, buildApplyPlan, buildRecreatePlan, buildHelperRunArgs } from './mount-override.js';
 import type { ComposeInfo } from './container-recreate.js';
 
 const OWN: ComposeInfo = {
@@ -88,5 +88,36 @@ describe('buildApplyPlan', () => {
 
   it('returns null without own stack info', () => {
     expect(buildApplyPlan(null)).toBeNull();
+  });
+});
+
+describe('buildRecreatePlan', () => {
+  it('does not inject a not-yet-listed override into the -f flags', () => {
+    const plan = buildRecreatePlan({ ...OWN, configFiles: ['/home/user/homer/my-stack.yml'] })!;
+    expect(plan.composeArgs).toEqual(['compose', '-f', '/home/user/homer/my-stack.yml', 'up', '-d']);
+    expect(plan.mountDirs).toEqual(['/home/user/homer']);
+  });
+
+  it('relies on auto-load for standard file names', () => {
+    expect(buildRecreatePlan(OWN)!.composeArgs).toEqual(['compose', 'up', '-d']);
+  });
+
+  it('returns null without own stack info', () => {
+    expect(buildRecreatePlan(null)).toBeNull();
+  });
+});
+
+describe('buildHelperRunArgs', () => {
+  it('builds a detached self-removing helper with socket, mounts, cwd and extra args', () => {
+    const plan = buildRecreatePlan(OWN)!;
+    expect(buildHelperRunArgs(plan, 'homer:1.2', ['--force-recreate'])).toEqual([
+      'run', '-d', '--rm',
+      '-v', '/var/run/docker.sock:/var/run/docker.sock',
+      '-v', '/home/user/homer:/home/user/homer',
+      '-w', '/home/user/homer',
+      '--entrypoint', 'docker',
+      'homer:1.2',
+      'compose', 'up', '-d', '--force-recreate',
+    ]);
   });
 });
