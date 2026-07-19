@@ -241,7 +241,7 @@ export async function importRoutes(fastify: FastifyInstance) {
     const ownStack = await getOwnComposeInfo();
 
     const projects = [];
-    const inaccessibleDirs: string[] = [];
+    const inaccessibleEntries: { dir: string; project: string }[] = [];
     for (const discovered of groupComposeProjects(labelSets)) {
       if (discovered.name === ownStack?.project) continue;
       if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
@@ -250,7 +250,7 @@ export async function importRoutes(fastify: FastifyInstance) {
         await fs.access(discovered.configFiles[0]);
         accessible = true;
       } catch {
-        inaccessibleDirs.push(path.dirname(discovered.configFiles[0]));
+        inaccessibleEntries.push({ dir: path.dirname(discovered.configFiles[0]), project: discovered.name });
       }
       projects.push({ ...discovered, accessible });
     }
@@ -259,11 +259,11 @@ export async function importRoutes(fastify: FastifyInstance) {
     // so the single generated override fixes everything at once.
     for (const p of managed) {
       if (p.external) {
-        try { await fs.access(p.path); } catch { inaccessibleDirs.push(path.dirname(p.path)); }
+        try { await fs.access(p.path); } catch { inaccessibleEntries.push({ dir: path.dirname(p.path), project: p.name }); }
       }
     }
 
-    const mountGuide = inaccessibleDirs.length > 0 ? buildMountGuide(inaccessibleDirs, ownStack) : undefined;
+    const mountGuide = inaccessibleEntries.length > 0 ? buildMountGuide(inaccessibleEntries, ownStack) : undefined;
     return { projects, mountGuide };
   });
 

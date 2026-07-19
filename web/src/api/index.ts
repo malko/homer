@@ -332,6 +332,8 @@ export const api = {
       request<{ success: boolean }>('/system/update', { method: 'POST' }),
     restart: () =>
       request<{ success: boolean }>('/system/restart', { method: 'POST' }),
+    applyMountOverride: () =>
+      request<{ success: boolean }>('/system/apply-mount-override', { method: 'POST' }),
     getContainers: () => request<Container[]>('/system/containers'),
     getAllContainers: (options?: { search?: string; project?: string; hasUpdate?: boolean; includeUpdates?: boolean; state?: string }) => {
       const params = new URLSearchParams();

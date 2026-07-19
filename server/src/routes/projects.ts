@@ -62,15 +62,15 @@ declare module 'fastify' {
 
 // One guide covering the dirs of every inaccessible external project, so a
 // single override paste fixes them all. Null when everything is accessible.
-async function buildSharedMountGuide(projects: { path: string; external: number }[]): Promise<MountGuide | null> {
-  const inaccessibleDirs: string[] = [];
+async function buildSharedMountGuide(projects: { name: string; path: string; external: number }[]): Promise<MountGuide | null> {
+  const entries: { dir: string; project: string }[] = [];
   for (const project of projects) {
     if (project.external && !(await isProjectFileAccessible(project))) {
-      inaccessibleDirs.push(path.dirname(project.path));
+      entries.push({ dir: path.dirname(project.path), project: project.name });
     }
   }
-  if (inaccessibleDirs.length === 0) return null;
-  return buildMountGuide(inaccessibleDirs, await getOwnComposeInfo());
+  if (entries.length === 0) return null;
+  return buildMountGuide(entries, await getOwnComposeInfo());
 }
 
 export async function projectRoutes(fastify: FastifyInstance) {

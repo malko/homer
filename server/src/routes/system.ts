@@ -1,8 +1,14 @@
 import { FastifyInstance } from 'fastify';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
 import { requireSession } from '../middleware/require-session.js';
 import { systemSettingsSchema } from './request-schemas.js';
 import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
+import { getOwnComposeInfo, getOwnImage } from '../services/compose-discovery.js';
+import { buildApplyPlan } from '../services/mount-override.js';
+
+const execFileAsync = promisify(execFile);
 import { syncConfig } from '../services/caddy.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
 import { checkImageUpdateWithPolicy } from '../services/registry.js';
@@ -86,6 +92,50 @@ export async function systemRoutes(fastify: FastifyInstance) {
       () => fastify.broadcast({ type: 'restart_done' }),
       (message) => fastify.broadcast({ type: 'restart_error', message }),
     );
+  });
+
+  // Recreate Homer's own stack so a freshly written docker-compose.override.yml
+  // (external project mounts) takes effect. Homer cannot read its own compose
+  // dir, and a plain `docker restart` would not apply new volumes — so this
+  // runs `docker compose up -d` from a detached helper container that mounts
+  // the compose dir host-side and outlives Homer's own recreation.
+  fastify.post('/api/system/apply-mount-override', async (_, reply) => {
+    const own = await getOwnComposeInfo();
+    const plan = buildApplyPlan(own);
+    if (!plan) {
+      return reply.status(400).send({ error: 'Homer is not running as a compose-managed container' });
+    }
+    const image = await getOwnImage();
+    if (!image) {
+      return reply.status(400).send({ error: "Could not determine Homer's own image" });
+    }
+
+    const mountArgs = plan.mountDirs.flatMap(d => ['-v', `${d}:${d}`]);
+
+    // Homer itself cannot read the override file — probe its existence through
+    // a short-lived helper container before triggering a restart for nothing.
+    try {
+      await execFileAsync('docker', ['run', '--rm', ...mountArgs, '--entrypoint', 'test', image, '-f', plan.overrideFile], { timeout: 60000 });
+    } catch {
+      return reply.status(400).send({ error: `Override file not found: ${plan.overrideFile}. Create it first, then retry.` });
+    }
+
+    try {
+      await execFileAsync('docker', [
+        'run', '-d', '--rm',
+        '-v', '/var/run/docker.sock:/var/run/docker.sock',
+        ...mountArgs,
+        '-w', plan.cwd,
+        '--entrypoint', 'docker',
+        image,
+        ...plan.composeArgs,
+      ], { timeout: 60000 });
+    } catch (error: unknown) {
+      const err = error as { stderr?: string; message?: string };
+      return reply.status(500).send({ error: err.stderr || err.message || 'Failed to launch the restart helper' });
+    }
+
+    return { success: true };
   });
 
   fastify.get('/api/system/containers', async () => {

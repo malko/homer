@@ -63,6 +63,28 @@ export function getOwnComposeInfo(): Promise<ComposeInfo | null> {
   });
 }
 
+let ownImage: string | null | undefined;
+
+/** Image Homer's own container runs — used to spawn helper containers without pulling anything. */
+export function getOwnImage(): Promise<string | null> {
+  if (ownImage !== undefined) return Promise.resolve(ownImage);
+  const hostname = process.env.HOSTNAME;
+  if (!hostname) {
+    ownImage = null;
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const child = spawn('docker', ['inspect', hostname, '--format', '{{.Config.Image}}'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    child.on('error', () => { ownImage = null; resolve(null); });
+    child.on('close', (code) => {
+      ownImage = code === 0 && stdout.trim() ? stdout.trim() : null;
+      resolve(ownImage);
+    });
+  });
+}
+
 /**
  * Find lines of a compose file that reference relative paths (./x or ../x).
  * Relative paths resolve against the compose project directory, which only
