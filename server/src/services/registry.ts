@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { assertValidImageRef } from './docker-args.js';
 
 const execAsync = promisify(exec);
 
@@ -151,6 +152,7 @@ export async function getRemoteDigest(image: string): Promise<string | null> {
 
 export async function getLocalDigest(image: string): Promise<string | null> {
   try {
+    assertValidImageRef(image);
     const { stdout } = await execAsync(
       `docker inspect --format='{{index .RepoDigests 0}}' "${image}"`,
       { timeout: 10000 }

@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { projectQueries } from '../db/index.js';
 import { checkImageUpdateWithPolicy } from './registry.js';
+import { assertValidId, assertValidImageRef } from './docker-args.js';
 
 const execAsync = promisify(exec);
 
@@ -370,7 +371,9 @@ export async function getSystemStats(): Promise<SystemStats> {
 
 export async function getContainerLogs(containerId: string, tail = 100): Promise<string> {
   try {
-    return await execCommand(`docker logs ${containerId} --tail ${tail} 2>&1`);
+    assertValidId(containerId);
+    const tailN = Number.isFinite(tail) ? Math.max(0, Math.floor(tail)) : 100;
+    return await execCommand(`docker logs ${containerId} --tail ${tailN} 2>&1`);
   } catch {
     return '';
   }
@@ -378,6 +381,7 @@ export async function getContainerLogs(containerId: string, tail = 100): Promise
 
 export async function clearContainerLogs(containerId: string): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidId(containerId);
     const logPath = (await execCommand(`docker inspect --format='{{.LogPath}}' ${containerId}`)).trim();
     if (!logPath) {
       return { success: false, output: 'Could not determine log file path' };
@@ -398,19 +402,23 @@ export async function clearContainerLogs(containerId: string): Promise<{ success
 }
 
 export async function startContainer(containerId: string): Promise<void> {
+  assertValidId(containerId);
   await execCommand(`docker start ${containerId}`);
 }
 
 export async function stopContainer(containerId: string): Promise<void> {
+  assertValidId(containerId);
   await execCommand(`docker stop ${containerId}`);
 }
 
 export async function restartContainer(containerId: string): Promise<void> {
+  assertValidId(containerId);
   await execCommand(`docker restart ${containerId}`);
 }
 
 export async function removeContainer(containerId: string): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidId(containerId);
     await execCommand(`docker rm -f ${containerId}`);
     return { success: true, output: 'Container supprimé' };
   } catch (error: unknown) {
@@ -421,12 +429,13 @@ export async function removeContainer(containerId: string): Promise<{ success: b
 
 export async function updateContainerImage(containerId: string): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidId(containerId);
     const infoOutput = await execCommand(`docker inspect ${containerId} --format "{{.Config.Image}}"`);
     if (!infoOutput) {
       return { success: false, output: 'Image du container non trouvée' };
     }
-    
-    const imageName = infoOutput.trim();
+
+    const imageName = assertValidImageRef(infoOutput.trim());
     await execCommand(`docker pull ${imageName}`);
     await execCommand(`docker stop ${containerId}`);
     await execCommand(`docker rm -f ${containerId}`);
@@ -678,6 +687,7 @@ export async function validateComposeFile(filePath: string): Promise<{ valid: bo
 
 export async function getImageInfo(imageName: string): Promise<ImageInfo | null> {
   try {
+    assertValidImageRef(imageName);
     const output = await execCommand(`docker images ${imageName} --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"`);
     const [id, repository, tag, size, created] = output.split('|');
     
@@ -782,6 +792,7 @@ export function downProjectStream(
 }
 
 export async function streamLogs(containerId: string, callback: (line: string) => void): Promise<() => void> {
+  assertValidId(containerId);
   const proc = spawn('docker', ['logs', '-f', '--tail', '100', containerId], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -1056,6 +1067,7 @@ export async function listNetworks(): Promise<NetworkInfo[]> {
 
 export async function removeNetwork(networkName: string): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidId(networkName);
     await execCommand(`docker network rm ${networkName}`);
     return { success: true, output: 'Réseau supprimé' };
   } catch (error: unknown) {
@@ -1137,6 +1149,7 @@ export async function listImages(): Promise<ImageInfo[]> {
 
 export async function removeImage(imageId: string, force = false): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidImageRef(imageId);
     const flag = force ? '-f' : '';
     await execCommand(`docker rmi ${flag} ${imageId}`);
     return { success: true, output: 'Image supprimée' };
@@ -1159,6 +1172,7 @@ export async function pruneImages(danglingOnly = true): Promise<{ success: boole
 
 export async function removeVolume(volumeName: string): Promise<{ success: boolean; output: string }> {
   try {
+    assertValidId(volumeName);
     await execCommand(`docker volume rm "${volumeName}"`);
     return { success: true, output: `Volume "${volumeName}" supprimé` };
   } catch (error: unknown) {
