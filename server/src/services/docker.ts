@@ -6,6 +6,7 @@ import { projectQueries } from '../db/index.js';
 import { checkImageUpdateWithPolicy } from './registry.js';
 import { assertValidId, assertValidImageRef } from './docker-args.js';
 import { parseComposeInfo, buildDockerRunArgs, type DockerInspect } from './container-recreate.js';
+import { composePullChanged } from './compose-pull.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -528,9 +529,9 @@ export async function updateProjectImages(projectId: number): Promise<{ changed:
 
   try {
     const pullOutput = await execCommand(`docker compose -f "${project.path}" -p "${projectName}" pull`);
-    
-    const pullChanged = pullOutput.includes('Pulled') || pullOutput.includes('Downloaded');
-    
+
+    const pullChanged = composePullChanged(pullOutput);
+
     if (pullChanged) {
       await execCommand(`docker compose -f "${project.path}" -p "${projectName}" up -d --pull always --force-recreate`);
     }
@@ -569,6 +570,7 @@ export function updateProjectImagesStream(
 
   let cmdIndex = 0;
   let child: ReturnType<typeof spawn> | null = null;
+  let pullOutput = '';
 
   const runNext = () => {
     if (cmdIndex >= commands.length) {
@@ -580,7 +582,9 @@ export function updateProjectImagesStream(
     child = spawn('docker', args, { cwd: projectDir, stdio: ['ignore', 'pipe', 'pipe'] });
 
     const handleData = (data: Buffer) => {
-      const lines = String(data).split('\n');
+      const text = String(data);
+      if (label === 'pull') pullOutput += text;
+      const lines = text.split('\n');
       for (const line of lines) {
         if (line.length > 0) onLine(line);
       }
@@ -600,7 +604,12 @@ export function updateProjectImagesStream(
         return;
       }
       if (label === 'pull') {
-        pullChanged = true;
+        pullChanged = composePullChanged(pullOutput);
+        // Nothing new was pulled — skip the force-recreate.
+        if (!pullChanged) {
+          onDone(true, false);
+          return;
+        }
       }
       runNext();
     });
