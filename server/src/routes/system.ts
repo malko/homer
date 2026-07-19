@@ -1,5 +1,6 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
-import { sessionQueries, settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
+import { FastifyInstance } from 'fastify';
+import { settingQueries, projectQueries, containerUpdateQueries } from '../db/index.js';
+import { requireSession } from '../middleware/require-session.js';
 import { checkForUpdate, performUpdate, restartInstance } from '../services/updater.js';
 import { syncConfig } from '../services/caddy.js';
 import { listContainers, getSystemStats, listVolumes, listNetworks, listImages, pruneImages, removeContainer, updateContainerImage, removeNetwork, pruneNetworks, removeImage, checkContainerUpdate, checkAllContainerUpdates, removeVolume, pruneVolumes } from '../services/docker.js';
@@ -8,14 +9,7 @@ import { checkImageUpdateWithPolicy } from '../services/registry.js';
 const HOMER_CONTAINERS = ['homer-caddy', 'homer'];
 
 export async function systemRoutes(fastify: FastifyInstance) {
-  fastify.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.isPeerRequest) return;
-    const token = request.headers.authorization?.replace('Bearer ', '');
-    const session = token ? sessionQueries.getByToken(token) : null;
-    if (!session) {
-      throw { statusCode: 401, message: 'Unauthorized' };
-    }
-  });
+  fastify.addHook('preHandler', requireSession);
 
   fastify.get('/api/system/version', async () => {
     return checkForUpdate();

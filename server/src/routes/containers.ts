@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { listContainers, getContainerLogs, clearContainerLogs, startContainer, stopContainer, restartContainer, checkContainerUpdate } from '../services/docker.js';
-import { sessionQueries, containerUpdateQueries } from '../db/index.js';
+import { containerUpdateQueries } from '../db/index.js';
+import { requireSession } from '../middleware/require-session.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -9,14 +10,7 @@ declare module 'fastify' {
 }
 
 export async function containerRoutes(fastify: FastifyInstance) {
-  fastify.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.isPeerRequest) return;
-    const token = request.headers.authorization?.replace('Bearer ', '');
-    const session = token ? sessionQueries.getByToken(token) : null;
-    if (!session) {
-      throw { statusCode: 401, message: 'Unauthorized' };
-    }
-  });
+  fastify.addHook('preHandler', requireSession);
 
   fastify.get('/api/containers', async () => {
     return listContainers();

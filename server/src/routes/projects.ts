@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { projectQueries, sessionQueries, settingQueries, DB_CONFIG } from '../db/index.js';
+import { projectQueries, settingQueries, DB_CONFIG } from '../db/index.js';
+import { requireSession } from '../middleware/require-session.js';
 import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates } from '../services/docker.js';
 import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
@@ -56,14 +57,7 @@ declare module 'fastify' {
 }
 
 export async function projectRoutes(fastify: FastifyInstance) {
-  fastify.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.isPeerRequest) return;
-    const token = request.headers.authorization?.replace('Bearer ', '');
-    const session = token ? sessionQueries.getByToken(token) : null;
-    if (!session) {
-      throw { statusCode: 401, message: 'Unauthorized' };
-    }
-  });
+  fastify.addHook('preHandler', requireSession);
 
   fastify.get('/api/projects', async () => {
     const projects = projectQueries.getAll();

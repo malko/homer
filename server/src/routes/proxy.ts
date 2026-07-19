@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sessionQueries, proxyHostQueries, projectQueries } from '../db/index.js';
+import { proxyHostQueries, projectQueries } from '../db/index.js';
+import { requireSession } from '../middleware/require-session.js';
 import { syncConfig, getRunningConfig, getCaddyStatus, pushConfig, hashBasicAuthPassword, buildCaddyConfig, exportLocalCa, importCa } from '../services/caddy.js';
 import { publishIfEnabled, unpublishIfEnabled, getMdnsStatus } from '../services/mdns.js';
 import { checkReachability } from '../services/reachability.js';
@@ -31,14 +32,7 @@ const proxyHostSchema = z.object({
 });
 
 export async function proxyRoutes(fastify: FastifyInstance) {
-  fastify.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.isPeerRequest) return;
-    const token = request.headers.authorization?.replace('Bearer ', '');
-    const session = token ? sessionQueries.getByToken(token) : null;
-    if (!session) {
-      throw { statusCode: 401, message: 'Unauthorized' };
-    }
-  });
+  fastify.addHook('preHandler', requireSession);
 
   // List all proxy hosts (optionally filter by project_id or show_on_home)
   fastify.get('/api/proxy/hosts', async (request) => {
