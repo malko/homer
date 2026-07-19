@@ -22,18 +22,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const checkStatus = useCallback(async () => {
     try {
       setError(null);
-      const token = localStorage.getItem('token');
-      console.log('[Auth] checkStatus - Token from localStorage:', token);
       const newStatus = await api.auth.status();
-      console.log('[Auth] checkStatus - Response:', newStatus);
       setStatus(newStatus);
-      
+
       if (!newStatus.authenticated) {
-        console.log('[Auth] Not authenticated, removing token');
         localStorage.removeItem('token');
       }
     } catch (err) {
-      console.log('[Auth] checkStatus - Error:', err);
       setError(err instanceof Error ? err.message : 'Failed to connect to server');
       setStatus({ needsSetup: true, mustChangePassword: false, authenticated: false });
     } finally {
@@ -47,10 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const response = await api.auth.login(username, password);
-    console.log('[Auth] Login response:', response);
-    console.log('[Auth] Token:', response.token);
     localStorage.setItem('token', response.token);
-    console.log('[Auth] Token saved to localStorage:', localStorage.getItem('token'));
     setStatus({
       needsSetup: false,
       mustChangePassword: response.mustChangePassword,

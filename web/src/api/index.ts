@@ -24,7 +24,6 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = localStorage.getItem('token');
-  console.log(`[API] ${options.method || 'GET'} ${path} - Token:`, token ? 'present' : 'missing');
 
   const headers = new Headers();
 
@@ -52,9 +51,7 @@ async function request<T>(
     ...options,
     headers,
   });
-  
-  console.log(`[API] ${path} - Status: ${response.status}`);
-  
+
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: 'Unknown error' }));
     throw new ApiError(response.status, body.error || 'Request failed');
