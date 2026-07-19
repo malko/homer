@@ -24,7 +24,8 @@ import { peerProxyHook } from './middleware/peer-proxy.js';
 import { setupWebSocket } from './websocket/index.js';
 import { setupPeerEventsWs } from './websocket/peer-events.js';
 import { watcher } from './services/watcher.js';
-import { waitForDb, settingQueries, projectQueries } from './db/index.js';
+import { waitForDb, settingQueries, projectQueries, sessionQueries } from './db/index.js';
+import { startSessionCleanup } from './services/session-cleanup.js';
 import { startAutoUpdateChecker, performUpdate } from './services/updater.js';
 import { initCaddyConfig } from './services/caddy.js';
 import { checkProjectImageUpdates, updateProjectImages, listContainers, checkContainerUpdate } from './services/docker.js';
@@ -97,6 +98,11 @@ const start = async () => {
     import('./services/instance.js').then(({ loadVersion }) => loadVersion()).catch(() => {});
 
     watcher.initialize();
+
+    // Purge expired sessions periodically so the table doesn't grow unbounded.
+    startSessionCleanup(() => {
+      try { sessionQueries.cleanExpired(); } catch (err) { fastify.log.error(err); }
+    });
 
     // Push Caddy config on startup (non-blocking if Caddy is unavailable)
     initCaddyConfig().catch((err) => console.error('[Caddy] Failed to push config:', err));
