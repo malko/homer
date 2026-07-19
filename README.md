@@ -188,8 +188,21 @@ The included `docker-compose.yml` includes Caddy for automatic HTTPS. Configure 
 ## Security
 
 - Admin account created on first access (no default password)
-- JWT-based session authentication
-- Password hashing with bcrypt
+- Session-based authentication: opaque bearer tokens stored server-side, 7-day expiry, purged periodically once expired
+- Passwords hashed with bcrypt; changing a password requires re-entering the current one (except a forced first-login rotation)
+- Peer-to-peer (federation) traffic is authenticated with per-peer HMAC secrets; signatures are time-bound and single-use (replay-protected)
+- Values that reach the Docker CLI (container/volume/network ids, image references) are validated before use to prevent command injection
+
+### Trust model — read before exposing HOMER
+
+HOMER manages containers through the host's **Docker socket**, so anyone who can reach and authenticate to it has **effective root-equivalent control of the host** (terminal into any container, deploy arbitrary compose, etc.). Consequently:
+
+- There is a **single trust level**: every authenticated user is an administrator. There are no read-only or scoped accounts.
+- Keep HOMER on a **trusted network** and behind its reverse proxy; do not expose the API/UI directly to the public Internet.
+- **Federation is a fully-trusted mesh** — pairing an instance grants that peer host-level control, and one compromised instance should be assumed to compromise the whole federation. Only pair instances you own, over a trusted network. See [docs/federation.md](docs/federation.md#security-model) for the full trust model and pairing (TOFU) caveats.
+- The built-in Caddy raw-config editor is powerful, but HOMER always re-asserts a safe, origin-restricted `admin` block on every config push so a pushed config cannot expose or lock out the Caddy admin API.
+
+> This project is **not designed for production use** (see the note at the top). The model above assumes a self-hosted homelab where the operator controls every instance.
 
 ## Auto-Update Configuration
 

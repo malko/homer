@@ -141,12 +141,30 @@ Clicking **"Fermer"** reloads the page — the instance selector appears in the 
      Peer entries created on both sides
 ```
 
-## Pairing security model
+## Security model
 
-- The initial handshake uses **TOFU** (Trust On First Use): the remote certificate is not verified on first contact, since the two instances do not yet share a CA.
+### Pairing
+
+- The initial handshake uses **TOFU** (Trust On First Use): the remote certificate is not verified on first contact, since the two instances do not yet share a CA. An active network attacker positioned between the two instances *during the handshake* could therefore intercept it. **Pair instances over a network you trust** (your LAN), not across the public Internet without a separate secure channel.
 - A **shared HMAC secret** is generated at initiation time and authenticates all subsequent peer-to-peer communication.
-- The 6-digit code is an **out-of-band verification channel**: only an administrator with access to both UIs can complete the pairing, ensuring it is intentional.
+- The 6-digit code is an **out-of-band verification channel**: only an administrator with access to both UIs can complete the pairing, ensuring it is intentional. It confirms *intent*, not the network path.
 - Pairing requests expire after **5 minutes**.
+
+### Trust model — a federation is a fully-trusted mesh
+
+Federation is designed for instances that are **all under your control**, in the same homelab. Treat pairing as granting the peer the same power over this host that a local admin has:
+
+- **A paired peer can act on this host.** Peer requests are authenticated by the shared HMAC secret and are allowed to reach the container, system and proxy routes (they intentionally bypass the local-session check). That includes starting/stopping/updating containers, deploying compose projects, and opening an interactive terminal — i.e. **effective host-level control** (Homer runs against the Docker socket). A compromised peer is equivalent to a compromised local admin.
+- **Secrets are symmetric and shared.** When a new node joins, the federation deliberately distributes each existing peer's shared secret to the newcomer so the mesh can form (see *Case 1*). There is no per-request capability scoping: every peer in the mesh is trusted by every other peer. **One compromised instance should be assumed to compromise the whole federation.**
+- **No user roles.** Every authenticated user of an instance is effectively an administrator of it. There is no read-only or restricted account.
+
+Practical guidance: only pair instances you own and administer yourself; do not accept pairing requests from third parties; and keep every federated instance patched and access-controlled.
+
+### Ongoing peer authentication
+
+- Every peer-to-peer request is signed with `HMAC-SHA256(shared_secret, "<timestamp>.<body>")`.
+- Signatures are valid only within a **60-second clock-skew window** and are **single-use**: an accepted signature is remembered until it leaves the window and any repeat is rejected, so a captured request cannot be replayed (against the same or a different endpoint).
+- Because a peer is fully trusted, values it sends that reach Docker (container ids, image references, etc.) are still validated against Docker's reference charset before use, so a misbehaving peer cannot turn container management into arbitrary host command execution.
 
 ## Selecting a remote instance
 
