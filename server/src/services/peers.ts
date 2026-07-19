@@ -54,14 +54,31 @@ export function signPayload(secret: string, body: string, timestamp: number): st
   return createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 }
 
+// Replay protection: each accepted signature is remembered until it falls
+// outside the skew window, so a captured request cannot be replayed (against
+// the same or a different endpoint) even within those 60 seconds.
+const seenSignatures = new Map<string, number>();
+
+function pruneSeenSignatures(now: number): void {
+  for (const [sig, expiry] of seenSignatures) {
+    if (expiry <= now) seenSignatures.delete(sig);
+  }
+}
+
 export function verifySignature(secret: string, body: string, timestamp: number, signature: string): boolean {
   if (!Number.isFinite(timestamp)) return false;
-  if (Math.abs(Date.now() - timestamp) > SIGNATURE_MAX_SKEW_MS) return false;
+  const now = Date.now();
+  if (Math.abs(now - timestamp) > SIGNATURE_MAX_SKEW_MS) return false;
   const expected = signPayload(secret, body, timestamp);
   const expectedBuf = Buffer.from(expected, 'hex');
   const actualBuf = Buffer.from(signature, 'hex');
   if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
+  if (!timingSafeEqual(expectedBuf, actualBuf)) return false;
+
+  pruneSeenSignatures(now);
+  if (seenSignatures.has(signature)) return false;
+  seenSignatures.set(signature, timestamp + SIGNATURE_MAX_SKEW_MS);
+  return true;
 }
 
 export async function loadLocalRootCa(): Promise<string | null> {
