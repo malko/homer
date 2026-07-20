@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { YamlEditor } from './YamlEditor';
 import { TerminalPanel } from './TerminalPanel';
 import type { TerminalHandle } from './TerminalPanel';
@@ -14,6 +14,7 @@ import { MountGuide } from './MountGuide';
 import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
 import { parseAnsiSegments } from '../utils/ansi';
+import { findRelativePathRefs } from '../utils/compose';
 
 export type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
 type ToastType = 'success' | 'error' | 'warning';
@@ -143,6 +144,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   // File editor state (lazy: loaded on first compose/env tab visit)
   const [composeContent, setComposeContent] = useState('');
+  const relativePathRefs = useMemo(() => findRelativePathRefs(composeContent), [composeContent]);
   const [envContent, setEnvContent] = useState('');
   const [hasEnvFile, setHasEnvFile] = useState(false);
   const [filesLoaded, setFilesLoaded] = useState(false);
@@ -1123,6 +1125,17 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
                   </button>
                 </div>
               </div>
+              {relativePathRefs.length > 0 && (
+                <div className="relative-path-hint" style={{ flexShrink: 0 }}>
+                  <span className="warning-icon">&#9888;</span>
+                  <span>
+                    Chemins relatifs détectés ({relativePathRefs.map((l, i) => <code key={i}>{l}</code>)}).
+                    Ils sont résolus par rapport au dossier du projet <em>tel que vu par le processus qui lance compose</em> :
+                    selon les points de montage, le chemin créé sur l'hôte peut ne pas être celui attendu.
+                    Préférez des chemins absolus pour les volumes.
+                  </span>
+                </div>
+              )}
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 <YamlEditor
                   value={composeContent}
