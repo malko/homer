@@ -91,15 +91,21 @@ function stopPeerContainerUpdates() {
 async function checkPeerHeartbeats(broadcast: (event: BroadcastEvent) => void) {
   const peers = peerQueries.getAll();
   for (const peer of peers) {
-    const r = await peerFetch(peer.peer_url, '/api/instances/self', {
-      peerCa: peer.peer_ca,
-      timeoutMs: 5_000,
-    });
-    const newStatus = r.ok ? 'online' : 'offline';
-    if (newStatus !== peer.status) {
-      const lastSeen = newStatus === 'online' ? Date.now() : peer.last_seen;
-      peerQueries.updateStatus(peer.peer_uuid, newStatus, lastSeen);
-      broadcast({ type: 'peer_status_changed', peer_uuid: peer.peer_uuid, status: newStatus });
+    try {
+      const r = await peerFetch(peer.peer_url, '/api/instances/self', {
+        peerCa: peer.peer_ca,
+        timeoutMs: 5_000,
+      });
+      const newStatus = r.ok ? 'online' : 'offline';
+      if (newStatus !== peer.status) {
+        const lastSeen = newStatus === 'online' ? Date.now() : peer.last_seen;
+        peerQueries.updateStatus(peer.peer_uuid, newStatus, lastSeen);
+        broadcast({ type: 'peer_status_changed', peer_uuid: peer.peer_uuid, status: newStatus });
+      }
+    } catch (e) {
+      // A single misbehaving peer (e.g. malformed peer_url) must never crash
+      // the whole server — log and move on to the next peer.
+      console.error(`[peer-heartbeat] check failed for peer ${peer.peer_uuid} (${peer.peer_url}):`, e);
     }
   }
 }

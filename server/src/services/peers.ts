@@ -112,7 +112,12 @@ export async function peerFetch<T = unknown>(
   path: string,
   options: PeerFetchOptions = {}
 ): Promise<PeerFetchResult<T>> {
-  const url = new URL(path, peerUrl.endsWith('/') ? peerUrl : `${peerUrl}/`);
+  let url: URL;
+  try {
+    url = new URL(path, peerUrl.endsWith('/') ? peerUrl : `${peerUrl}/`);
+  } catch (e) {
+    return { ok: false, status: 0, data: null, error: `Invalid peer URL: ${peerUrl}` };
+  }
   const method = options.method ?? 'GET';
   const bodyString = options.body !== undefined ? JSON.stringify(options.body) : undefined;
   const timeoutMs = options.timeoutMs ?? 15_000;
