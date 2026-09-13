@@ -34,7 +34,9 @@ const terminalSessions = new Map<string, IPty>();
 const deployStreamers = new Map<string, () => void>();
 const downStreamers = new Map<string, () => void>();
 const updateStreamers = new Map<string, () => void>();
+const wsAlive = new Map<string, boolean>();
 
+const WS_PING_INTERVAL_MS = 25_000;
 const PEER_HEARTBEAT_INTERVAL_MS = 30_000;
 const PEER_CONTAINER_HEARTBEAT_SUB = '__heartbeat__';
 const PEER_CONTAINERS_SUB = '__containers__';
@@ -126,6 +128,8 @@ export function setupWebSocket(fastify: FastifyInstance) {
 
       const clientId = crypto.randomUUID();
       instance.wsClients.set(clientId, socket);
+      wsAlive.set(clientId, true);
+      socket.on('pong', () => { wsAlive.set(clientId, true); });
       if (instance.wsClients.size === 1) {
         startPeerHeartbeat(fastify.broadcast);
         startPeerContainerHeartbeats(fastify.broadcast);
@@ -456,9 +460,11 @@ export function setupWebSocket(fastify: FastifyInstance) {
       });
 
       socket.on('close', () => {
+        const logKeysToDelete: string[] = [];
         logStreamers.forEach((stop, key) => {
-          if (key.startsWith(clientId)) stop();
+          if (key.startsWith(clientId)) { stop(); logKeysToDelete.push(key); }
         });
+        logKeysToDelete.forEach(key => logStreamers.delete(key));
         deployStreamers.forEach((stop, key) => {
           if (key.startsWith(clientId)) { stop(); deployStreamers.delete(key); }
         });
@@ -478,6 +484,7 @@ export function setupWebSocket(fastify: FastifyInstance) {
         termKeysToDelete.forEach(key => terminalSessions.delete(key));
         peerWsManager.cleanupClient(clientId);
         instance.wsClients.delete(clientId);
+        wsAlive.delete(clientId);
         if (instance.wsClients.size === 0) {
           stopPeerHeartbeat();
           stopPeerContainerHeartbeats();
@@ -506,6 +513,20 @@ export function setupWebSocket(fastify: FastifyInstance) {
       fastify.broadcast({ type: 'heartbeat', containers });
     } catch {}
   }, 10000);
+
+  // Ping/pong keepalive: detects connections that silently died (e.g. NAT/proxy
+  // idle timeouts on a remote connection) and actively probes so well-behaved
+  // intermediaries don't time the socket out for inactivity in the meantime.
+  setInterval(() => {
+    fastify.wsClients.forEach((client, clientId) => {
+      if (wsAlive.get(clientId) === false) {
+        try { client.terminate(); } catch {}
+        return; // the 'close' event handles full cleanup (logStreamers, wsClients, wsAlive)
+      }
+      wsAlive.set(clientId, false);
+      try { client.ping(); } catch {}
+    });
+  }, WS_PING_INTERVAL_MS);
 }
 
 declare module 'fastify' {

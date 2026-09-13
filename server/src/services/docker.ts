@@ -882,6 +882,12 @@ export async function streamLogs(containerId: string, callback: (line: string) =
     callback(data.toString());
   });
 
+  // Required: an unhandled 'error' on a ChildProcess throws and crashes the
+  // whole process (e.g. if `docker` fails to spawn). Also covers the
+  // process dying/exiting unexpectedly so it isn't left silently lingering.
+  proc.on('error', () => {});
+  proc.on('exit', () => {});
+
   return () => {
     proc.kill();
   };

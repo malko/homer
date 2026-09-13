@@ -43,6 +43,7 @@ export function LogsPage() {
   const [clearError, setClearError] = useState<string | null>(null);
   const logsScrollRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!containerId || !status?.authenticated) return;
@@ -69,28 +70,44 @@ export function LogsPage() {
     if (!token) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/events?token=${token}`);
-    wsRef.current = ws;
+    const wsUrl = `${protocol}//${window.location.host}/api/events?token=${token}`;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe_logs', containerId, peer_uuid: peerUuid }));
-      setWsConnected(true);
-    };
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'log_line' && msg.containerId === containerId) {
-          setLogs(prev => [...prev.slice(-499), msg.line]);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'subscribe_logs', containerId, peer_uuid: peerUuid }));
+        setWsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'log_line' && msg.containerId === containerId) {
+            setLogs(prev => [...prev.slice(-499), msg.line]);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (wsRef.current === ws) { // still the active socket for this container
+          reconnectRef.current = window.setTimeout(connect, 3000);
         }
-      } catch {}
+      };
+      ws.onerror = () => ws.close();
     };
-
-    ws.onclose = () => setWsConnected(false);
+    connect();
 
     return () => {
-      try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId, peer_uuid: peerUuid })); } catch {}
-      ws.close();
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      const ws = wsRef.current;
+      if (ws) {
+        wsRef.current = null; // prevent the stale onclose above from scheduling a reconnect
+        try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId, peer_uuid: peerUuid })); } catch {}
+        ws.close();
+      }
     };
   }, [containerId, status?.authenticated]);
 

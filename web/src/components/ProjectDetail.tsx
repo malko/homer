@@ -215,20 +215,18 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     }
   }, [activeTab, project.id]);
 
-  // WebSocket logs: connect when on logs tab, cleanup when leaving
+  // Stable identity for the container list: `project.containers` gets a brand-new
+  // array reference on every project refetch even when the containers themselves
+  // haven't changed, which would otherwise re-run the effect below and open a
+  // duplicate log-streaming socket instead of reusing the existing one.
+  const containerIds = useMemo(
+    () => project.containers.map(c => c.id).sort().join(','),
+    [project.containers],
+  );
+
+  // WebSocket logs: connect when on logs tab, cleanup when leaving or when the effect re-runs
   useEffect(() => {
-    if (activeTab !== 'logs') {
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      if (wsRef.current) {
-        const ws = wsRef.current;
-        wsRef.current = null; // prevent reconnect in onclose
-        for (const c of project.containers) {
-          try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId: c.id })); } catch {}
-        }
-        ws.close();
-      }
-      return;
-    }
+    if (activeTab !== 'logs') return;
 
     // Fetch initial logs on first visit
     if (!logsInitialized) {
@@ -278,14 +276,26 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
         } catch {}
       };
       ws.onclose = () => {
-        if (wsRef.current) { // still on logs tab
+        if (wsRef.current === ws) { // still the active socket for this tab
           reconnectRef.current = window.setTimeout(connect, 3000);
         }
       };
       ws.onerror = () => ws.close();
     };
     connect();
-  }, [activeTab, logsInitialized, project.containers]);
+
+    return () => {
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      const ws = wsRef.current;
+      if (ws) {
+        wsRef.current = null; // prevent the stale onclose above from scheduling a reconnect
+        for (const c of project.containers) {
+          try { ws.send(JSON.stringify({ type: 'unsubscribe_logs', containerId: c.id })); } catch {}
+        }
+        ws.close();
+      }
+    };
+  }, [activeTab, logsInitialized, containerIds]);
 
   // Auto-scroll logs
   useEffect(() => {
