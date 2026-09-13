@@ -11,12 +11,13 @@ interface UpdatesContextValue {
   updates: ProjectUpdate[];
   hasUpdates: boolean;
   notificationsEnabled: boolean;
+  notificationsSupported: boolean;
   showModal: boolean;
   setShowModal: (show: boolean) => void;
   fetchUpdates: () => Promise<void>;
   toggleNotifications: () => Promise<void>;
   dismissProject: (projectId: number) => void;
-  clearDismissed: () => void;
+  clearDismissed: () => Promise<void>;
 }
 
 const ProjectUpdatesContext = createContext<UpdatesContextValue | null>(null);
@@ -51,13 +52,20 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   const previousUpdatesRef = useRef<ProjectUpdate[]>([]);
   const fetchTimeoutRef = useRef<number | null>(null);
 
+  // The Notification API silently refuses to prompt (and Notification.permission
+  // stays 'default' forever) on an insecure origin — plain http on anything but
+  // localhost/127.0.0.1. Surface that distinctly instead of looking like a no-op.
+  const notificationsSupported = 'Notification' in window && window.isSecureContext;
+
   const requestNotificationPermission = useCallback(async () => {
-    if (!('Notification' in window)) {
-      console.warn('Notifications not supported');
+    if (!notificationsSupported) {
+      console.warn('Notifications require a secure context (HTTPS)');
       return false;
     }
 
     if (Notification.permission === 'granted') {
+      localStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'true');
+      setNotificationsEnabled(true);
       return true;
     }
 
@@ -118,11 +126,19 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
     setUpdates(prev => prev.filter(p => p.id !== projectId));
   }, []);
 
-  const clearDismissed = useCallback(() => {
+  const clearDismissed = useCallback(async () => {
     setDismissedIds(new Set());
     saveDismissedIds(new Set());
-    fetchUpdates();
-  }, [fetchUpdates]);
+    // Fetch directly rather than through fetchUpdates: that callback closes
+    // over the dismissedIds from this render, which is still the pre-clear
+    // set, so it would immediately re-filter out what we just un-dismissed.
+    try {
+      const data = await api.system.getUpdates();
+      setUpdates(data.projects);
+    } catch (err) {
+      console.error('Failed to fetch updates:', err);
+    }
+  }, []);
 
   useEffect(() => {
     fetchUpdates().then(() => setIsFirstLoad(false));
@@ -182,6 +198,7 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
     updates,
     hasUpdates: updates.length > 0,
     notificationsEnabled,
+    notificationsSupported,
     showModal,
     setShowModal,
     fetchUpdates,

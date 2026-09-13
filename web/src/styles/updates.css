@@ -112,6 +112,15 @@
   cursor: pointer;
 }
 
+.updates-notifications-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.updates-notifications-unavailable {
+  color: var(--color-text-faint, var(--color-text-muted));
+  font-style: italic;
+}
+
 .updates-modal-footer-actions {
   display: flex;
   align-items: center;
@@ -122,4 +131,8 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+.updates-refresh-icon--spinning {
+  animation: spin 0.8s linear infinite;
 }

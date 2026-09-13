@@ -294,14 +294,21 @@ export async function projectRoutes(fastify: FastifyInstance) {
     
     try {
       const result = await updateProjectImages(id);
-      
+
       fastify.broadcast({ type: 'containers_updated' });
-      fastify.broadcast({ 
-        type: 'project_updated', 
-        projectId: id, 
-        changed: result.changed 
+      fastify.broadcast({
+        type: 'project_updated',
+        projectId: id,
+        changed: result.changed
       });
-      
+
+      // Refresh the cached "has updates" flag — otherwise it keeps reporting
+      // the stale pre-update result and the project never leaves the Updates
+      // modal even though it was just updated.
+      const updateCheck = await checkProjectImageUpdates(id);
+      settingQueries.set(`image_updates_${id}`, JSON.stringify({ ...updateCheck, checkedAt: Date.now() }));
+      fastify.broadcast({ type: 'project_update_available', projectId: id, hasUpdates: updateCheck.hasUpdates });
+
       return { success: true, changed: result.changed, output: result.output };
     } catch (error: unknown) {
       const err = error as { message?: string };

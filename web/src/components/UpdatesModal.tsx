@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { api } from '../api/index.js';
 import { useProjectUpdates } from '../hooks/useProjectUpdates';
 
-function RefreshIcon() {
+function RefreshIcon({ className }: { className?: string }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 4 23 10 17 10" />
       <polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
@@ -15,6 +16,7 @@ export function UpdatesModal() {
   const {
     updates,
     notificationsEnabled,
+    notificationsSupported,
     showModal,
     setShowModal,
     fetchUpdates,
@@ -23,14 +25,29 @@ export function UpdatesModal() {
     clearDismissed,
   } = useProjectUpdates();
 
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
   if (!showModal) return null;
 
   const handleUpdateProject = async (projectId: number) => {
+    setUpdatingId(projectId);
     try {
       await api.projects.updateImages(projectId);
-      fetchUpdates();
+      await fetchUpdates();
     } catch (err) {
       console.error('Failed to update project:', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await clearDismissed();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -59,13 +76,15 @@ export function UpdatesModal() {
                     <button
                       className="btn btn-sm btn-secondary"
                       onClick={() => handleUpdateProject(project.id)}
+                      disabled={updatingId === project.id}
                     >
-                      Mettre à jour
+                      {updatingId === project.id ? 'Mise à jour…' : 'Mettre à jour'}
                     </button>
                     <button
                       className="btn btn-sm btn-ghost"
                       onClick={() => dismissProject(project.id)}
                       title="Masquer cette notification"
+                      disabled={updatingId === project.id}
                     >
                       ×
                     </button>
@@ -77,20 +96,27 @@ export function UpdatesModal() {
         </div>
 
         <div className="updates-modal-footer">
-          <label className="updates-notifications-toggle">
+          <label
+            className="updates-notifications-toggle"
+            title={notificationsSupported ? undefined : 'Nécessite HTTPS (ou localhost) — le navigateur bloque les notifications sur une connexion non sécurisée'}
+          >
             <input
               type="checkbox"
               checked={notificationsEnabled}
               onChange={toggleNotifications}
+              disabled={!notificationsSupported}
             />
             Notifications web actives
+            {!notificationsSupported && (
+              <span className="updates-notifications-unavailable"> (nécessite HTTPS)</span>
+            )}
           </label>
 
           <div className="updates-modal-footer-actions">
             {updates.length > 0 && (
-              <button className="btn btn-sm btn-ghost" onClick={clearDismissed}>
-                <RefreshIcon />
-                Rafraîchir
+              <button className="btn btn-sm btn-ghost" onClick={handleRefresh} disabled={refreshing}>
+                <RefreshIcon className={refreshing ? 'updates-refresh-icon--spinning' : undefined} />
+                {refreshing ? 'Rafraîchissement…' : 'Rafraîchir'}
               </button>
             )}
             <button className="btn btn-sm btn-primary" onClick={() => setShowModal(false)}>
