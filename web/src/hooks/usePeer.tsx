@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { api, setActivePeer as apiSetActivePeer, PeerInstance } from '../api';
+import { useAuth } from './useAuth';
 import { useWebSocket } from './useWebSocket';
 
 interface PeerContextValue {
@@ -48,10 +49,19 @@ export function PeerProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
   }, []);
 
+  const { status } = useAuth();
+
+  // Both calls require auth — fetching before login resolves fails silently
+  // (peers stays []), and since this provider only mounts once for the whole
+  // app, nothing retried it after login without this. Re-run whenever
+  // authentication becomes true (initial load with an existing session, or
+  // right after signing in) so the federation dropdown shows up without a
+  // manual refresh.
   useEffect(() => {
+    if (!status?.authenticated) return;
     reloadPeers();
     loadPendingCount();
-  }, [loadPendingCount]);
+  }, [status?.authenticated, loadPendingCount]);
 
   const handleWsMessage = useCallback((msg: { type: string; [k: string]: unknown }) => {
     if (msg.type === 'peer_status_changed' && typeof msg.peer_uuid === 'string' && typeof msg.status === 'string') {

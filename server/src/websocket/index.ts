@@ -88,23 +88,28 @@ function stopPeerContainerUpdates() {
   }
 }
 
+async function checkPeerHeartbeats(broadcast: (event: BroadcastEvent) => void) {
+  const peers = peerQueries.getAll();
+  for (const peer of peers) {
+    const r = await peerFetch(peer.peer_url, '/api/instances/self', {
+      peerCa: peer.peer_ca,
+      timeoutMs: 5_000,
+    });
+    const newStatus = r.ok ? 'online' : 'offline';
+    if (newStatus !== peer.status) {
+      const lastSeen = newStatus === 'online' ? Date.now() : peer.last_seen;
+      peerQueries.updateStatus(peer.peer_uuid, newStatus, lastSeen);
+      broadcast({ type: 'peer_status_changed', peer_uuid: peer.peer_uuid, status: newStatus });
+    }
+  }
+}
+
 function startPeerHeartbeat(broadcast: (event: BroadcastEvent) => void) {
   if (peerHeartbeatTimer) return;
-  peerHeartbeatTimer = setInterval(async () => {
-    const peers = peerQueries.getAll();
-    for (const peer of peers) {
-      const r = await peerFetch(peer.peer_url, '/api/instances/self', {
-        peerCa: peer.peer_ca,
-        timeoutMs: 5_000,
-      });
-      const newStatus = r.ok ? 'online' : 'offline';
-      if (newStatus !== peer.status) {
-        const lastSeen = newStatus === 'online' ? Date.now() : peer.last_seen;
-        peerQueries.updateStatus(peer.peer_uuid, newStatus, lastSeen);
-        broadcast({ type: 'peer_status_changed', peer_uuid: peer.peer_uuid, status: newStatus });
-      }
-    }
-  }, PEER_HEARTBEAT_INTERVAL_MS);
+  // Check immediately so a client connecting (e.g. right after sign-in) doesn't
+  // have to wait a full interval to see an on-LAN peer marked online.
+  checkPeerHeartbeats(broadcast);
+  peerHeartbeatTimer = setInterval(() => checkPeerHeartbeats(broadcast), PEER_HEARTBEAT_INTERVAL_MS);
 }
 
 function stopPeerHeartbeat() {

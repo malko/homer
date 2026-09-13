@@ -32,8 +32,6 @@ export function PeerSelector() {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  if (peers.length === 0) return null;
-
   useEffect(() => {
     if (!showMenu) return;
     const handler = (e: MouseEvent) => {
@@ -44,6 +42,8 @@ export function PeerSelector() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showMenu]);
+
+  if (peers.length === 0) return null;
 
   const label = activePeer ? peerLabel(activePeer) : localLabel();
   const isOffline = activePeer && activePeer.status !== 'online';
