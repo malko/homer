@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Container } from '../api';
+import { getActivePeer, Container } from '../api';
 import {
   FileTextIcon, TerminalIcon, UpdateIcon, TrashIcon,
   MoreVerticalIcon, PlayIcon, RestartIcon
@@ -22,11 +22,15 @@ export function ContainerMenu({ container, onAction, actionInProgress }: Contain
   };
 
   const openLogs = () => {
-    openInNewWindow(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`);
+    const peer = getActivePeer();
+    const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
+    openInNewWindow(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
   };
 
   const openTerminal = () => {
-    openInNewWindow(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}`);
+    const peer = getActivePeer();
+    const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
+    openInNewWindow(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
   };
 
   return (
