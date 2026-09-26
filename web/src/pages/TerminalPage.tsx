@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { TerminalPanel } from '../components/TerminalPanel';
 import type { TerminalHandle } from '../components/TerminalPanel';
+import { trackPopupSize } from '../utils/popup';
 
 export function TerminalPage() {
   const [searchParams] = useSearchParams();
@@ -16,6 +17,9 @@ export function TerminalPage() {
   const terminalHandle = useRef<TerminalHandle | null>(null);
   const historyRef = useRef('');
   const historySnap = useRef('');
+
+  // Remember the user's preferred popup size
+  useEffect(() => trackPopupSize('terminal'), []);
 
   // Handshake: signal ready → receive history from parent tab
   useEffect(() => {

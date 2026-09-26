@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, getActivePeer, setActivePeer } from '../api';
 import { useAuth } from '../hooks/useAuth';
 import { parseAnsiSegments } from '../utils/ansi';
+import { trackPopupSize } from '../utils/popup';
 
 function AnsiLine({ line, index }: { line: string; index: number }) {
   const segments = parseAnsiSegments(line);
@@ -34,6 +35,9 @@ export function LogsPage() {
   useEffect(() => {
     setActivePeer(peerUuid);
   }, [peerUuid]);
+
+  // Remember the user's preferred popup size
+  useEffect(() => trackPopupSize('logs'), []);
 
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);

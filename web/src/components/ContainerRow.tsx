@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, getActivePeer, Container } from '../api';
 import { ContainerMenu } from './ContainerMenu';
+import { openPopup } from '../utils/popup';
 import {
   FolderIcon, ImageIcon, UpdateIcon,
   PlayIcon, StopIcon, RestartIcon,
@@ -111,7 +112,7 @@ export function ContainerRow({
             onClick={() => {
               const peer = getActivePeer();
               const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
-              window.open(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
+              openPopup('logs', `/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
             }}
             title="Voir les logs"
           >
@@ -122,7 +123,7 @@ export function ContainerRow({
             onClick={() => {
               const peer = getActivePeer();
               const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
-              window.open(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
+              openPopup('terminal', `/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
             }}
             disabled={!isRunning}
             title={isRunning ? 'Ouvrir le terminal' : 'Container arrêté'}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getActivePeer, Container } from '../api';
+import { openPopup, type PopupKind } from '../utils/popup';
 import {
   FileTextIcon, TerminalIcon, UpdateIcon, TrashIcon,
   MoreVerticalIcon, PlayIcon, RestartIcon
@@ -17,20 +18,20 @@ export function ContainerMenu({ container, onAction, actionInProgress }: Contain
   const isActionRunning = actionInProgress !== null;
   const isActionDisabled = !!actionInProgress;
 
-  const openInNewWindow = (url: string) => {
-    window.open(url, '_blank', 'width=900,height=700,resizable=yes,scrollbars=yes');
+  const openInNewWindow = (kind: PopupKind, url: string) => {
+    openPopup(kind, url);
   };
 
   const openLogs = () => {
     const peer = getActivePeer();
     const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
-    openInNewWindow(`/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
+    openInNewWindow('logs', `/logs?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
   };
 
   const openTerminal = () => {
     const peer = getActivePeer();
     const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
-    openInNewWindow(`/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
+    openInNewWindow('terminal', `/terminal?containerId=${container.id}&containerName=${encodeURIComponent(container.name)}${peerParam}`);
   };
 
   return (
