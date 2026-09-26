@@ -105,6 +105,7 @@ export interface Project {
   compose_project: string | null;
   fileAccessible?: boolean;
   mount_guide?: MountGuide;
+  suggested_path?: string;
   update_available?: boolean;
   created_at: string;
   containers: Container[];
@@ -549,6 +550,7 @@ export interface CaddySyncResult {
 
 export interface ProjectUpdatePayload {
   name?: string;
+  path?: string;
   url?: string | null;
   icon?: string | null;
   autoUpdate?: boolean;

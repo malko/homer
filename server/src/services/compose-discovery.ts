@@ -1,5 +1,9 @@
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
 import { parseComposeInfo, type ComposeInfo } from './container-recreate.js';
+
+const execFileAsync = promisify(execFile);
 
 export interface DiscoveredComposeProject {
   name: string;
@@ -30,6 +34,68 @@ export function groupComposeProjects(labelSets: Array<Record<string, string> | n
     }
   }
   return [...byName.values()];
+}
+
+const INSPECT_BATCH = 100;
+
+/**
+ * Discover every compose stack known to Docker (running or stopped) from the
+ * `com.docker.compose.*` labels on its containers. Returns an empty list when
+ * Docker is unreachable.
+ */
+export async function listComposeStacks(): Promise<DiscoveredComposeProject[]> {
+  try {
+    const { stdout: idsOut } = await execFileAsync('docker', ['ps', '-a', '--format', '{{.ID}}']);
+    const ids = idsOut.split('\n').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return [];
+
+    const labelSets: Array<Record<string, string> | null> = [];
+    for (let i = 0; i < ids.length; i += INSPECT_BATCH) {
+      const batch = ids.slice(i, i + INSPECT_BATCH);
+      const { stdout } = await execFileAsync('docker', ['inspect', '--format', '{{json .Config.Labels}}', ...batch]);
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue;
+        try { labelSets.push(JSON.parse(line) as Record<string, string>); } catch { labelSets.push(null); }
+      }
+    }
+    return groupComposeProjects(labelSets);
+  } catch {
+    return [];
+  }
+}
+
+export interface StackMatchQuery {
+  /** Compose project name recorded on the container labels, if known. */
+  composeProject: string | null;
+  /** Path currently stored by Homer — never returned as a suggestion. */
+  storedPath: string;
+  /** Compose project to ignore (Homer's own stack). */
+  excludeProject?: string | null;
+  /** Config files that must never be suggested (other managed projects). */
+  excludePaths?: Iterable<string>;
+}
+
+/**
+ * Pick the config file a moved external project now lives at, using the stacks
+ * Docker knows about. Matches by compose project name first, then by compose
+ * file basename when the project name is unknown. Pure selection — the caller
+ * decides whether the returned path is actually readable.
+ */
+export function matchStackPath(stacks: DiscoveredComposeProject[], query: StackMatchQuery): string | null {
+  const exclude = new Set(query.excludePaths ?? []);
+  const candidates = stacks.filter(s => s.name !== query.excludeProject);
+  // Name match is authoritative; the basename fallback only applies when we
+  // have no project name to match on, to avoid suggesting an unrelated stack
+  // that merely happens to use a docker-compose.yml.
+  const ordered = query.composeProject
+    ? candidates.filter(s => s.name === query.composeProject)
+    : candidates.filter(s => s.configFiles.some(f => path.basename(f) === path.basename(query.storedPath)));
+  for (const stack of ordered) {
+    for (const file of stack.configFiles) {
+      if (file !== query.storedPath && !exclude.has(file)) return file;
+    }
+  }
+  return null;
 }
 
 let ownComposeInfo: ComposeInfo | null | undefined;

@@ -15,6 +15,7 @@ import { ProxyHostList } from './ProxyHostList';
 import '../styles/proxy.css';
 import { parseAnsiSegments } from '../utils/ansi';
 import { findRelativePathRefs } from '../utils/compose';
+import { openPopup } from '../utils/popup';
 
 export type TabType = 'overview' | 'logs' | 'compose' | 'env' | 'terminal' | 'proxy';
 type ToastType = 'success' | 'error' | 'warning';
@@ -142,6 +143,11 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const [deleteOpts, setDeleteOpts] = useState({ composeDown: false, removeVolumes: false, deleteFiles: false });
   const [deleting, setDeleting] = useState(false);
 
+  // Degraded external project: compose file path repair
+  const [repairPath, setRepairPath] = useState(project.path);
+  const [repairing, setRepairing] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
+
   // File editor state (lazy: loaded on first compose/env tab visit)
   const [composeContent, setComposeContent] = useState('');
   const relativePathRefs = useMemo(() => findRelativePathRefs(composeContent), [composeContent]);
@@ -190,6 +196,15 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
   const terminalHistorySnap = useRef('');
 
   const fileLoadAttempted = useRef(false);
+
+  // Keep the repair input in sync with the detected/current path when the
+  // project refetches (e.g. after a successful repair).
+  useEffect(() => {
+    if (degraded) {
+      setRepairPath(project.suggested_path ?? project.path);
+      setRepairError(null);
+    }
+  }, [degraded, project.path, project.suggested_path]);
 
   // Load files when first visiting compose or env tab
   useEffect(() => {
@@ -425,7 +440,7 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
     const peer = getActivePeer();
     const peerParam = peer ? `&peer_uuid=${encodeURIComponent(peer)}` : '';
     const url = `/terminal?containerId=${encodeURIComponent(container.id)}&containerName=${encodeURIComponent(container.name)}&cols=${cols}&rows=${rows}${peerParam}`;
-    const win = window.open(url, '_blank', 'width=960,height=640');
+    const win = openPopup('terminal', url, { width: 960, height: 640 });
     if (win) terminalWindowRef.current = win;
   };
 
@@ -687,6 +702,22 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
 
   const handleDeleteClick = () => setShowDeleteModal(true);
 
+  const applyRepairPath = async (newPath: string) => {
+    const trimmed = newPath.trim();
+    if (!trimmed || repairing) return;
+    setRepairing(true);
+    setRepairError(null);
+    try {
+      await api.projects.update(project.id, { path: trimmed });
+      addToast('success', 'Chemin du fichier compose mis à jour');
+      onRefresh();
+    } catch (err) {
+      setRepairError(err instanceof Error ? err.message : 'Échec de la mise à jour du chemin');
+    } finally {
+      setRepairing(false);
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     setDeleting(true);
     try {
@@ -901,15 +932,68 @@ export function ProjectDetail({ project, onRefresh, onDelete, addToast, initialT
         </div>
       </div>
 
-      {degraded && project.mount_guide && (
+      {degraded && (
         <div className="warning-banner" style={{ margin: '0.75rem 1rem 0' }}>
           <div className="warning-header">
             <span className="warning-icon">&#9888;</span>
             <span>Gestion limitée : le fichier compose n'est pas accessible depuis le conteneur Homer.</span>
           </div>
-          <div style={{ marginTop: '0.5rem' }}>
-            <MountGuide guide={project.mount_guide} />
+
+          {project.suggested_path && (
+            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8125rem' }}>
+                Nouveau chemin détecté : <code>{project.suggested_path}</code>
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={repairing}
+                onClick={() => applyRepairPath(project.suggested_path!)}
+              >
+                {repairing ? '...' : 'Corriger automatiquement'}
+              </button>
+            </div>
+          )}
+
+          <div className="input-group" style={{ marginTop: '0.75rem' }}>
+            <label className="input-label">Chemin du fichier compose</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                className="input"
+                value={repairPath}
+                onChange={(e) => setRepairPath(e.target.value)}
+                placeholder="/home/user/stacks/myapp/docker-compose.yml"
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                disabled={repairing || !repairPath.trim()}
+                onClick={() => applyRepairPath(repairPath)}
+              >
+                Enregistrer
+              </button>
+            </div>
+            {repairError && <p className="error-text" style={{ marginTop: '0.25rem' }}>{repairError}</p>}
           </div>
+
+          <div style={{ marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              disabled={repairing}
+              onClick={() => setShowDeleteModal(true)}
+            >
+              Retirer de Homer
+            </button>
+          </div>
+
+          {project.mount_guide && (
+            <div style={{ marginTop: '0.5rem' }}>
+              <MountGuide guide={project.mount_guide} />
+            </div>
+          )}
         </div>
       )}
 

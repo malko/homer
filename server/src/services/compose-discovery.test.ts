@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupComposeProjects, findRelativePathRefs } from './compose-discovery.js';
+import { groupComposeProjects, findRelativePathRefs, matchStackPath, type DiscoveredComposeProject } from './compose-discovery.js';
 
 function labels(project: string, service: string, configFiles: string, workingDir?: string): Record<string, string> {
   return {
@@ -36,6 +36,63 @@ describe('groupComposeProjects', () => {
 
   it('returns empty for empty input', () => {
     expect(groupComposeProjects([])).toEqual([]);
+  });
+});
+
+function stack(name: string, configFiles: string[]): DiscoveredComposeProject {
+  return { name, configFiles, workingDir: null, containerCount: 1 };
+}
+
+describe('matchStackPath', () => {
+  it('matches by compose project name and returns the moved config file', () => {
+    const stacks = [stack('expenses-app', ['/home/malko/git/alphonse/expanses/docker-compose.yml'])];
+    const match = matchStackPath(stacks, {
+      composeProject: 'expenses-app',
+      storedPath: '/home/malko/git/alphonse/expanses/expenses-app/docker-compose.yml',
+    });
+    expect(match).toBe('/home/malko/git/alphonse/expanses/docker-compose.yml');
+  });
+
+  it('ignores the excluded project (Homer itself)', () => {
+    const stacks = [stack('homer', ['/home/malko/homer/docker-compose.yml'])];
+    expect(matchStackPath(stacks, {
+      composeProject: 'homer',
+      storedPath: '/old/homer/docker-compose.yml',
+      excludeProject: 'homer',
+    })).toBeNull();
+  });
+
+  it('never suggests the currently stored path', () => {
+    const stacks = [stack('app', ['/srv/app/docker-compose.yml'])];
+    expect(matchStackPath(stacks, {
+      composeProject: 'app',
+      storedPath: '/srv/app/docker-compose.yml',
+    })).toBeNull();
+  });
+
+  it('skips excluded config files', () => {
+    const stacks = [stack('app', ['/srv/app/docker-compose.yml'])];
+    expect(matchStackPath(stacks, {
+      composeProject: 'app',
+      storedPath: '/old/app/docker-compose.yml',
+      excludePaths: new Set(['/srv/app/docker-compose.yml']),
+    })).toBeNull();
+  });
+
+  it('falls back to the compose file basename when the project name is unknown', () => {
+    const stacks = [stack('renamed', ['/opt/renamed/docker-compose.yml'])];
+    expect(matchStackPath(stacks, {
+      composeProject: null,
+      storedPath: '/srv/old/docker-compose.yml',
+    })).toBe('/opt/renamed/docker-compose.yml');
+  });
+
+  it('returns null when nothing matches', () => {
+    const stacks = [stack('other', ['/srv/other/docker-compose.yml'])];
+    expect(matchStackPath(stacks, {
+      composeProject: 'app',
+      storedPath: '/srv/app/docker-compose.yml',
+    })).toBeNull();
   });
 });
 

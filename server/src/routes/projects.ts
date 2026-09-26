@@ -1,11 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { projectQueries, settingQueries, DB_CONFIG } from '../db/index.js';
+import type { Project } from '../db/index.js';
 import { requireSession } from '../middleware/require-session.js';
 import { addToNetworkSchema } from './request-schemas.js';
 import { validateComposeFile, deployProject, updateProjectImages, listContainers, composeDown, checkProjectImageUpdates, isProjectFileAccessible } from '../services/docker.js';
 import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
-import { getOwnComposeInfo } from '../services/compose-discovery.js';
+import { getOwnComposeInfo, listComposeStacks, matchStackPath } from '../services/compose-discovery.js';
+import { validateExternalComposePath } from '../services/external-path.js';
 import { buildMountGuide, type MountGuide } from '../services/mount-override.js';
 import { addProjectToHomerNetwork, ensureHomerNetworkExists, getProjectServices } from '../services/compose.js';
 import path from 'path';
@@ -43,6 +45,7 @@ const projectSchema = z.object({
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  path: z.string().min(1).optional(),
   envPath: z.string().optional().nullable(),
   url: z.string().url().optional().nullable().or(z.literal('')),
   icon: z.string().max(500000).optional().nullable(),
@@ -63,17 +66,55 @@ declare module 'fastify' {
 // One guide covering the dirs of EVERY external project — accessible ones
 // included, so replacing an existing override with the generated file never
 // drops mounts that previous adoptions added. Null when nothing is waiting
-// for a mount.
-async function buildSharedMountGuide(projects: { name: string; path: string; external: number }[]): Promise<MountGuide | null> {
+// for a mount. `resolvedPaths` maps a project id to the compose file Docker
+// says it moved to, so the guide points at the real directory.
+async function buildSharedMountGuide(
+  projects: { id: number; name: string; path: string; external: number }[],
+  resolvedPaths: Map<number, string>,
+): Promise<MountGuide | null> {
   const entries: { dir: string; project: string }[] = [];
   let anyInaccessible = false;
   for (const project of projects) {
     if (!project.external) continue;
-    entries.push({ dir: path.dirname(project.path), project: project.name });
-    if (!(await isProjectFileAccessible(project))) anyInaccessible = true;
+    const effectivePath = resolvedPaths.get(project.id) ?? project.path;
+    entries.push({ dir: path.dirname(effectivePath), project: project.name });
+    if (!(await isProjectFileAccessible({ path: effectivePath, external: 1 }))) anyInaccessible = true;
   }
   if (!anyInaccessible) return null;
   return buildMountGuide(entries, await getOwnComposeInfo());
+}
+
+/**
+ * For unreachable external projects, look for the compose file they moved to
+ * among the stacks Docker still knows about (running or stopped). Returns a
+ * map of project id -> detected config file. Only probes Docker when at least
+ * one external project is currently unreachable.
+ */
+async function resolveExternalPaths(
+  projects: Array<Pick<Project, 'id' | 'name' | 'external' | 'path' | 'compose_project'>>,
+): Promise<Map<number, string>> {
+  const resolved = new Map<number, string>();
+  const external = projects.filter(p => p.external);
+  if (external.length === 0) return resolved;
+
+  const unreachable: typeof external = [];
+  for (const project of external) {
+    if (!(await isProjectFileAccessible(project))) unreachable.push(project);
+  }
+  if (unreachable.length === 0) return resolved;
+
+  const [stacks, ownStack] = await Promise.all([listComposeStacks(), getOwnComposeInfo()]);
+  const managedPaths = new Set(projects.map(p => p.path));
+  for (const project of unreachable) {
+    const match = matchStackPath(stacks, {
+      composeProject: getComposeProjectName(project),
+      storedPath: project.path,
+      excludeProject: ownStack?.project ?? null,
+      excludePaths: managedPaths,
+    });
+    if (match) resolved.set(project.id, match);
+  }
+  return resolved;
 }
 
 export async function projectRoutes(fastify: FastifyInstance) {
@@ -82,7 +123,8 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get('/api/projects', async () => {
     const projects = projectQueries.getAll();
     const containers = await listContainers();
-    const mountGuide = await buildSharedMountGuide(projects);
+    const resolvedPaths = await resolveExternalPaths(projects);
+    const mountGuide = await buildSharedMountGuide(projects, resolvedPaths);
 
     return Promise.all(projects.map(async (project) => {
       const projectName = getComposeProjectName(project);
@@ -104,6 +146,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
         watch_enabled: Boolean(project.watch_enabled),
         external: Boolean(project.external),
         fileAccessible,
+        suggested_path: fileAccessible ? undefined : resolvedPaths.get(project.id),
         mount_guide: fileAccessible ? undefined : mountGuide ?? undefined,
         update_available: updateAvailable,
         containers: projectContainers,
@@ -125,14 +168,17 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const projectName = getComposeProjectName(project);
     const projectContainers = containers.filter(c => c.project === projectName);
 
+    const allProjects = projectQueries.getAll();
+    const resolvedPaths = await resolveExternalPaths(allProjects);
     const fileAccessible = await isProjectFileAccessible(project);
-    const mountGuide = fileAccessible ? null : await buildSharedMountGuide(projectQueries.getAll());
+    const mountGuide = fileAccessible ? null : await buildSharedMountGuide(allProjects, resolvedPaths);
     return {
       ...project,
       auto_update: Boolean(project.auto_update),
       watch_enabled: Boolean(project.watch_enabled),
       external: Boolean(project.external),
       fileAccessible,
+      suggested_path: fileAccessible ? undefined : resolvedPaths.get(project.id),
       mount_guide: mountGuide ?? undefined,
       containers: projectContainers,
     };
@@ -190,11 +236,45 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }
     
     const newName = body.name || project.name;
-    // External projects keep their on-disk path: it is not derived from the name.
-    const newPath = project.external ? project.path : getProjectPath(newName).composePath;
+    // External projects keep their on-disk path unless the user repairs it:
+    // their path is not derived from the name.
+    let newPath = project.external ? project.path : getProjectPath(newName).composePath;
+    let newEnvPath = body.envPath !== undefined ? body.envPath : project.env_path;
 
-    if (body.watchEnabled && !(await isProjectFileAccessible(project))) {
-      return reply.status(400).send({ error: getMountHint(project.path) });
+    if (project.external && body.path && body.path !== project.path) {
+      const pathValidation = validateExternalComposePath(body.path, {
+        projectsDir: DB_CONFIG.projectsDir,
+        ownConfigFiles: (await getOwnComposeInfo())?.configFiles ?? [],
+      });
+      if (!pathValidation.ok) {
+        return reply.status(400).send({ error: pathValidation.error });
+      }
+
+      try {
+        await fs.access(body.path);
+      } catch {
+        return reply.status(400).send({ error: getMountHint(body.path) });
+      }
+
+      const composeValidation = await validateComposeFile(body.path);
+      if (!composeValidation.valid) {
+        return reply.status(400).send({ error: `Invalid compose file: ${composeValidation.error}` });
+      }
+
+      newPath = body.path;
+      if (body.envPath === undefined) {
+        const envCandidate = path.join(path.dirname(body.path), '.env');
+        try {
+          await fs.access(envCandidate);
+          newEnvPath = envCandidate;
+        } catch {
+          newEnvPath = null;
+        }
+      }
+    }
+
+    if (body.watchEnabled && !(await isProjectFileAccessible({ path: newPath, external: project.external }))) {
+      return reply.status(400).send({ error: getMountHint(newPath) });
     }
 
     const newUrl = body.url !== undefined ? (body.url || null) : project.url;
@@ -202,7 +282,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     projectQueries.update(
       newName,
       newPath,
-      body.envPath !== undefined ? body.envPath : project.env_path,
+      newEnvPath,
       newUrl,
       newIcon,
       body.autoUpdate !== undefined ? (body.autoUpdate ? 1 : 0) : project.auto_update,

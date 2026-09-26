@@ -1,8 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import fs from 'fs/promises';
 import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { z } from 'zod';
 import {
   parseDockerRun, 
@@ -17,11 +15,9 @@ import {
 } from '../services/parser.js';
 import { projectQueries, sessionQueries, DB_CONFIG } from '../db/index.js';
 import { validateComposeFile } from '../services/docker.js';
-import { groupComposeProjects, findRelativePathRefs, getOwnComposeInfo } from '../services/compose-discovery.js';
+import { listComposeStacks, findRelativePathRefs, getOwnComposeInfo } from '../services/compose-discovery.js';
 import { getComposeProjectName, getMountHint } from '../services/compose-project-name.js';
 import { buildMountGuide } from '../services/mount-override.js';
-
-const execFileAsync = promisify(execFile);
 
 const externalImportSchema = z.object({
   // Discovered mode: a running stack picked from /api/import/compose-projects.
@@ -218,21 +214,7 @@ export async function importRoutes(fastify: FastifyInstance) {
 
   // Running compose stacks (from container labels) not yet managed by Homer.
   fastify.get('/api/import/compose-projects', async () => {
-    let labelSets: Array<Record<string, string> | null> = [];
-    try {
-      const { stdout: idsOut } = await execFileAsync('docker', ['ps', '-a', '--format', '{{.ID}}']);
-      const ids = idsOut.split('\n').filter(Boolean);
-      if (ids.length > 0) {
-        // JSON labels, not {{.Labels}}: config_files values may contain commas.
-        const { stdout } = await execFileAsync('docker', ['inspect', '--format', '{{json .Config.Labels}}', ...ids]);
-        labelSets = stdout.split('\n').filter(Boolean).map(line => {
-          try { return JSON.parse(line) as Record<string, string>; } catch { return null; }
-        });
-      }
-    } catch (err) {
-      fastify.log.error('compose-projects discovery failed: ' + (err instanceof Error ? err.message : String(err)));
-      return { projects: [] };
-    }
+    const stacks = await listComposeStacks();
 
     const managed = projectQueries.getAll();
     const managedNames = new Set(managed.map(p => getComposeProjectName(p)));
@@ -243,7 +225,7 @@ export async function importRoutes(fastify: FastifyInstance) {
     const projects = [];
     const guideEntries: { dir: string; project: string }[] = [];
     let anyInaccessible = false;
-    for (const discovered of groupComposeProjects(labelSets)) {
+    for (const discovered of stacks) {
       if (discovered.name === ownStack?.project) continue;
       if (managedNames.has(discovered.name) || discovered.configFiles.some(f => managedPaths.has(f))) continue;
       let accessible = false;
