@@ -21,6 +21,7 @@ import { ProxyPage } from './pages/ProxyPage';
 import { AccountPage, showBrowserNotification } from './pages/AccountPage';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useWebSocket } from './hooks/useWebSocket';
+import { isPopupWindow } from './utils/popup';
 import { NavSidebar } from './components/NavSidebar';
 import { UpdatesModal } from './components/UpdatesModal';
 import { ToastContainer } from './components/ToastContainer';
@@ -48,7 +49,8 @@ function NotificationManager() {
       showBrowserNotification('HOMER', 'Containers mis à jour');
     }
   }, []);
-  useWebSocket(handler);
+  // Only the main window notifies; logs/terminal popups stay silent.
+  useWebSocket(handler, !isPopupWindow());
   return null;
 }
 
@@ -138,12 +140,13 @@ function InitialRoute() {
 function AppRoutes() {
   const { status } = useAuth();
   const { toasts, dismissToast } = useToastContext();
+  const popup = isPopupWindow();
 
   return (
     <>
-      {status?.authenticated && !status?.mustChangePassword && <UpdateBanner />}
+      {status?.authenticated && !status?.mustChangePassword && !popup && <UpdateBanner />}
       {status?.authenticated && !status?.mustChangePassword && <NotificationManager />}
-      <UpdatesModal />
+      {!popup && <UpdatesModal />}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <Routes>
       <Route path="/" element={<InitialRoute />} />

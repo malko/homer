@@ -9,7 +9,7 @@ interface WebSocketMessage {
 
 type MessageHandler = (message: WebSocketMessage) => void;
 
-export function useWebSocket(onMessage: MessageHandler) {
+export function useWebSocket(onMessage: MessageHandler, enabled = true) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | undefined>(undefined);
   const handlerRef = useRef<MessageHandler>(onMessage);
@@ -19,6 +19,7 @@ export function useWebSocket(onMessage: MessageHandler) {
   }, [onMessage]);
 
   useEffect(() => {
+    if (!enabled) return;
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -52,7 +53,7 @@ export function useWebSocket(onMessage: MessageHandler) {
       ws.close();
       wsRef.current = null;
     };
-  }, []);
+  }, [enabled]);
 
   return wsRef.current;
 }

@@ -46,6 +46,14 @@ export function openPopup(kind: PopupKind, url: string, fallback?: PopupSize): W
 }
 
 /**
+ * True when this window was opened as a popup (logs/terminal) by another HOMER
+ * window. Popups must stay silent: no web notifications, no update banner.
+ */
+export function isPopupWindow(win: Pick<Window, 'opener'> = window): boolean {
+  return win.opener != null;
+}
+
+/**
  * Persist the popup's current outer size on resize. Returns a cleanup function.
  * Call from the popup page itself (LogsPage / TerminalPage).
  */

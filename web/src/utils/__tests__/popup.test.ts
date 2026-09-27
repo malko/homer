@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readPopupSize, openPopup, trackPopupSize } from '../popup';
+import { readPopupSize, openPopup, trackPopupSize, isPopupWindow } from '../popup';
 
 type ResizeHandler = () => void;
 
@@ -94,6 +94,13 @@ describe('openPopup', () => {
       '_blank',
       'width=960,height=640,resizable=yes,scrollbars=yes',
     );
+  });
+});
+
+describe('isPopupWindow', () => {
+  it('is true only for a window opened by another window', () => {
+    expect(isPopupWindow({ opener: {} } as unknown as Window)).toBe(true);
+    expect(isPopupWindow({ opener: null } as unknown as Window)).toBe(false);
   });
 });
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useCallback, useState, ReactNode } from 'react';
 import { api } from '../api/index.js';
+import { isPopupWindow } from '../utils/popup';
 
 interface ProjectUpdate {
   id: number;
@@ -100,6 +101,7 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   }, [dismissedIds]);
 
   const sendNotification = useCallback((projects: ProjectUpdate[], isInitial: boolean) => {
+    if (isPopupWindow()) return;
     if (!notificationsEnabled || Notification.permission !== 'granted') return;
     if (isInitial) return;
 
@@ -141,6 +143,7 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isPopupWindow()) return;
     fetchUpdates().then(() => setIsFirstLoad(false));
     fetchTimeoutRef.current = window.setInterval(fetchUpdates, 60000);
     return () => {
@@ -149,6 +152,7 @@ export function ProjectUpdatesProvider({ children }: { children: ReactNode }) {
   }, [fetchUpdates]);
 
   useEffect(() => {
+    if (isPopupWindow()) return;
     const token = localStorage.getItem('token');
     if (!token) return;
 
