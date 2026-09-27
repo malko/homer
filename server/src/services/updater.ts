@@ -109,9 +109,9 @@ export function pickLatestVersion(a: string | null, b: string | null): string | 
   return isNewer(a, b) ? a : b;
 }
 
-/** True when a pull actually replaced the local image. Unknown IDs never count as a change. */
-export function imageChanged(before: string | null, after: string | null): boolean {
-  return Boolean(before && after && before !== after);
+/** True when a pull left the local image untouched. Only a positive match counts. */
+export function imageUnchanged(before: string | null, after: string | null): boolean {
+  return Boolean(before && after && before === after);
 }
 
 export interface UpdateCheckResult {
@@ -122,7 +122,6 @@ export interface UpdateCheckResult {
   /** The announced version's image is published, so an in-app update can be offered. */
   imageAvailable: boolean;
   configured: boolean;
-  repositoryUrl: string;
   releasesUrl: string;
 }
 
@@ -153,7 +152,6 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
     updateAvailable,
     imageAvailable,
     configured,
-    repositoryUrl: GITHUB_URL,
     releasesUrl: `${GITHUB_URL}/releases`,
   };
 }
@@ -203,7 +201,7 @@ export function performUpdate(
       return;
     }
     const afterId = await getImageId(config.image);
-    if (!imageChanged(beforeId, afterId)) {
+    if (imageUnchanged(beforeId, afterId)) {
       onLine('Image déjà à jour, aucun redémarrage nécessaire.');
       onUpToDate();
       return;

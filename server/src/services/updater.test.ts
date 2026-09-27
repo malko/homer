@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isNewer, pickLatestVersion, imageChanged } from './updater.js';
+import { isNewer, pickLatestVersion, imageUnchanged } from './updater.js';
 
 describe('isNewer', () => {
   it('compares semver parts', () => {
@@ -25,11 +25,11 @@ describe('pickLatestVersion', () => {
   });
 });
 
-describe('imageChanged', () => {
-  it('is only true when both IDs are known and differ', () => {
-    expect(imageChanged('sha256:a', 'sha256:b')).toBe(true);
-    expect(imageChanged('sha256:a', 'sha256:a')).toBe(false);
-    expect(imageChanged(null, 'sha256:b')).toBe(false);
-    expect(imageChanged('sha256:a', null)).toBe(false);
+describe('imageUnchanged', () => {
+  it('is only true when both IDs are known and equal', () => {
+    expect(imageUnchanged('sha256:a', 'sha256:a')).toBe(true);
+    expect(imageUnchanged('sha256:a', 'sha256:b')).toBe(false);
+    expect(imageUnchanged(null, 'sha256:b')).toBe(false);
+    expect(imageUnchanged('sha256:a', null)).toBe(false);
   });
 });

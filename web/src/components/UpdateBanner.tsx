@@ -8,7 +8,6 @@ interface VersionInfo {
   updateAvailable: boolean;
   imageAvailable: boolean;
   configured: boolean;
-  repositoryUrl: string;
   releasesUrl: string;
 }
 

@@ -323,7 +323,6 @@ export const api = {
       updateAvailable: boolean;
       imageAvailable: boolean;
       configured: boolean;
-      repositoryUrl: string;
       releasesUrl: string;
     }>('/system/version'),
     getSettings: () => request<SystemSettingsData>('/system/settings'),
