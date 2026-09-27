@@ -248,7 +248,11 @@ This uses WebSocket events: when a `pairing_request` message is received, the pe
 |-------|-----------|-------------|
 | `peer_status_changed` | Server → Client | A peer went online/offline |
 | `pairing_request` | Server → Client | A new pairing request was received |
-| `update_available` | Server → Client | A new HOMER version is available |
+| `update_available` | Server → Client | A new HOMER version is announced (includes `imageAvailable`) |
 | `update_output` | Server → Client | Self-update log line |
-| `update_pull_done` | Server → Client | Self-update pull completed |
+| `update_pull_done` | Server → Client | Self-update pull completed and a restart follows |
+| `update_up_to_date` | Server → Client | Pull changed nothing, no restart was needed |
 | `update_error` | Server → Client | Self-update error |
+| `restart_output` | Server → Client | Restart log line |
+| `restart_done` | Server → Client | Restart helper launched |
+| `restart_error` | Server → Client | Restart error |

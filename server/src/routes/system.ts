@@ -81,6 +81,7 @@ export async function systemRoutes(fastify: FastifyInstance) {
       (line) => fastify.broadcast({ type: 'update_output', line }),
       () => fastify.broadcast({ type: 'update_pull_done' }),
       (message) => fastify.broadcast({ type: 'update_error', message }),
+      () => fastify.broadcast({ type: 'update_up_to_date' }),
     );
   });
 

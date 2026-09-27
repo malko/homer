@@ -193,6 +193,19 @@ function compareSemver(a: Semver, b: Semver): number {
   return a.patch - b.patch;
 }
 
+/**
+ * Keep only strict `x.y.z` version tags (leading `v` stripped) and sort them
+ * newest first. Used to tell which versions are actually published.
+ */
+export function filterVersionTags(tags: string[]): string[] {
+  return tags
+    .map(t => t.replace(/^v/, ''))
+    .map(t => ({ tag: t, sv: t.match(/^\d+\.\d+\.\d+$/) ? parseSemver(t) : null }))
+    .filter((entry): entry is { tag: string; sv: Semver } => entry.sv !== null)
+    .sort((a, b) => compareSemver(b.sv, a.sv))
+    .map(entry => entry.tag);
+}
+
 // ─── Remote tag listing ───────────────────────────────────────────────────────
 
 async function listRemoteTags(ref: ImageRef, token: string | null): Promise<string[]> {
@@ -210,6 +223,31 @@ async function listRemoteTags(ref: ImageRef, token: string | null): Promise<stri
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Semver version tags published for an image, newest first, or null when the
+ * registry cannot be queried. Null lets callers fall back to a coarser check
+ * rather than assuming a version is unpublished.
+ */
+export async function getPublishedVersions(image: string): Promise<string[] | null> {
+  try {
+    const ref = parseImageRef(image);
+    const token = await getToken(ref);
+    if (token === null) return null;
+
+    const url = `https://${ref.registry}/v2/${ref.repository}/tags/list`;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return null;
+
+    const data = await resp.json() as { tags?: string[] };
+    return filterVersionTags(data.tags ?? []);
+  } catch {
+    return null;
+  }
+}
 
 export interface ImageUpdateResult {
   hasUpdate: boolean;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseImageRef, getRemoteDigest, getLocalDigest, checkImageUpdate, checkImageUpdateWithPolicy, type AutoUpdatePolicy } from '../services/registry.js';
+import { parseImageRef, getRemoteDigest, getLocalDigest, checkImageUpdate, checkImageUpdateWithPolicy, filterVersionTags, type AutoUpdatePolicy } from '../services/registry.js';
 
 describe('parseImageRef', () => {
   it('should parse docker hub images', () => {
@@ -81,5 +81,16 @@ describe('checkImageUpdateWithPolicy', () => {
   it('should return hasUpdate false for nonexistent image', async () => {
     const result = await checkImageUpdateWithPolicy('nonexistent-image-123456789', 'all');
     expect(result.hasUpdate).toBe(false);
+  });
+});
+
+describe('filterVersionTags', () => {
+  it('keeps only strict x.y.z tags, strips v, sorts newest first', () => {
+    expect(filterVersionTags(['latest', 'v0.0.21', '0.0.20', '0.0.9', '1.2', 'edge', '0.0.22-rc1']))
+      .toEqual(['0.0.21', '0.0.20', '0.0.9']);
+  });
+
+  it('returns an empty list when no version tags are published', () => {
+    expect(filterVersionTags(['latest', 'edge'])).toEqual([]);
   });
 });

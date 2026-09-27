@@ -2,8 +2,10 @@ import { spawn } from 'child_process';
 import { getRunningVersionAsync } from './version.js';
 import { getOwnComposeInfo, getOwnImage } from './compose-discovery.js';
 import { buildRecreatePlan, buildHelperRunArgs } from './mount-override.js';
+import { getPublishedVersions, parseImageRef } from './registry.js';
 
 const GITHUB_REPO = process.env.HOMER_GITHUB_REPO || 'malko/homer';
+const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
 interface ContainerConfig {
   image: string;
@@ -58,7 +60,7 @@ export async function getCurrentVersion(): Promise<string> {
   return getRunningVersionAsync();
 }
 
-export async function getLatestVersion(): Promise<string | null> {
+async function getLatestGitVersion(): Promise<string | null> {
   try {
     const url = `https://api.github.com/repos/${GITHUB_REPO}/tags`;
     const res = await fetch(url, {
@@ -81,7 +83,18 @@ export async function getLatestVersion(): Promise<string | null> {
   }
 }
 
-function isNewer(latest: string, current: string): boolean {
+/** Latest version tags actually published to the image registry, or null when unknown. */
+async function getPublishedVersionsForSelf(): Promise<string[] | null> {
+  const image = await getOwnImage();
+  if (!image) return null;
+  // Only trust a tag listing when the registry is explicit (GHCR for Homer's
+  // own image). A bare local name like "homer:local" would otherwise be looked
+  // up as an unrelated Docker Hub repository.
+  if (parseImageRef(image).registry !== 'ghcr.io') return null;
+  return getPublishedVersions(image);
+}
+
+export function isNewer(latest: string, current: string): boolean {
   if (current === 'dev') return false;
   const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
   const [la, lb, lc] = parse(latest);
@@ -89,23 +102,78 @@ function isNewer(latest: string, current: string): boolean {
   return la > ca || (la === ca && lb > cb) || (la === ca && lb === cb && lc > cc);
 }
 
-export async function checkForUpdate(): Promise<{
+/** Highest of two version strings, ignoring nulls. */
+export function pickLatestVersion(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return isNewer(a, b) ? a : b;
+}
+
+/** True when a pull actually replaced the local image. Unknown IDs never count as a change. */
+export function imageChanged(before: string | null, after: string | null): boolean {
+  return Boolean(before && after && before !== after);
+}
+
+export interface UpdateCheckResult {
   currentVersion: string;
   latestVersion: string | null;
+  /** A newer version is announced (git tag or published image). */
   updateAvailable: boolean;
+  /** The announced version's image is published, so an in-app update can be offered. */
+  imageAvailable: boolean;
   configured: boolean;
-}> {
+  repositoryUrl: string;
+  releasesUrl: string;
+}
+
+export async function checkForUpdate(): Promise<UpdateCheckResult> {
   const currentVersion = await getCurrentVersion();
   const configured = await isConfigured();
-  const latestVersion = await getLatestVersion();
+  const [gitVersion, publishedVersions] = await Promise.all([
+    getLatestGitVersion(),
+    getPublishedVersionsForSelf(),
+  ]);
+
+  const publishedLatest = publishedVersions && publishedVersions.length > 0 ? publishedVersions[0] : null;
+  const latestVersion = pickLatestVersion(gitVersion, publishedLatest);
   const updateAvailable = latestVersion ? isNewer(latestVersion, currentVersion) : false;
-  return { currentVersion, latestVersion, updateAvailable, configured };
+
+  // When the registry tells us which versions exist, only offer the in-app
+  // update if the announced version is published. When it is unreachable, fall
+  // back to offering it (the pull's digest check still prevents a no-op restart).
+  const imageAvailable = updateAvailable && (
+    publishedVersions === null
+      ? true
+      : latestVersion !== null && publishedVersions.includes(latestVersion.replace(/^v/, ''))
+  );
+
+  return {
+    currentVersion,
+    latestVersion,
+    updateAvailable,
+    imageAvailable,
+    configured,
+    repositoryUrl: GITHUB_URL,
+    releasesUrl: `${GITHUB_URL}/releases`,
+  };
+}
+
+/** Local image ID for a reference, or null when it isn't present. */
+function getImageId(image: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn('docker', ['image', 'inspect', image, '--format', '{{.Id}}'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => resolve(code === 0 && stdout.trim() ? stdout.trim() : null));
+  });
 }
 
 export function performUpdate(
   onLine: (line: string) => void,
   onPullDone: () => void,
   onError: (msg: string) => void,
+  onUpToDate: () => void,
 ): void {
   (async () => {
     const config = await getConfig();
@@ -128,9 +196,16 @@ export function performUpdate(
     };
 
     onLine(`Pulling image: ${config.image}`);
+    const beforeId = await getImageId(config.image);
     const pullOk = await runSpawn('docker', ['pull', config.image]);
     if (!pullOk) {
       onError('Échec du pull de l\'image');
+      return;
+    }
+    const afterId = await getImageId(config.image);
+    if (!imageChanged(beforeId, afterId)) {
+      onLine('Image déjà à jour, aucun redémarrage nécessaire.');
+      onUpToDate();
       return;
     }
     onPullDone();
@@ -141,9 +216,11 @@ export function performUpdate(
     const plan = buildRecreatePlan(await getOwnComposeInfo());
     const image = await getOwnImage();
     if (plan && image) {
-      await runSpawn('docker', buildHelperRunArgs(plan, image));
+      const ok = await runSpawn('docker', buildHelperRunArgs(plan, image));
+      if (!ok) onError('Échec du lancement du conteneur de redémarrage');
     } else {
-      await runSpawn('docker', ['compose', '-f', config.composeFile, 'up', '-d']);
+      const ok = await runSpawn('docker', ['compose', '-f', config.composeFile, 'up', '-d']);
+      if (!ok) onError('Échec du redémarrage via docker compose');
     }
   })();
 }
@@ -233,8 +310,10 @@ export function startAutoUpdateChecker(
     try {
       const result = await checkForUpdate();
       if (result.updateAvailable) {
-        broadcast({ type: 'update_available', latestVersion: result.latestVersion });
-        if (getAutoUpdate()) {
+        broadcast({ type: 'update_available', latestVersion: result.latestVersion, imageAvailable: result.imageAvailable });
+        // Only auto-apply when the image is actually published; a git tag
+        // without an image must never trigger a pointless restart loop.
+        if (getAutoUpdate() && result.imageAvailable) {
           triggerUpdate();
         }
       }

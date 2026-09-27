@@ -6,7 +6,10 @@ interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  imageAvailable: boolean;
   configured: boolean;
+  repositoryUrl: string;
+  releasesUrl: string;
 }
 
 export function UpdateBanner() {
@@ -31,15 +34,24 @@ export function UpdateBanner() {
 
   const startRestartPolling = useCallback(() => {
     if (restartPollRef.current) clearInterval(restartPollRef.current);
+    let sawDown = false;
+    let attempts = 0;
     restartPollRef.current = window.setInterval(async () => {
+      attempts++;
       try {
         const res = await fetch('/api/health');
-        if (res.ok) {
+        if (!res.ok) {
+          sawDown = true;
+          return;
+        }
+        // Only trust a healthy response once the server actually went down,
+        // otherwise we'd reload before the restart even started.
+        if (sawDown || attempts >= 20) {
           clearInterval(restartPollRef.current!);
           window.location.reload();
         }
       } catch {
-        // Server not ready yet — keep polling
+        sawDown = true;
       }
     }, 3000);
   }, []);
@@ -73,6 +85,9 @@ export function UpdateBanner() {
           }
           if (msg.type === 'update_error') {
             setUpdateLogs(prev => [...prev, `Erreur : ${msg.message as string}`]);
+          }
+          if (msg.type === 'update_up_to_date') {
+            setUpdateLogs(prev => [...prev, '--- Image déjà à jour, aucun redémarrage nécessaire. ---']);
           }
         } catch {}
       };
@@ -132,20 +147,36 @@ export function UpdateBanner() {
     <>
       <div className="update-banner">
         <span className="update-banner-text">
-          Mise à jour disponible : v{versionInfo.latestVersion}
+          {versionInfo.imageAvailable
+            ? `Mise à jour disponible : v${versionInfo.latestVersion}`
+            : `Nouvelle version annoncée : v${versionInfo.latestVersion} (image non publiée)`}
         </span>
         <div className="update-banner-actions">
-          <label className="update-auto-toggle" title="Mise à jour automatique">
-            <input
-              type="checkbox"
-              checked={autoUpdate}
-              onChange={e => handleAutoUpdateToggle(e.target.checked)}
-            />
-            Auto
-          </label>
-          <button className="update-banner-btn" onClick={triggerUpdate}>
-            Mettre à jour
-          </button>
+          {versionInfo.imageAvailable ? (
+            <>
+              <label className="update-auto-toggle" title="Mise à jour automatique">
+                <input
+                  type="checkbox"
+                  checked={autoUpdate}
+                  onChange={e => handleAutoUpdateToggle(e.target.checked)}
+                />
+                Auto
+              </label>
+              <button className="update-banner-btn" onClick={triggerUpdate}>
+                Mettre à jour
+              </button>
+            </>
+          ) : (
+            <a
+              className="update-banner-btn update-banner-link"
+              href={versionInfo.releasesUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Mettre à jour manuellement depuis le dépôt"
+            >
+              Mettre à jour manuellement
+            </a>
+          )}
         </div>
       </div>
 

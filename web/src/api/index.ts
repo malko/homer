@@ -321,7 +321,10 @@ export const api = {
       currentVersion: string;
       latestVersion: string | null;
       updateAvailable: boolean;
+      imageAvailable: boolean;
       configured: boolean;
+      repositoryUrl: string;
+      releasesUrl: string;
     }>('/system/version'),
     getSettings: () => request<SystemSettingsData>('/system/settings'),
     saveSettings: (data: Partial<SystemSettingsData>) =>

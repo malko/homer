@@ -282,7 +282,10 @@ interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  imageAvailable: boolean;
   configured: boolean;
+  repositoryUrl: string;
+  releasesUrl: string;
 }
 
 function InstanceSettings() {
@@ -313,17 +316,24 @@ function InstanceSettings() {
 
   const startRestartPolling = useCallback(() => {
     if (restartPollRef.current) clearInterval(restartPollRef.current);
+    let sawDown = false;
     let attempts = 0;
     restartPollRef.current = window.setInterval(async () => {
       attempts++;
       try {
         const res = await fetch('/api/health');
-        if (res.ok && attempts > 2) {
+        if (!res.ok) {
+          sawDown = true;
+          return;
+        }
+        // Wait until the server actually went down before trusting a 200,
+        // otherwise we reload before the restart has happened.
+        if (sawDown || attempts > 20) {
           clearInterval(restartPollRef.current!);
           window.location.reload();
         }
       } catch {
-        // Server still down — keep polling
+        sawDown = true;
       }
     }, 3000);
   }, []);
@@ -373,6 +383,9 @@ function InstanceSettings() {
           if (msg.type === 'update_error') {
             setLogs(prev => [...prev, `Erreur : ${msg.message as string}`]);
           }
+          if (msg.type === 'update_up_to_date') {
+            setLogs(prev => [...prev, '--- Image déjà à jour, aucun redémarrage nécessaire. ---']);
+          }
           if (msg.type === 'restart_output') {
             setLogs(prev => [...prev, msg.line as string]);
           }
@@ -412,7 +425,9 @@ function InstanceSettings() {
       const data = await api.system.getVersion();
       setVersion(data);
       if (data.updateAvailable) {
-        addToast('warning', `Mise à jour disponible : v${data.latestVersion}`);
+        addToast('warning', data.imageAvailable
+          ? `Mise à jour disponible : v${data.latestVersion}`
+          : `Nouvelle version v${data.latestVersion} annoncée, image non publiée. Mise à jour manuelle requise.`);
       } else {
         addToast('success', 'Vous utilisez déjà la dernière version.');
       }
@@ -521,10 +536,20 @@ function InstanceSettings() {
           >
             {checking ? 'Vérification...' : 'Vérifier les mises à jour'}
           </button>
-          {version?.updateAvailable && (
+          {version?.updateAvailable && version.imageAvailable && (
             <button className="btn btn-primary" onClick={handleUpdate}>
               Mettre à jour
             </button>
+          )}
+          {version?.updateAvailable && !version.imageAvailable && (
+            <a
+              className="btn btn-secondary"
+              href={version.releasesUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Mettre à jour manuellement
+            </a>
           )}
           <button
             className="btn btn-danger"
